@@ -91,6 +91,12 @@ std::string_view file_name(std::string_view path) {
     return slash == std::string_view::npos ? path : path.substr(slash + 1);
 }
 
+// A game message may end with its own line break; anvil.log adds one.
+std::string_view without_line_end(std::string_view text) {
+    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.remove_suffix(1);
+    return text;
+}
+
 std::string shortened(std::string_view text) {
     constexpr std::size_t kMax = 300;
     return text.size() <= kMax ? std::string(text) : std::string(text.substr(0, kMax)) + "...";
@@ -107,7 +113,7 @@ void write_lines(const std::vector<log_throttle::Line>& lines) {
         const int named = g_named.fetch_add(1, std::memory_order_relaxed);
         if (named < kNamedMessages) {
             host.info("{}: counting the repeats of [{}:{}]: {}", file_name(log_path(l.sink)), file_name(l.file), l.line,
-                      shortened(std::string_view(l.text).substr(l.message_at)));
+                      shortened(without_line_end(std::string_view(l.text).substr(l.message_at))));
         } else if (named == kNamedMessages) {
             host.info("more messages are counted; anvil.log names no more of them");
         }

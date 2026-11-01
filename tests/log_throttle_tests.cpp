@@ -476,6 +476,20 @@ int main(int argc, char** argv) {
         CHECK((texts() == std::vector<std::string>(5, "CALL_STACK")));
     });
 
+    run("log throttle plugin: anvil.log names a message without the line break it ends with", [&] {
+        Sink& localization = *new Sink(image, "logs/error.log");
+        const std::string message =
+            "Error in localization value! Key: \"MODIFIER_ALLOW_CLIENT_STATES\", Error: \"Couldn't find Latin1 character\"";
+        g_written.clear();
+        for (int i = 0; i < 4; ++i) write(localization, message + "\r\n", 1063);
+        // The game's lines and the notice keep it: only the bytes of anvil.log change.
+        CHECK(g_written.size() == 4 && g_written[3].text.ends_with(message + "\r\n"));
+        CHECK(contains(log, "anvil-log-throttle: error.log: counting the repeats of [triggerimplementation.cpp:1063]: " +
+                                message));
+        // Closed here, so that its count is not reported in a later test.
+        destroy(localization);
+    });
+
     run("log throttle plugin: full_log writes every line", [&] {
         g_written.clear();
         CHECK(plugin->settings.set_text(0, "true").applied);
