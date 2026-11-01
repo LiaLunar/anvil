@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.6.0](https://github.com/happy-dwarf-team/anvil/compare/v1.5.2...v1.6.0) (2026-11-01)
+
+
+### Features
+
+* **api:** offer the current game date in anvil-game.game ([#171](https://github.com/happy-dwarf-team/anvil/issues/171)) ([fdf3f4e](https://github.com/happy-dwarf-team/anvil/commit/fdf3f4e32c035c4c21bbc8f5c6b002c134784892))
+* **log-throttle:** throttle repeated lines of the game's logs ([#173](https://github.com/happy-dwarf-team/anvil/issues/173)) ([6110566](https://github.com/happy-dwarf-team/anvil/commit/6110566324ed4faf4f1b5e8ca666e9ff1bb6a71d))
+
 ## [1.5.2](https://github.com/happy-dwarf-team/anvil/compare/v1.5.1...v1.5.2) (2026-10-26)
 
 
