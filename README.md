@@ -46,12 +46,19 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next
   start", the crash report, the log and every plugin's settings. It draws on
   the game's Direct3D 9 renderer and stays off with OpenGL.
+- And `anvil-log-throttle` (`anvil/plugins/anvil-log-throttle/`): a line that
+  repeats in the game's `error.log` is written 10 times, then only counted,
+  with a line that gives the count every minute and when the game closes the
+  log. A mod whose script errors repeat hundreds of times a second no longer
+  fills the log with hundreds of megabytes. Its settings (the overlay's panel)
+  change the number of lines, the report interval and the logs, or write every
+  line.
 - Each start writes `anvil/anvil.log`: what was loaded, what was skipped and why.
 - A crash writes a report to `anvil/crashes/` (the last 10 are kept): where it
   happened and which plugins were involved, with each plugin's `issues` link.
   After two starts in a row that ended before the game was ready, the next
-  start loads only Anvil's standard plugins (safe mode), and the overlay says
-  why.
+  start loads only `anvil-game` and `anvil-overlay` (safe mode), and the
+  overlay says why.
 
 ## Install / uninstall
 
