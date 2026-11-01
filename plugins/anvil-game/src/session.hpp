@@ -12,6 +12,7 @@ struct SessionView {
     bool readable = true;  // false: reading faulted; the view says nothing
     bool running = false;  // a game session runs: game session class, speed object, date set
     std::uintptr_t session = 0;
+    std::int32_t date = 0;  // the root's date (hours since 1 January -5000) while running
     bool ironman = false;
     bool multiplayer = false;
     // How many times the game has put a session into the root so far. A save
@@ -19,6 +20,14 @@ struct SessionView {
     // frame of the main loop, so only this count tells the two sessions apart.
     std::uint64_t installs = 0;
 };
+
+// 1 January of year 1: the date of a root without a running game, or of a
+// session whose save is still being read into it.
+constexpr std::int32_t kUnsetDate = 43'800'000 + 365 * 24;
+
+// The game's date: hours since 1 January of year -5000 in 365-day years (no
+// leap days), as Tongs reads it for tongs_state. `session` is left 0.
+AnvilGameDate decode_date(std::int32_t hours);
 
 // The session events one view causes, in order: at most an ENDED and a STARTED.
 struct SessionChanges {

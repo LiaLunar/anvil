@@ -40,6 +40,7 @@ using anvil_game::SessionChanges;
 using anvil_game::SessionTracker;
 using anvil_game::SessionView;
 using anvil_game::WorkQueue;
+using anvil_game::kUnsetDate;
 
 // What the hook reads, all from verified symbols and values (symbols.toml).
 struct Layout {
@@ -56,9 +57,6 @@ struct Layout {
     sym::Types::is_multiplayer::Pointer is_multiplayer = nullptr;
 };
 
-// 1 January of year 1: the date of a root without a running game.
-constexpr std::int32_t kUnsetDate = 43'800'000 + 365 * 24;
-
 Layout g_layout;
 anvil::HookOf<sym::frame> g_frame;
 anvil::HookOf<sym::set_session> g_set_session;
@@ -71,10 +69,11 @@ std::atomic<std::uint64_t> g_frame_number{0};
 WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
 
-// The session as the service reports it to any thread.
+// The session and its date as the service reports them to any thread.
 std::mutex g_session_mutex;
 bool g_in_session = false;
 AnvilGameSession g_session{};
+AnvilGameDate g_date{};
 
 void publish(const char* event, const void* payload) noexcept {
     const anvil::Host host;
@@ -90,8 +89,10 @@ void read_session_unguarded(SessionView& view) {
     const std::uintptr_t session = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
     if (session == 0 || *reinterpret_cast<const std::uintptr_t*>(session) != g_layout.session_vtable) return;
     if (*reinterpret_cast<const std::uintptr_t*>(session + g_layout.speed) == 0) return;
-    if (*reinterpret_cast<const std::int32_t*>(root + g_layout.date) == kUnsetDate) return;
+    const std::int32_t date = *reinterpret_cast<const std::int32_t*>(root + g_layout.date);
+    if (date == kUnsetDate) return;
     view.session = session;
+    view.date = date;
     view.ironman = *reinterpret_cast<const std::uint8_t*>(root + g_layout.ironman) != 0;
     view.multiplayer = g_layout.is_multiplayer(reinterpret_cast<void*>(session));
     view.running = true;
@@ -124,13 +125,26 @@ void after_frame(std::uint64_t number) {
         host.info("game ready (frame {})", number);
         publish(ANVIL_GAME_EVENT_READY, nullptr);
     }
-    const SessionChanges changes = g_tracker.update(read_session());
+    const SessionView view = read_session();
+    const SessionChanges changes = g_tracker.update(view);
+    // The date changes with the session it belongs to, under one lock; a view
+    // that faulted keeps the last one, as it keeps the session.
+    AnvilGameDate date{};
+    if (view.running) {
+        date = anvil_game::decode_date(view.date);
+        date.session = g_tracker.current().number;
+        if (changes.count == 0) {
+            std::lock_guard lock(g_session_mutex);
+            g_date = date;
+        }
+    }
     for (int i = 0; i < changes.count; ++i) {
         const AnvilGameSession& s = changes.items[i];
         {
             std::lock_guard lock(g_session_mutex);
             g_in_session = s.change == ANVIL_GAME_SESSION_STARTED;
             g_session = s;
+            if (g_in_session) g_date = date;  // STARTED comes only from a running view
         }
         host.info("session {} {} ({})", s.number, s.change == ANVIL_GAME_SESSION_STARTED ? "started" : "ended",
                   mode_text(s));
@@ -222,9 +236,15 @@ int service_session(AnvilGameSession* out) {
     return g_in_session ? 1 : 0;
 }
 
+int service_date(AnvilGameDate* out) {
+    std::lock_guard lock(g_session_mutex);
+    if (out != nullptr && g_in_session) *out = g_date;
+    return g_in_session ? 1 : 0;
+}
+
 constexpr AnvilGameService kService = {
     sizeof(AnvilGameService), service_ready,   service_main_thread_id, service_frame_number, service_run_on_main_thread,
-    service_session,
+    service_session,          service_date,
 };
 
 struct AnvilGame : anvil::Plugin {

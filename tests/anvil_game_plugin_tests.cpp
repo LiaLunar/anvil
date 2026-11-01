@@ -265,6 +265,22 @@ int main(int argc, char** argv) {
               c.items[0].multiplayer == 1 && !t.active());
     });
 
+    run("anvil-game: dates decode as the game counts them", [] {
+        const auto is = [](int32_t raw, int32_t year, uint32_t month, uint32_t day) {
+            const AnvilGameDate d = anvil_game::decode_date(raw);
+            return d.size == sizeof(AnvilGameDate) && d.year == year && d.month == month && d.day == day &&
+                   d.session == 0;
+        };
+        constexpr int32_t kDay = 24;
+        constexpr int32_t k1444 = 43'800'000 + 1444 * 365 * kDay;  // 1 January 1444, hour 0
+        CHECK(is(k1444, 1444, 1, 1));
+        CHECK(is(k1444 + 314 * kDay, 1444, 11, 11));
+        CHECK(is(k1444 + 59 * kDay, 1444, 3, 1));  // no 29 February
+        CHECK(is(k1444 + 364 * kDay + 23, 1444, 12, 31) && is(k1444 + 365 * kDay, 1445, 1, 1));
+        CHECK(is(58'860'240, 1719, 3, 17));
+        CHECK(is(anvil_game::kUnsetDate, 1, 1, 1) && is(0, -5000, 1, 1) && is(-1, -5001, 12, 31));
+    });
+
     run("anvil-game: the work queue", [] {
         anvil_game::WorkQueue q;
         static std::vector<int> ran;
@@ -346,7 +362,7 @@ int main(int argc, char** argv) {
         CHECK(changes.chain_at(image.address(0x756A30)) == std::vector<OwnerId>{p->owner});
         plugin = p;
         service = static_cast<const AnvilGameService*>(bus.get_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION));
-        CHECK(service != nullptr && service->size == sizeof(AnvilGameService));
+        CHECK(service != nullptr && service->size == sizeof(AnvilGameService) && ANVIL_GAME_HAS(service, date));
         CHECK(contains(log, "anvil-game: frame hook staged; events anvil-game.ready, anvil-game.frame, "
                             "anvil-game.session; service anvil-game.game v1"));
     });
@@ -428,7 +444,9 @@ int main(int argc, char** argv) {
         alignas(16) static uint8_t menu_session[0x420] = {};
         game.set_session(menu_session);
         frame(game.app, 1);
+        AnvilGameDate d{};
         CHECK(service->session(nullptr) == 0 && heard.events.size() == 2);
+        CHECK(service->date(&d) == 0 && d.size == 0 && service->date(nullptr) == 0);  // the main menu
 
         // A game session: the class's vtable, a speed object, a date.
         const uintptr_t vtable = image.address(0x1CB8460);
@@ -438,10 +456,13 @@ int main(int argc, char** argv) {
         game.set_session(game.session);
         frame(game.app, 1);
         CHECK(service->session(nullptr) == 0);  // the date is still unset: loading
-        game.set_date(58'860'240);              // 17 March 1719
+        CHECK(service->date(&d) == 0);
+        game.set_date(58'860'240);  // 17 March 1719
         frame(game.app, 1);
         AnvilGameSession s{};
         CHECK(service->session(&s) == 1 && s.number == 1 && s.ironman == 0 && s.multiplayer == 0);
+        CHECK(service->date(&d) == 1 && d.size == sizeof(AnvilGameDate) && d.year == 1719 && d.month == 3 &&
+              d.day == 17 && d.session == 1 && service->date(nullptr) == 1);
         CHECK(heard.events[3] == "session started 1 im=0 mp=0" && heard.events[4] == "frame 13");
         CHECK(image.base[0x205000] == 0x90 && !changes.suspended(gp));
 
@@ -457,6 +478,7 @@ int main(int argc, char** argv) {
         CHECK(changes.suspended(gp) && image.base[0x205000] != 0x90 && policy.suspended(gp));
         CHECK(contains(log, "anvil: game session started (ironman): 1 gameplay plugin(s) suspended, 0 allowed by the "
                             "player"));
+        CHECK(service->date(&d) == 1 && d.year == 1719 && d.day == 17 && d.session == 2);
 
         // Multiplayer as well (the game's own check through vtable slot 0x318).
         g_multiplayer = true;
@@ -470,6 +492,7 @@ int main(int argc, char** argv) {
         frame(game.app, 1);
         CHECK((heard.events == std::vector<std::string>{"session ended 3 im=1 mp=1", "frame 16"}));
         CHECK(!changes.suspended(gp) && image.base[0x205000] == 0x90 && service->session(&s) == 0);
+        CHECK(service->date(&d) == 0);
         CHECK(contains(log, "anvil-game: session 3 ended (ironman, multiplayer)"));
     });
 
@@ -484,6 +507,8 @@ int main(int argc, char** argv) {
         game.set_session(image.base + 0x10000);
         frame(game.app, 1);
         CHECK(service->session(nullptr) == 1 && (heard.events == std::vector<std::string>{"frame 18"}));
+        AnvilGameDate d{};
+        CHECK(service->date(&d) == 1 && d.day == 17 && d.session == 4);  // the last date read
         game.set_session(game.session);
     });
 
@@ -514,6 +539,19 @@ int main(int argc, char** argv) {
         heard.events.clear();
         frame(game.app, 1);
         CHECK(heard.events.size() == 1);  // the next frame: no session event
+
+        // Days pass inside game updates; the date shows each after the next frame.
+        AnvilGameDate d{};
+        CHECK(service->date(&d) == 1 && d.session == s.number && d.day == 17);
+        for (int day = 1; day <= 3; ++day) {
+            game.set_date(58'860'240 + day * 24);
+            frame(game.app, 1);
+        }
+        CHECK(service->date(&d) == 1 && d.year == 1719 && d.month == 3 && d.day == 20 && d.session == s.number);
+        game.set_date(58'860'240 + 15 * 24);  // 1 April, before the next frame: still 20 March
+        CHECK(service->date(&d) == 1 && d.month == 3 && d.day == 20);
+        frame(game.app, 1);
+        CHECK(service->date(&d) == 1 && d.month == 4 && d.day == 1);
 
         // An ironman save: gp is suspended.
         heard.events.clear();

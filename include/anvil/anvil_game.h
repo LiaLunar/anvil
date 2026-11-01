@@ -6,7 +6,8 @@
  * the game's main thread, from anvil-game's hook of the frame function.
  *
  * Plain C11, like anvil_plugin.h. Within service version 1 fields are only
- * appended to the end of a struct; check `size` before using a later one.
+ * appended to the end of a struct; check `size` before using a later one
+ * (ANVIL_GAME_HAS for the service).
  *
  * SPDX-License-Identifier: MIT
  */
@@ -61,6 +62,16 @@ typedef struct AnvilGameSession {
     uint64_t number;      /* 1 for the first session since the game started, then 2, ... */
 } AnvilGameSession;
 
+/* The in-game date of a running session, as the game's top bar shows it.
+ * Years have 365 days: the game has no leap days. */
+typedef struct AnvilGameDate {
+    uint32_t size;    /* sizeof(AnvilGameDate) as known by anvil-game */
+    int32_t year;     /* e.g. 1444 */
+    uint32_t month;   /* 1..12 */
+    uint32_t day;     /* 1..31 */
+    uint64_t session; /* AnvilGameSession.number of the session it belongs to */
+} AnvilGameDate;
+
 /* Work for the main thread; `context` is the caller's. */
 typedef void (*AnvilGameWork)(void *context);
 
@@ -88,7 +99,21 @@ typedef struct AnvilGameService {
      * ANVIL_GAME_SESSION_STARTED) while one runs, 0 otherwise. `out` may be
      * NULL. Its view is as of the last frame of the main loop. */
     int (*session)(AnvilGameSession *out);
+
+    /* Since anvil-game 1.6.0; check with ANVIL_GAME_HAS(service, date). */
+
+    /* The current date: nonzero and *out filled while a session runs, 0 when
+     * no game is loaded (the main menu, a save loading from it). Callable
+     * from any thread; `out` may be NULL. Like session(), its view is as of
+     * the last frame of the main loop, and out->session is the number
+     * session() reports: while a save loads from a running game no frame
+     * runs, so the old session and its last date stay until the load ends. */
+    int (*date)(AnvilGameDate *out);
 } AnvilGameService;
+
+/* Nonzero when `service` provides `field`. */
+#define ANVIL_GAME_HAS(service, field) \
+    ((service)->size >= offsetof(AnvilGameService, field) + sizeof((service)->field))
 
 #ifdef __cplusplus
 }
