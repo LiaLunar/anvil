@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.7.0](https://github.com/happy-dwarf-team/anvil/compare/v1.6.1...v1.7.0) (2026-11-02)
+
+
+### Features
+
+* show player messages in the player's language ([#181](https://github.com/happy-dwarf-team/anvil/issues/181)) ([16d37cd](https://github.com/happy-dwarf-team/anvil/commit/16d37cdbb0bd7c97fd1d60fbfaf7fe1a475d5779))
+* support the GOG build 1.37.5.2 and symbols for several builds ([#182](https://github.com/happy-dwarf-team/anvil/issues/182)) ([37350be](https://github.com/happy-dwarf-team/anvil/commit/37350be27a945410b2a27a130168b21af0c77d28))
+
 ## [1.6.1](https://github.com/happy-dwarf-team/anvil/compare/v1.6.0...v1.6.1) (2026-11-02)
 
 

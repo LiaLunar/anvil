@@ -1,7 +1,7 @@
 [package]
 name = "anvil-sys"
 # Kept equal to version.txt by release-please (release-please-config.json).
-version = "1.6.1"
+version = "1.7.0"
 description = "Raw bindings to the Anvil plugin API 2 (anvil_plugin.h), the C ABI of the Anvil plugin loader for Europa Universalis IV"
 readme = "README.md"
 keywords = ["anvil", "eu4", "plugin", "ffi", "bindings"]
