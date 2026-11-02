@@ -1,6 +1,7 @@
 #include "mods.hpp"
 
 #include "core/mod_plugins.hpp"
+#include "i18n/translate.hpp"
 
 #include <set>
 
@@ -17,12 +18,12 @@ bool approve_shown_plugin(const fs::path& game_dir, const fs::path& user_dir, co
     for (const ModPlugin& p : now.plugins) {
         if (p.id != shown.id || p.mod.descriptor != shown.descriptor) continue;
         if (p.hash != shown.hash) {
-            error = "the plugin's files changed since they were shown; check again";
+            error = i18n::tr("the plugin's files changed since they were shown; check again");
             return false;
         }
         return approve_mod_plugin(anvil_dir, p, shown.hash, "", error);
     }
-    error = "the mod no longer has this plugin, or it is not enabled; check again";
+    error = i18n::tr("the mod no longer has this plugin, or it is not enabled; check again");
     return false;
 }
 
@@ -31,7 +32,7 @@ bool revoke_shown_plugin(const fs::path& game_dir, const cli::GameModPlugin& sho
     const TrustFile trust = read_trust(anvil_dir / "trust.toml");
     const TrustEntry* entry = trust.find(shown.id);
     if (trust.error.empty() && (entry == nullptr || entry->mod != shown.descriptor)) {
-        error = "no approval binds " + shown.id + " to mod '" + shown.mod + "'";
+        error = i18n::trf("no approval binds {0} to mod '{1}'", {shown.id, shown.mod});
         return false;
     }
     return revoke_mod_plugin(anvil_dir, shown.id, "", error);

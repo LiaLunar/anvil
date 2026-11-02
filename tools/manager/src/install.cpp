@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "files.hpp"
 #include "game.hpp"
+#include "i18n/translate.hpp"
 
 #include <windows.h>
 
@@ -198,14 +199,14 @@ Plan plan_install(const Package& package, const Installation& installation, cons
                   const fs::path& manager_exe, bool replace_foreign_dll) {
     Plan plan;
     if (installation.dll == Installation::Dll::Foreign && !replace_foreign_dll) {
-        plan.refused = "version.dll in the game folder is not Anvil's: another mod may use it. Remove it first, or "
-                       "replace it on purpose.";
+        plan.refused = i18n::tr("version.dll in the game folder is not Anvil's: another mod may use it. Remove it "
+                                "first, or replace it on purpose.");
         return plan;
     }
     if (installation.dll == Installation::Dll::Foreign) {
-        plan.notes.push_back("version.dll is not Anvil's and will be replaced.");
+        plan.notes.push_back(i18n::tr("version.dll is not Anvil's and will be replaced."));
     } else if (installation.dll == Installation::Dll::Anvil && installation.dll_version != package.version) {
-        plan.notes.push_back("Anvil " + installation.dll_version + " is updated to " + package.version + ".");
+        plan.notes.push_back(i18n::trf("Anvil {0} is updated to {1}.", {installation.dll_version, package.version}));
     }
     const auto listed = [](const std::vector<std::string>& list, const std::string& path) {
         return std::find(list.begin(), list.end(), path) != list.end();
@@ -228,7 +229,7 @@ Plan plan_install(const Package& package, const Installation& installation, cons
         plan.steps.push_back({Step::Kind::CopyManager, kManagerExe});
     }
     if (dll) plan.steps.push_back({Step::Kind::Write, "version.dll"});
-    if (!listed(installation.missing, kPlayerToml)) plan.notes.push_back("anvil/anvil.toml is yours and stays as it is.");
+    if (!listed(installation.missing, kPlayerToml)) plan.notes.push_back(i18n::tr("anvil/anvil.toml is yours and stays as it is."));
     return plan;
 }
 
@@ -237,12 +238,12 @@ Plan plan_uninstall(const Package& package, const Installation& installation, bo
     if (installation.dll == Installation::Dll::Anvil) {
         plan.steps.push_back({Step::Kind::Remove, "version.dll"});
     } else if (installation.dll == Installation::Dll::Foreign) {
-        plan.notes.push_back("version.dll is not Anvil's and stays.");
+        plan.notes.push_back(i18n::tr("version.dll is not Anvil's and stays."));
     }
     if (everything) {
         if (installation.anvil_folder) plan.steps.push_back({Step::Kind::RemoveTree, "anvil"});
-        plan.notes.push_back("Everything in the anvil folder goes: your plugins, their settings and data, crash "
-                             "reports and logs.");
+        plan.notes.push_back(i18n::tr("Everything in the anvil folder goes: your plugins, their settings and data, "
+                                      "crash reports and logs."));
     } else {
         for (const std::string& plugin : package.standard_plugins) {
             plan.steps.push_back({Step::Kind::RemoveTree, "anvil/plugins/" + plugin});
@@ -260,7 +261,7 @@ Plan plan_uninstall(const Package& package, const Installation& installation, bo
         // a folder without reports goes.
         plan.steps.push_back({Step::Kind::RemoveIfEmpty, "anvil/crashes"});
         plan.steps.push_back({Step::Kind::RemoveIfEmpty, "anvil"});
-        plan.notes.push_back("Your plugins, anvil/anvil.toml, anvil/data, anvil/crashes and the logs stay.");
+        plan.notes.push_back(i18n::tr("Your plugins, anvil/anvil.toml, anvil/data, anvil/crashes and the logs stay."));
     }
     if (installation.manager_copy) plan.steps.push_back({Step::Kind::RemoveManager, kManagerExe});
     return plan;
@@ -270,8 +271,7 @@ ApplyResult apply_plan(const Package& package, const Plan& plan, const fs::path&
     ApplyResult result;
     const auto fail = [&](const Step& step, std::string why, DWORD code) {
         result.ok = false;
-        result.error = step.path + ": " + std::move(why);
-        if (code != 0) result.error += " (error " + std::to_string(code) + ")";
+        result.error = step.path + ": " + (code != 0 ? i18n::trf("{0} (error {1})", {why, std::to_string(code)}) : why);
         result.access_denied = result.access_denied || code == ERROR_ACCESS_DENIED || code == ERROR_SHARING_VIOLATION;
         return result;
     };
@@ -281,13 +281,13 @@ ApplyResult apply_plan(const Package& package, const Plan& plan, const fs::path&
         return result;
     }
     for (const Step& step : plan.steps) {
-        if (!unsafe_path_reason(step.path).empty()) return fail(step, "not a path below the game folder", 0);
+        if (!unsafe_path_reason(step.path).empty()) return fail(step, i18n::tr("not a path below the game folder"), 0);
         const fs::path target = below(game_dir, step.path);
         std::error_code ec;
         switch (step.kind) {
         case Step::Kind::Write: {
             const ZipEntry* entry = package.zip.find(step.path);
-            if (entry == nullptr) return fail(step, "not in the package", 0);
+            if (entry == nullptr) return fail(step, i18n::tr("not in the package"), 0);
             std::string error;
             const auto bytes = package.zip.read(*entry, error);
             if (!bytes) return fail(step, error, 0);
@@ -299,23 +299,25 @@ ApplyResult apply_plan(const Package& package, const Plan& plan, const fs::path&
             break;
         }
         case Step::Kind::CopyManager: {
-            if (!CopyFileW(manager_exe.c_str(), target.c_str(), FALSE)) return fail(step, "cannot copy the Manager", GetLastError());
+            if (!CopyFileW(manager_exe.c_str(), target.c_str(), FALSE)) {
+                return fail(step, i18n::tr("cannot copy the Manager"), GetLastError());
+            }
             break;
         }
         case Step::Kind::Remove:
         case Step::Kind::RemoveTree:
-            if (const DWORD code = remove_tree(target); code != 0) return fail(step, "cannot remove", code);
+            if (const DWORD code = remove_tree(target); code != 0) return fail(step, i18n::tr("cannot remove"), code);
             break;
         case Step::Kind::RemoveIfEmpty:
             if (is_dir(target) && fs::is_empty(target, ec)) {
-                if (!RemoveDirectoryW(target.c_str())) return fail(step, "cannot remove", GetLastError());
+                if (!RemoveDirectoryW(target.c_str())) return fail(step, i18n::tr("cannot remove"), GetLastError());
             }
             break;
         case Step::Kind::RemoveManager:
             if (!manager_exe.empty() && same_file(manager_exe, target)) {
                 result.manager_left = true;
             } else if (!DeleteFileW(target.c_str()) && GetLastError() != ERROR_FILE_NOT_FOUND) {
-                return fail(step, "cannot remove", GetLastError());
+                return fail(step, i18n::tr("cannot remove"), GetLastError());
             }
             break;
         }

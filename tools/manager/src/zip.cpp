@@ -1,6 +1,7 @@
 #include "zip.hpp"
 
 #include "core/log.hpp"
+#include "i18n/translate.hpp"
 
 #include <miniz.h>
 #include <windows.h>
@@ -41,23 +42,23 @@ std::string zip_error(mz_zip_archive& zip) { return mz_zip_get_error_string(mz_z
 }  // namespace
 
 std::string unsafe_path_reason(std::string_view path) {
-    if (path.empty()) return "an empty name";
-    if (path.size() > 240) return "a name longer than 240 characters";
-    if (path.front() == '/' || path.front() == '\\') return "an absolute path";
+    if (path.empty()) return i18n::tr("an empty name");
+    if (path.size() > 240) return i18n::tr("a name longer than 240 characters");
+    if (path.front() == '/' || path.front() == '\\') return i18n::tr("an absolute path");
     size_t start = 0;
     while (start <= path.size()) {
         size_t end = path.find_first_of("/\\", start);
         if (end == std::string_view::npos) end = path.size();
         const std::string_view part = path.substr(start, end - start);
-        if (part.empty()) return "an empty folder name";
+        if (part.empty()) return i18n::tr("an empty folder name");
         if (part == "." || part == "..") return "a '" + std::string(part) + "' part";
         for (const char c : part) {
             if (static_cast<unsigned char>(c) < 0x20 || std::string_view("<>:\"|?*").find(c) != std::string_view::npos) {
-                return c == ':' ? "a drive or stream name (':')" : "a character Windows does not allow in names";
+                return c == ':' ? i18n::tr("a drive or stream name (':')") : i18n::tr("a character Windows does not allow in names");
             }
         }
-        if (part.back() == '.' || part.back() == ' ') return "a part ending in a dot or space";
-        if (reserved_name(part)) return "a reserved device name ('" + std::string(part) + "')";
+        if (part.back() == '.' || part.back() == ' ') return i18n::tr("a part ending in a dot or space");
+        if (reserved_name(part)) return i18n::trf("a reserved device name ('{0}')", {part});
         start = end + 1;
     }
     return {};
@@ -72,12 +73,12 @@ std::optional<ZipArchive> ZipArchive::open(std::vector<uint8_t> bytes, std::stri
     auto state = std::make_unique<State>();
     state->bytes = std::move(bytes);
     if (!mz_zip_reader_init_mem(&state->zip, state->bytes.data(), state->bytes.size(), 0)) {
-        error = "not a zip archive (" + zip_error(state->zip) + ")";
+        error = i18n::trf("not a zip archive ({0})", {zip_error(state->zip)});
         return std::nullopt;
     }
     const mz_uint count = mz_zip_reader_get_num_files(&state->zip);
     if (count > kMaxZipEntries) {
-        error = "the archive has more than " + std::to_string(kMaxZipEntries) + " entries";
+        error = i18n::trf("the archive has more than {0} entries", {std::to_string(kMaxZipEntries)});
         return std::nullopt;
     }
     std::set<std::string> seen;
@@ -85,7 +86,7 @@ std::optional<ZipArchive> ZipArchive::open(std::vector<uint8_t> bytes, std::stri
     for (mz_uint i = 0; i < count; ++i) {
         mz_zip_archive_file_stat stat{};
         if (!mz_zip_reader_file_stat(&state->zip, i, &stat)) {
-            error = "entry " + std::to_string(i) + " cannot be read (" + zip_error(state->zip) + ")";
+            error = i18n::trf("entry {0} cannot be read ({1})", {std::to_string(i), zip_error(state->zip)});
             return std::nullopt;
         }
         std::string name = stat.m_filename;
@@ -124,7 +125,7 @@ std::optional<ZipArchive> ZipArchive::open(std::vector<uint8_t> bytes, std::stri
         }
         total += stat.m_uncomp_size;
         if (total > kMaxZipTotalBytes) {
-            error = "the archive unpacks to more than " + std::to_string(kMaxZipTotalBytes >> 20) + " MB";
+            error = i18n::trf("the archive unpacks to more than {0} MB", {std::to_string(kMaxZipTotalBytes >> 20)});
             return std::nullopt;
         }
         if (!seen.insert(lower(name)).second) {
@@ -149,7 +150,7 @@ std::optional<ZipArchive> ZipArchive::open_file(const std::filesystem::path& fil
     const HANDLE in = CreateFileW(file.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                                   FILE_ATTRIBUTE_NORMAL, nullptr);
     if (in == INVALID_HANDLE_VALUE) {
-        error = "cannot open " + narrow(file.wstring()) + " (error " + std::to_string(GetLastError()) + ")";
+        error = i18n::trf("cannot open {0} (error {1})", {narrow(file.wstring()), std::to_string(GetLastError())});
         return std::nullopt;
     }
     std::vector<uint8_t> bytes;
@@ -168,7 +169,7 @@ std::optional<ZipArchive> ZipArchive::open_file(const std::filesystem::path& fil
     }
     CloseHandle(in);
     if (!ok) {
-        error = "cannot read " + narrow(file.wstring());
+        error = i18n::trf("cannot read {0}", {narrow(file.wstring())});
         return std::nullopt;
     }
     return open(std::move(bytes), error);
@@ -186,7 +187,7 @@ const ZipEntry* ZipArchive::find(std::string_view path) const {
 std::optional<std::string> ZipArchive::read(const ZipEntry& entry, std::string& error) const {
     std::string out(static_cast<size_t>(entry.size), '\0');
     if (!mz_zip_reader_extract_to_mem(&state_->zip, entry.index, out.data(), out.size(), 0)) {
-        error = "cannot unpack '" + entry.path + "' (" + zip_error(state_->zip) + ")";
+        error = i18n::trf("cannot unpack '{0}' ({1})", {entry.path, zip_error(state_->zip)});
         return std::nullopt;
     }
     return out;

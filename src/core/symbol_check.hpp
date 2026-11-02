@@ -1,6 +1,7 @@
 #pragma once
 
 #include "changes.hpp"
+#include "i18n/message.hpp"
 #include "pe_image.hpp"
 #include "symbols.hpp"
 
@@ -26,13 +27,14 @@ private:
     uintptr_t base_;
 };
 
+
 // Loads a plugin's symbols.toml, checks its `build` against the running game
 // (`build_id`; nullptr when the build is unknown) and verifies every symbol
-// against the image at `image_base`. Returns an empty string when the plugin
+// against the image at `image_base`. Returns an empty message when the plugin
 // may be loaded, otherwise why it must be skipped. On success `verified` and
 // `declared`, if given, receive the resolved symbols and the parsed file.
-std::string check_plugin_symbols(const std::filesystem::path& symbols_file, const char* build_id,
-                                 const ChangeRegistry& patches, uintptr_t image_base,
-                                 SymbolVerification* verified = nullptr, SymbolFile* declared = nullptr);
+i18n::Message check_plugin_symbols(const std::filesystem::path& symbols_file, const char* build_id,
+                                   const ChangeRegistry& patches, uintptr_t image_base,
+                                   SymbolVerification* verified = nullptr, SymbolFile* declared = nullptr);
 
 }  // namespace anvil

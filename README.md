@@ -46,6 +46,9 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next
   start", the crash report, the log and every plugin's settings. It draws on
   the game's Direct3D 9 renderer and stays off with OpenGL.
+- The overlay and the Manager speak the language EU4 is set to: English,
+  French, German or Spanish (other languages show English). `anvil.log` and
+  `anvil check` stay in English, for bug reports and plugin authors.
 - And `anvil-log-throttle` (`anvil/plugins/anvil-log-throttle/`): a line that
   repeats in the game's `error.log` is written 10 times, then only counted,
   with a line that gives the count every minute and when the game closes the

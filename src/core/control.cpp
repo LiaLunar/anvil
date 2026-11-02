@@ -236,6 +236,8 @@ AnvilResult svc_revoke_mod_plugin(uint32_t index, AnvilControlResult* out) {
     return r;
 }
 
+const char* svc_language() { return g_control != nullptr ? g_control->language() : "en"; }
+
 const AnvilControlService kService{
     sizeof(AnvilControlService),
     svc_status,
@@ -256,6 +258,7 @@ const AnvilControlService kService{
     svc_mod_plugin,
     svc_approve_mod_plugin,
     svc_revoke_mod_plugin,
+    svc_language,
 };
 
 const char* skipped_state(const Skipped&) { return "skipped"; }
@@ -267,6 +270,9 @@ const char* skipped_state(const Skipped&) { return "skipped"; }
 Control::Control(ControlSources sources) : sources_(std::move(sources)) {
     if (sources_.plugins != nullptr) {
         for (const auto& p : *sources_.plugins) versions_.push_back(p->manifest.version.to_string());
+    }
+    if (sources_.skipped != nullptr) {
+        for (const Skipped& s : *sources_.skipped) skipped_messages_.push_back(i18n::serialize(s.why.empty() ? s.reason : s.why));
     }
     disabled_next_.insert(sources_.disabled.begin(), sources_.disabled.end());
     if (sources_.mods != nullptr) {
@@ -287,6 +293,7 @@ Control::Control(ControlSources sources) : sources_(std::move(sources)) {
                 }
             }
             for (const auto& o : p.others) v.others += (v.others.empty() ? "" : ", ") + o;
+            v.reason_message = i18n::serialize(p.why.empty() ? p.reason : p.why);
             if (p.approval && p.bound) {
                 v.approved_version = p.approval->version;
                 v.approved_hash = p.approval->hash;
@@ -304,7 +311,12 @@ Control::~Control() {
 
 const AnvilControlService* Control::service() const { return &kService; }
 
-void Control::loading_done() { loading_done_.store(true, std::memory_order_release); }
+void Control::loading_done() {
+    if (sources_.plugins != nullptr && resolved_messages_.empty()) {
+        for (const auto& p : *sources_.plugins) resolved_messages_.push_back(i18n::serialize(p->why.empty() ? p->reason : p->why));
+    }
+    loading_done_.store(true, std::memory_order_release);
+}
 
 void Control::status(AnvilControlStatus& out) const {
     out = AnvilControlStatus{};
@@ -361,9 +373,11 @@ bool Control::plugin(uint32_t index, AnvilControlPlugin& out) const {
         if (loading_done_.load(std::memory_order_acquire)) {
             out.state = p.state.c_str();
             out.reason = p.reason.c_str();
+            out.reason_message = index < resolved_messages_.size() ? resolved_messages_[index].c_str() : out.reason;
         } else {
             out.state = "pending";
             out.reason = "";
+            out.reason_message = "";
         }
         out.suspended = sources_.policy != nullptr && sources_.policy->suspended(p.owner) ? 1 : 0;
         out.mod = "";
@@ -381,6 +395,8 @@ bool Control::plugin(uint32_t index, AnvilControlPlugin& out) const {
         out.issues = "";
         out.state = skipped_state(s);
         out.reason = s.reason.c_str();
+        const size_t at = index - resolved;
+        out.reason_message = at < skipped_messages_.size() ? skipped_messages_[at].c_str() : out.reason;
         out.disabled = s.disabled ? 1 : 0;
         out.mod = s.mod.c_str();
         out.awaiting_approval = s.awaiting_approval ? 1 : 0;
@@ -518,6 +534,7 @@ bool Control::mod_plugin(uint32_t index, AnvilControlModPlugin& out) const {
     out.workshop_id = p.mod.workshop_id.c_str();
     out.state = state_name(p.state);
     out.reason = p.reason.c_str();
+    out.reason_message = v.reason_message.c_str();
     out.hash = p.hash.c_str();
     out.others = v.others.c_str();
     out.approved_version = v.approved_version.c_str();

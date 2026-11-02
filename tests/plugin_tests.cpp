@@ -147,8 +147,8 @@ struct Loader {
         if (!parsed.manifest) return nullptr;
         SymbolVerification verified;
         SymbolFile declared;
-        const std::string reason =
-            check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes, game.address(0), &verified, &declared);
+        const std::string reason = anvil::i18n::english(
+            check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes, game.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s: %s\n", folder, reason.c_str());
         CHECK(reason.empty());
         if (!reason.empty()) return nullptr;

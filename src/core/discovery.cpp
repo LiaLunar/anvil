@@ -51,10 +51,10 @@ std::vector<std::filesystem::path> plugin_folders(const std::filesystem::path& p
     return folders;
 }
 
-std::string missing_entry_reason(const Manifest& manifest) {
+i18n::Message missing_entry_reason(const Manifest& manifest) {
     std::error_code ec;
     if (std::filesystem::exists(manifest.folder / manifest.entry, ec)) return {};
-    return "entry " + manifest.entry + " not found";
+    return i18n::Message("entry_missing", {manifest.entry});
 }
 
 }  // namespace anvil

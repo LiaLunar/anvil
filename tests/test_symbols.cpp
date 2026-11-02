@@ -442,17 +442,17 @@ signature = "const char* ()"
         SymbolVerification verified;
         CHECK(check_plugin_symbols(file, "test-build", patches, mapped.address(), &verified).empty());
         CHECK(verified.symbols.size() == 6 && value_of(verified.symbols[1], "root") == 0x3008);
-        CHECK(contains(check_plugin_symbols(file, nullptr, patches, mapped.address()), "game build unknown"));
-        CHECK(contains(check_plugin_symbols(file, "eu4-9.9.9", patches, mapped.address()),
+        CHECK(contains(english(check_plugin_symbols(file, nullptr, patches, mapped.address())), "game build unknown"));
+        CHECK(contains(english(check_plugin_symbols(file, "eu4-9.9.9", patches, mapped.address())),
                        "symbols.toml is for build test-build, the game is eu4-9.9.9"));
         {
             std::ofstream out(file, std::ios::binary);
             out << "build = \"test-build\"\n[symbol.s]\nrva = 0x1000\nbytes = \"00\"\nmemory = \"code\"\n"
                    "[symbol.t]\nrva = 0x1000\nbytes = \"01\"\nmemory = \"code\"\n";
         }
-        const std::string reason = check_plugin_symbols(file, "test-build", patches, mapped.address());
+        const std::string reason = english(check_plugin_symbols(file, "test-build", patches, mapped.address()));
         CHECK(contains(reason, "symbol s (rva 0x1000): byte +0x0") && contains(reason, "and 1 more"));
-        CHECK(contains(check_plugin_symbols(folder / "missing.toml", "test-build", patches, mapped.address()),
+        CHECK(contains(english(check_plugin_symbols(folder / "missing.toml", "test-build", patches, mapped.address())),
                        "cannot read missing.toml"));
         std::error_code ignored;
         std::filesystem::remove_all(folder, ignored);

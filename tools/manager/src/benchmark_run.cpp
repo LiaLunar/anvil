@@ -2,6 +2,7 @@
 
 #include "core/crash_history.hpp"
 #include "core/log.hpp"
+#include "i18n/translate.hpp"
 
 #include <algorithm>
 #include <set>
@@ -151,7 +152,7 @@ void SeriesRunner::run() {
                 break;
             }
             if (seen.environment_changed && progress_.environment_change.empty()) {
-                progress_.environment_change = "something changed during the start";
+                progress_.environment_change = i18n::tr("something changed during the start");
             }
             progress_.series.add(seen);
             if (progress_.series.over()) break;
@@ -190,7 +191,7 @@ StartObservation SeriesRunner::run_start(Arm arm, const SeriesEnvironment& initi
     if (!CreateProcessW(config_.exe.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_UNICODE_ENVIRONMENT,
                         environment.data(), dir.c_str(), &startup, &info)) {
         std::lock_guard lock(mutex_);
-        progress_.start_error = "eu4.exe could not be started (Windows error " + std::to_string(GetLastError()) + ")";
+        progress_.start_error = i18n::trf("eu4.exe could not be started (Windows error {0})", {std::to_string(GetLastError())});
         return seen;
     }
     CloseHandle(info.hThread);

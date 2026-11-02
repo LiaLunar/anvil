@@ -4,6 +4,7 @@
 #include "core/log.hpp"
 #include "files.hpp"
 #include "game.hpp"
+#include "i18n/translate.hpp"
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -84,7 +85,7 @@ std::optional<Package> load_embedded_package(std::string& error) {
     const HGLOBAL loaded = resource != nullptr ? LoadResource(nullptr, resource) : nullptr;
     const auto* data = static_cast<const uint8_t*>(loaded != nullptr ? LockResource(loaded) : nullptr);
     if (data == nullptr) {
-        error = "AnvilManager.exe carries no Anvil package";
+        error = i18n::tr("AnvilManager.exe carries no Anvil package");
         return std::nullopt;
     }
     auto zip = ZipArchive::open(std::vector<uint8_t>(data, data + SizeofResource(nullptr, resource)), error);
@@ -137,7 +138,7 @@ std::optional<fs::path> pick_folder(HWND owner, const fs::path& start) {
     DWORD options = 0;
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
-    dialog->SetTitle(L"Choose the Europa Universalis IV folder (the one with eu4.exe)");
+    dialog->SetTitle(widen(i18n::tr("Choose the Europa Universalis IV folder (the one with eu4.exe)")).c_str());
     if (!start.empty()) {
         ComPtr<IShellItem> folder;
         if (SUCCEEDED(SHCreateItemFromParsingName(start.c_str(), nullptr, IID_PPV_ARGS(folder.out())))) {
@@ -152,12 +153,13 @@ std::optional<fs::path> pick_zip(HWND owner) {
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.out())))) {
         return std::nullopt;
     }
-    const COMDLG_FILTERSPEC filters[] = {{L"Plugin zip (*.zip)", L"*.zip"}};
+    const std::wstring filter = widen(i18n::tr("Plugin zip (*.zip)"));
+    const COMDLG_FILTERSPEC filters[] = {{filter.c_str(), L"*.zip"}};
     dialog->SetFileTypes(1, filters);
     DWORD options = 0;
     dialog->GetOptions(&options);
     dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST);
-    dialog->SetTitle(L"Install a plugin from a zip");
+    dialog->SetTitle(widen(i18n::tr("Install a plugin from a zip")).c_str());
     return run_dialog(dialog.p, owner);
 }
 
@@ -267,7 +269,7 @@ ReleaseCheck fetch_latest_release() {
     if (request.handle == nullptr ||
         !WinHttpSendRequest(request.handle, headers, static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(request.handle, nullptr)) {
-        out.error = "cannot reach GitHub (error " + std::to_string(GetLastError()) + ")";
+        out.error = i18n::trf("cannot reach GitHub (error {0})", {std::to_string(GetLastError())});
         return out;
     }
     DWORD status = 0;
@@ -275,7 +277,7 @@ ReleaseCheck fetch_latest_release() {
     WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
                         &status, &size, WINHTTP_NO_HEADER_INDEX);
     if (status != 200) {
-        out.error = "GitHub answered " + std::to_string(status);
+        out.error = i18n::trf("GitHub answered {0}", {std::to_string(status)});
         return out;
     }
     std::string body;
@@ -284,7 +286,7 @@ ReleaseCheck fetch_latest_release() {
         if (!WinHttpQueryDataAvailable(request.handle, &available) || available == 0) break;
         const size_t at = body.size();
         if (at + available > (1u << 20)) {
-            out.error = "GitHub's reply is too long";
+            out.error = i18n::tr("GitHub's reply is too long");
             return out;
         }
         body.resize(at + available);
@@ -293,7 +295,7 @@ ReleaseCheck fetch_latest_release() {
         body.resize(at + read);
     }
     out.release = parse_release(body);
-    if (!out.release) out.error = "GitHub's reply is not a release of Anvil";
+    if (!out.release) out.error = i18n::tr("GitHub's reply is not a release of Anvil");
     return out;
 }
 
@@ -313,7 +315,7 @@ SendOutcome post_report(std::string body) {
         !WinHttpSendRequest(request.handle, headers, static_cast<DWORD>(-1L), body.data(), static_cast<DWORD>(body.size()),
                             static_cast<DWORD>(body.size()), 0) ||
         !WinHttpReceiveResponse(request.handle, nullptr)) {
-        out.error = "cannot reach bench.happydwarf.dev (error " + std::to_string(GetLastError()) + ")";
+        out.error = i18n::trf("cannot reach bench.happydwarf.dev (error {0})", {std::to_string(GetLastError())});
         return out;
     }
     DWORD status = 0;

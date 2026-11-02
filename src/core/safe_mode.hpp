@@ -2,6 +2,7 @@
 
 #include "crash_history.hpp"
 
+#include "i18n/message.hpp"
 #include <filesystem>
 #include <string>
 #include <string_view>
@@ -32,7 +33,7 @@ bool loads_in_safe_mode(std::string_view id);
 // start: one of `crashes` (the reports of the starts that led to it) was in
 // the plugin's own code or in its change, so loading it again could end this
 // start the same way. Empty when it loads.
-std::string safe_mode_exclusion(std::string_view id, const std::vector<CrashSummary>& crashes);
+i18n::Message safe_mode_exclusion(std::string_view id, const std::vector<CrashSummary>& crashes);
 
 // The reports of the starts that led to a safe start: of the newest reports
 // in `crash_dir`, those written before the game was ready, at most

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "core/manifest.hpp"
+#include "i18n/message.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -59,6 +60,7 @@ struct CheckReport {
     // loader's words; empty = it passes. Only problems the loader acts on count:
     // instruction boundaries are checked by anvil only.
     std::string skip_reason;
+    i18n::Message skip_why;  // skip_reason by code, for the player's language (#158)
     std::vector<CodeRange> code_ranges;  // with an exe, in declaration order
     bool has_symbols = false;
     std::string build;         // symbols.toml `build`

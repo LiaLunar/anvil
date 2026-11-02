@@ -14,10 +14,17 @@ std::string text_or_empty(const char* text) { return text != nullptr ? std::stri
 std::string result_text(AnvilResult result, const AnvilControlResult& out) {
     if (result == ANVIL_OK) return {};
     if (out.error[0] != '\0') return out.error;
-    return "refused (" + std::to_string(static_cast<int>(result)) + ")";
+    return anvil::i18n::trf("refused ({0})", {std::to_string(static_cast<int>(result))});
 }
 
 }  // namespace
+
+anvil::i18n::Language ControlClient::language() const {
+    if (service_ == nullptr || service_->size < offsetof(AnvilControlService, language) + sizeof(void*)) {
+        return anvil::i18n::Language::English;
+    }
+    return anvil::i18n::language_named(service_->language()).value_or(anvil::i18n::Language::English);
+}
 
 AnvilControlStatus ControlClient::status() const {
     AnvilControlStatus s{};
@@ -50,6 +57,7 @@ std::vector<PluginRow> ControlClient::plugins() const {
             row.mod = text_or_empty(p.mod);
             row.awaiting_approval = p.awaiting_approval != 0;
         }
+        if (p.size > offsetof(AnvilControlPlugin, reason_message)) row.why = anvil::i18n::parse(text_or_empty(p.reason_message));
         rows.push_back(std::move(row));
     }
     return rows;
@@ -199,20 +207,21 @@ std::vector<ModRow> ControlClient::mod_plugins() const {
         row.can_revoke = m.can_revoke != 0;
         row.approved_next = m.approved_next_start != 0;
         row.revoked_next = m.revoked_next_start != 0;
+        if (m.size > offsetof(AnvilControlModPlugin, reason_message)) row.why = anvil::i18n::parse(text_or_empty(m.reason_message));
         rows.push_back(std::move(row));
     }
     return rows;
 }
 
 std::string ControlClient::approve_mod_plugin(const ModRow& plugin) const {
-    if (!has_mod_plugins(service_)) return "this Anvil has no plugins from mods";
+    if (!has_mod_plugins(service_)) return anvil::i18n::tr("this Anvil has no plugins from mods");
     AnvilControlResult out{};
     out.size = sizeof(out);
     return result_text(service_->approve_mod_plugin(plugin.index, plugin.hash.c_str(), &out), out);
 }
 
 std::string ControlClient::revoke_mod_plugin(const ModRow& plugin) const {
-    if (!has_mod_plugins(service_)) return "this Anvil has no plugins from mods";
+    if (!has_mod_plugins(service_)) return anvil::i18n::tr("this Anvil has no plugins from mods");
     AnvilControlResult out{};
     out.size = sizeof(out);
     return result_text(service_->revoke_mod_plugin(plugin.index, &out), out);

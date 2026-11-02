@@ -2,6 +2,7 @@
 
 #include "manifest.hpp"
 
+#include "i18n/message.hpp"
 #include <anvil/anvil_plugin.h>
 
 #include <cstdint>
@@ -35,6 +36,6 @@ std::vector<std::filesystem::path> plugin_folders(const std::filesystem::path& p
 
 // Empty when the plugin's entry DLL is in its folder, otherwise why the
 // loader skips the plugin.
-std::string missing_entry_reason(const Manifest& manifest);
+i18n::Message missing_entry_reason(const Manifest& manifest);
 
 }  // namespace anvil

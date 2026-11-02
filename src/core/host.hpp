@@ -1,6 +1,7 @@
 #pragma once
 
 #include "changes.hpp"
+#include "i18n/message.hpp"
 #include "manifest.hpp"
 #include "plugin_settings.hpp"
 #include "plugin_symbols.hpp"
@@ -34,7 +35,8 @@ struct AnvilPlugin {
     std::wstring data_dir;
     HMODULE module = nullptr;
     std::string state = "pending";  // pending | loaded | failed
-    std::string reason;             // why it failed, for the overlay (anvil.control)
+    std::string reason;             // why it failed, for the overlay (anvil.control): the English words of `why`
+    anvil::i18n::Message why;
     // Inside anvil_plugin_load the load itself is the plugin's group.
     std::atomic<bool> loading{false};
 };

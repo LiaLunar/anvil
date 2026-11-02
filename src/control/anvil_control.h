@@ -2,8 +2,9 @@
  * anvil.control v1: the core's private service for anvil-overlay (design §15,
  * #58). Status and start-up warnings, the settings of every plugin, the
  * previous crash report, the log tail and "disable at the next start"; since
- * 1.3 the plugins in mods with their approval (#60). Fields and functions
- * are only appended: a caller checks `size` before it reads a later one.
+ * 1.3 the plugins in mods with their approval (#60); since 1.7 the reasons as
+ * messages and the player's language (#158). Fields and functions are only
+ * appended: a caller checks `size` before it reads a later one.
  *
  * Not part of the SDK: it lives in the Anvil repository, only Anvil's own
  * plugins use it, and it may change in a minor release (a new version is
@@ -68,6 +69,9 @@ typedef struct AnvilControlPlugin {
     /* Appended in 1.3 (design §14): a plugin from a mod. */
     const char *mod;         /* the mod's name; "" for a local plugin */
     int awaiting_approval;   /* skipped until the player approves it (mod_plugin) */
+    /* Appended in 1.7 (#158): `reason` as a message, code and arguments, for
+     * the player's language (src/i18n/message.hpp, i18n::parse). */
+    const char *reason_message;
 } AnvilControlPlugin;
 
 /* A plugin in <mod>/anvil/<id>/ of an enabled mod, as the start found it
@@ -100,6 +104,8 @@ typedef struct AnvilControlModPlugin {
     /* Changed in this process; applies from the next start. */
     int approved_next_start;
     int revoked_next_start;
+    /* Appended in 1.7 (#158): `reason` as a message (see AnvilControlPlugin). */
+    const char *reason_message;
 } AnvilControlModPlugin;
 
 enum {
@@ -223,6 +229,10 @@ typedef struct AnvilControlService {
     /* Removes the approval of the plugin's id from anvil/trust.toml: it no
      * longer loads from the next start. Only on the player's request. */
     AnvilResult (*revoke_mod_plugin)(uint32_t index, AnvilControlResult *out);
+
+    /* --- the player's language (appended in 1.7, #158) --- */
+    /* "en", "fr", "de" or "es": ANVIL_LANGUAGE, else EU4's settings.txt, else "en". */
+    const char *(*language)(void);
 } AnvilControlService;
 
 #ifdef __cplusplus

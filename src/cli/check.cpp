@@ -20,6 +20,11 @@
 namespace anvil::cli {
 namespace {
 
+void set_skip(CheckReport& report, i18n::Message why) {
+    report.skip_reason = i18n::english(why);
+    report.skip_why = std::move(why);
+}
+
 constexpr int kLockFormat = 1;
 const std::set<std::string_view> kLockKeys = {"format", "tool", "symbols_sha256", "exe_sha256", "build", "result"};
 
@@ -81,10 +86,10 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
         if (report.exe_build != file.build) {
             report.problems.push_back({symbols_path, file.build_line,
                                        "symbols.toml is for " + file.build + ", " + report.exe_name + " is " + report.exe_build});
-            report.skip_reason = "symbols.toml is for build " + file.build + ", the game is " + report.exe_build;
+            set_skip(report, i18n::Message("symbols_build", {file.build, report.exe_build}));
         }
     } else {
-        report.skip_reason = "game build unknown (EU4 updated?)";
+        set_skip(report, i18n::Message("build_unknown", {}));
         report.problems.push_back({symbols_path, file.build_line,
                                    report.exe_name + " (SHA-256 " + report.exe_sha256 +
                                        ") is not a game build this Anvil knows; symbols.toml declares " + file.build});
@@ -98,12 +103,7 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
         report.problems.push_back({symbols_path, s.line, verification.problems[i]});
     }
     // The loader checks the build first and gives the first failing symbol.
-    if (report.skip_reason.empty() && !verification.problems.empty()) {
-        report.skip_reason = verification.problems.front() + " (EU4 updated or eu4.exe modified?)";
-        if (verification.problems.size() > 1) {
-            report.skip_reason += " and " + std::to_string(verification.problems.size() - 1) + " more";
-        }
-    }
+    if (report.skip_reason.empty() && !verification.problems.empty()) set_skip(report, symbol_mismatch(verification.problems));
     for (const auto& s : file.symbols) {
         if (failed.contains(s.id) || s.memory != MemoryKind::Code || s.bytes.empty()) continue;
         report.code_ranges.push_back({s.name, s.line, verification.symbols[s.id].rva, static_cast<uint32_t>(s.bytes.size())});
@@ -319,7 +319,7 @@ CheckReport check_plugin(const CheckOptions& options) {
     const ManifestResult manifest = load_manifest(options.plugin_dir);
     if (!manifest.manifest) {
         report.problems.push_back({manifest_path, manifest.line, without_prefix(manifest.error, "plugin.toml: ")});
-        report.skip_reason = manifest.error;
+        set_skip(report, manifest.error);
         report.exit_code = kExitProblems;
         return report;
     }
@@ -334,14 +334,14 @@ CheckReport check_plugin(const CheckOptions& options) {
         if (!read_file(options.plugin_dir / relative, text)) {
             report.exit_code = kExitCannotCheck;
             report.cannot_check = "cannot read " + symbols_path;
-            report.skip_reason = report.cannot_check;
+            set_skip(report, i18n::Message("cannot_read", {symbols_path}));
             return report;
         }
         if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);  // saved by Notepad, as load_symbols allows
         const SymbolFileResult symbols = parse_symbols_text(text);
         if (!symbols.file) {
             report.problems.push_back({symbols_path, symbols.line, without_prefix(symbols.error, "symbols.toml: ")});
-            report.skip_reason = symbols.error;
+            set_skip(report, symbols.error);
             report.exit_code = kExitProblems;
             return report;
         }
@@ -367,7 +367,7 @@ CheckReport check_plugin(const CheckOptions& options) {
         if (!read_file(options.plugin_dir / relative, text)) {
             report.exit_code = kExitCannotCheck;
             report.cannot_check = "cannot read " + settings_path;
-            if (report.skip_reason.empty()) report.skip_reason = report.cannot_check;
+            if (report.skip_reason.empty()) set_skip(report, i18n::Message("cannot_read", {settings_path}));
             return report;
         }
         if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);  // saved by Notepad, as load_settings allows
@@ -382,7 +382,7 @@ CheckReport check_plugin(const CheckOptions& options) {
             }
         } else {
             report.problems.push_back({settings_path, settings.line, without_prefix(settings.error, "settings.toml: ")});
-            if (report.skip_reason.empty()) report.skip_reason = settings.error;
+            if (report.skip_reason.empty()) set_skip(report, settings.error);
         }
     }
     // In file order, so the output reads like a compiler's.

@@ -1,5 +1,6 @@
 #include "benchmark_send.hpp"
 
+#include "i18n/translate.hpp"
 #include "json.hpp"
 
 namespace anvil::manager {
@@ -14,13 +15,14 @@ std::string receiver_message(std::string_view body) {
 }
 
 std::string send_outcome_text(const SendOutcome& o) {
-    if (o.status == 0) return "The report was not sent: " + o.error + ". You can copy it instead.";
-    if (o.status == 201) return "Sent. Thank you.";
-    if (o.status == 200) return "This report has already arrived.";
-    if (o.status == 429 || o.status == 503) return "The receiver is busy. Try again later.";
+    if (o.status == 0) return i18n::trf("The report was not sent: {0}. You can copy it instead.", {o.error});
+    if (o.status == 201) return i18n::tr("Sent. Thank you.");
+    if (o.status == 200) return i18n::tr("This report has already arrived.");
+    if (o.status == 429 || o.status == 503) return i18n::tr("The receiver is busy. Try again later.");
     const std::string message = receiver_message(o.body);
-    if (o.status == 413 || o.status == 422) return message.empty() ? "The receiver refused the report." : message;
-    return "The receiver answered " + std::to_string(o.status) + (message.empty() ? std::string(".") : ": " + message);
+    if (o.status == 413 || o.status == 422) return message.empty() ? std::string(i18n::tr("The receiver refused the report.")) : message;
+    if (message.empty()) return i18n::trf("The receiver answered {0}.", {std::to_string(o.status)});
+    return i18n::trf("The receiver answered {0}: {1}", {std::to_string(o.status), message});
 }
 
 }  // namespace anvil::manager

@@ -270,27 +270,30 @@ void on_game_ready(const char*, const void*, void*) {
 
 // Empty when every required dependency loaded (they come earlier in the
 // load order); otherwise why the plugin is not loaded either.
-std::string failed_dependency(const AnvilPlugin& plugin) {
+i18n::Message failed_dependency(const AnvilPlugin& plugin) {
     for (const auto& d : plugin.manifest.dependencies) {
         if (d.optional) continue;
         for (const auto& p : g_runtime->plugins) {
-            if (p->manifest.id == d.id && p->state != "loaded") {
-                return "requires plugin '" + d.id + "', which failed to load";
-            }
+            if (p->manifest.id == d.id && p->state != "loaded") return i18n::Message("dependency_failed", {d.id});
         }
     }
     return {};
+}
+
+void set_failed(AnvilPlugin& plugin, i18n::Message why) {
+    plugin.reason = i18n::english(why);
+    plugin.why = std::move(why);
+    plugin.state = "failed";
 }
 
 void load_plugin(AnvilPlugin& plugin) {
     const double begin = elapsed_ms();
     const std::filesystem::path dll = std::filesystem::path(plugin.plugin_dir) / plugin.manifest.entry;
     const std::string label = plugin.manifest.id + " " + plugin.manifest.version.to_string();
-    if (std::string reason = failed_dependency(plugin); !reason.empty()) {
-        plugin.reason = reason;
-        plugin.state = "failed";
+    if (i18n::Message reason = failed_dependency(plugin); !reason.empty()) {
+        set_failed(plugin, std::move(reason));
         g_runtime->policy->forget(plugin.owner);
-        log_error(label + ": not loaded; " + reason);
+        log_error(label + ": not loaded; " + plugin.reason);
         return;
     }
     // A plugin from a mod: its approved copy must still have the approved
@@ -300,9 +303,9 @@ void load_plugin(AnvilPlugin& plugin) {
     if (!plugin.approved_hash.empty()) {
         const FolderHash now = hash_plugin_folder(plugin.plugin_dir, &locks);
         if (now.sha256 != plugin.approved_hash) {
-            plugin.reason = "its approved copy changed (" + (now.error.empty() ? "hash " + short_hash(now.sha256) : now.error) +
-                            ", approved " + short_hash(plugin.approved_hash) + "); approve it again";
-            plugin.state = "failed";
+            set_failed(plugin, i18n::Message("copy_changed", {now.error.empty() ? i18n::Message("hash", {short_hash(now.sha256)})
+                                                                                : i18n::Message(now.error),
+                                                              short_hash(plugin.approved_hash)}));
             g_runtime->policy->forget(plugin.owner);
             log_error(label + ": not loaded; " + plugin.reason);
             return;
@@ -313,16 +316,14 @@ void load_plugin(AnvilPlugin& plugin) {
     locks.release();
     if (plugin.module == nullptr) {
         const DWORD error = GetLastError();
-        plugin.reason = "cannot load " + plugin.manifest.entry + " (error " + std::to_string(error) + ")";
-        plugin.state = "failed";
+        set_failed(plugin, i18n::Message("load_error", {plugin.manifest.entry, std::to_string(error)}));
         g_runtime->policy->forget(plugin.owner);
         log_error(label + ": cannot load " + narrow(dll.wstring()) + " (error " + std::to_string(error) + ")");
         return;
     }
     const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(plugin.module, "anvil_plugin_load"));
     if (fn == nullptr) {
-        plugin.reason = "the entry DLL does not export anvil_plugin_load";
-        plugin.state = "failed";
+        set_failed(plugin, i18n::Message("no_load_export", {}));
         g_runtime->policy->forget(plugin.owner);
         log_error(label + ": entry DLL does not export anvil_plugin_load");
         FreeLibrary(plugin.module);
@@ -339,10 +340,8 @@ void load_plugin(AnvilPlugin& plugin) {
     if (outcome.result != ANVIL_OK) {
         char code[32] = {};
         if (outcome.exception != 0) std::snprintf(code, sizeof(code), "0x%08lX", outcome.exception);
-        plugin.reason = "anvil_plugin_load " + (outcome.exception != 0
-                                                    ? std::string("crashed with exception ") + code
-                                                    : std::string("returned ") + result_name(outcome.result));
-        plugin.state = "failed";
+        set_failed(plugin, outcome.exception != 0 ? i18n::Message("load_exception", {code})
+                                                  : i18n::Message("load_returned", {result_name(outcome.result)}));
         g_runtime->policy->forget(plugin.owner);
         g_runtime->benchmark->forget(&plugin);
         log_error(label + ": " + plugin.reason + "; " + std::to_string(outcome.staged) +
@@ -594,18 +593,18 @@ void startup_impl(const std::filesystem::path& game_dir) {
         if (!m.symbols.empty()) {
             SymbolVerification verified;
             SymbolFile declared;
-            std::string reason = check_plugin_symbols(m.folder / m.symbols, game.build_id, *g_runtime->changes,
-                                                      identity->image_base, &verified, &declared);
+            i18n::Message reason = check_plugin_symbols(m.folder / m.symbols, game.build_id, *g_runtime->changes,
+                                                        identity->image_base, &verified, &declared);
             if (!reason.empty()) return reason;
             verified_symbols[m.folder.wstring()] = PluginSymbols(declared, verified, identity->image_base);
             log_info(m.id + ": " + std::to_string(verified.symbols.size()) + " symbol(s) verified");
         }
         if (!m.settings.empty()) {
             SettingsFileResult parsed = load_settings(m.folder / m.settings);
-            if (!parsed.file) return parsed.error;
+            if (!parsed.file) return i18n::Message(parsed.error);
             declared_settings[m.folder.wstring()] = std::move(*parsed.file);
         }
-        return std::string();
+        return i18n::Message();
     };
     const auto plugins_dir = g_runtime->anvil_dir / "plugins";
     const std::vector<std::filesystem::path> folders = plugin_folders(plugins_dir);
@@ -616,22 +615,21 @@ void startup_impl(const std::filesystem::path& game_dir) {
         const auto parsed = load_manifest(folder);
         local_ids.insert(parsed.manifest ? parsed.manifest->id : narrow(folder.filename().wstring()));
         if (!parsed.manifest) {
-            g_runtime->skipped.push_back({narrow(folder.filename().wstring()), parsed.error, folder});
+            g_runtime->skipped.push_back(skipped_for(narrow(folder.filename().wstring()), parsed.error, folder));
             continue;
         }
-        if (std::string reason = missing_entry_reason(*parsed.manifest); !reason.empty()) {
-            g_runtime->skipped.push_back({parsed.manifest->id, std::move(reason), folder});
+        if (i18n::Message reason = missing_entry_reason(*parsed.manifest); !reason.empty()) {
+            g_runtime->skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder));
             continue;
         }
         if (record.safe_mode && !loads_in_safe_mode(parsed.manifest->id)) {
             g_runtime->skipped.push_back(
-                {.id = parsed.manifest->id, .reason = "safe mode", .folder = folder, .kind = SkipKind::safe_mode});
+                skipped_for(parsed.manifest->id, i18n::Message("safe_mode", {}), folder, SkipKind::safe_mode));
             continue;
         }
         if (record.safe_mode) {
-            if (std::string reason = safe_mode_exclusion(parsed.manifest->id, safe_mode_reports); !reason.empty()) {
-                g_runtime->skipped.push_back(
-                    {.id = parsed.manifest->id, .reason = std::move(reason), .folder = folder, .kind = SkipKind::safe_mode});
+            if (i18n::Message reason = safe_mode_exclusion(parsed.manifest->id, safe_mode_reports); !reason.empty()) {
+                g_runtime->skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder, SkipKind::safe_mode));
                 continue;
             }
         }
@@ -643,8 +641,13 @@ void startup_impl(const std::filesystem::path& game_dir) {
     // load, always from their approved copy, whose hash is checked again
     // right before LoadLibrary (load_plugin).
     std::map<std::wstring, std::string> approved_hashes;  // by the copy's folder
+    std::string player_language;
     {
         const std::filesystem::path user_dir = eu4_user_dir(game_dir);
+        // The overlay speaks the language of EU4's settings (#158).
+        const i18n::LanguageChoice language = i18n::choose_language(user_dir);
+        player_language = i18n::language_code(language.language);
+        log_info("the player's language: " + player_language + " (" + language.source + ")");
         g_runtime->mods = discover_mod_plugins(g_runtime->anvil_dir, user_dir, local_ids);
         ModDiscovery& mods = g_runtime->mods;
         for (const auto& w : mods.warnings) log_warning(w);
@@ -653,8 +656,10 @@ void startup_impl(const std::filesystem::path& game_dir) {
         for (ModPlugin& p : mods.plugins) {
             const std::string label = p.id + " from mod '" + p.mod.name + "' (" +
                                       (p.mod.workshop_id.empty() ? std::string("local mod") : "Workshop " + p.mod.workshop_id) + ")";
-            const auto skip = [&](const std::string& reason, SkipKind kind = SkipKind::other) {
-                Skipped s{p.id, label.substr(p.id.size() + 1) + ": " + reason, p.folder};
+            const i18n::Message source = p.mod.workshop_id.empty() ? i18n::Message("local_mod", {})
+                                                                   : i18n::Message("workshop_item", {p.mod.workshop_id});
+            const auto skip = [&](const i18n::Message& reason, SkipKind kind = SkipKind::other) {
+                Skipped s = skipped_for(p.id, i18n::Message("from_mod", {p.mod.name, source, reason}), p.folder);
                 s.mod = p.mod.name;
                 s.awaiting_approval = !p.loads() && (p.state == ModPluginState::Pending || p.state == ModPluginState::Conflict);
                 s.kind = kind;
@@ -665,18 +670,18 @@ void startup_impl(const std::filesystem::path& game_dir) {
                 continue;
             }
             if (!p.loads()) {
-                skip(p.reason, p.state == ModPluginState::Pending    ? SkipKind::approval
+                skip(p.why, p.state == ModPluginState::Pending    ? SkipKind::approval
                                : p.state == ModPluginState::Conflict ? SkipKind::conflict
                                                                       : SkipKind::other);
                 continue;
             }
             if (record.safe_mode) {
-                skip("safe mode", SkipKind::safe_mode);
+                skip(i18n::Message("safe_mode", {}), SkipKind::safe_mode);
                 continue;
             }
             if (p.copy_missing) {
                 if (std::string error; !make_approved_copy(g_runtime->anvil_dir, p, error)) {
-                    skip("cannot make its approved copy: " + error);
+                    skip(i18n::Message("copy_failed", {error}));
                     continue;
                 }
                 log_info(label + ": made the approved copy");
@@ -684,11 +689,11 @@ void startup_impl(const std::filesystem::path& game_dir) {
             log_info(label + ": " + p.reason + "; loads from " + narrow(p.load_folder.wstring()));
             const auto parsed = load_manifest(p.load_folder);
             if (!parsed.manifest) {
-                skip("its approved copy: " + parsed.error);
+                skip(i18n::Message("copy_broken", {parsed.error}));
                 continue;
             }
-            if (std::string reason = missing_entry_reason(*parsed.manifest); !reason.empty()) {
-                skip("its approved copy: " + reason);
+            if (i18n::Message reason = missing_entry_reason(*parsed.manifest); !reason.empty()) {
+                skip(i18n::Message("copy_broken", {reason}));
                 continue;
             }
             approved_hashes[p.load_folder.wstring()] = p.approval->hash;
@@ -767,6 +772,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
     sources.unfinished_starts = record.unfinished;
     if (!crash_names.empty()) sources.previous_crash = crash_names.front();
     sources.mods = &g_runtime->mods;
+    sources.language = player_language;
     g_runtime->control = std::make_unique<Control>(std::move(sources));
     if (g_runtime->bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION,
                                         g_runtime->control->service()) != ANVIL_OK) {

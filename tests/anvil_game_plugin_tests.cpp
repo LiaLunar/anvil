@@ -340,8 +340,8 @@ int main(int argc, char** argv) {
         if (!parsed.manifest) return;
         SymbolVerification verified;
         SymbolFile declared;
-        const std::string reason = check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes, image.address(0),
-                                                        &verified, &declared);
+        const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
+                                                                          image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
         CHECK(reason.empty() && verified.symbols.size() == 14);
         if (!reason.empty()) return;

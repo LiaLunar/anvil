@@ -43,6 +43,8 @@ struct ControlSources {
     // The plugins in the playset's mods as the start decided them (design
     // §14); may be null. Does not change after start-up.
     const ModDiscovery* mods = nullptr;
+    // The player's language for the overlay (i18n::language_code).
+    std::string language = "en";
 };
 
 // The core's private service for anvil-overlay (src/control/anvil_control.h,
@@ -72,6 +74,7 @@ public:
     // as shown in anvil/data/anvil/crash-shown.txt.
     const AnvilControlCrash* previous_crash();
     std::string log_tail(uint32_t max_lines) const;
+    const char* language() const { return sources_.language.c_str(); }
     AnvilResult disable_next_start(std::string_view plugin_id, std::string& error);
     bool disabled_next_start(std::string_view plugin_id) const;
 
@@ -93,6 +96,10 @@ private:
 
     ControlSources sources_;
     std::vector<std::string> versions_;  // by plugin index
+    // The reasons as messages (i18n::serialize): the skipped plugins' made
+    // once, the resolved plugins' at loading_done.
+    std::vector<std::string> skipped_messages_;
+    std::vector<std::string> resolved_messages_;
     std::atomic<bool> loading_done_{false};
     mutable std::mutex mutex_;
     std::set<std::string, std::less<>> disabled_next_;  // under mutex_
@@ -103,6 +110,7 @@ private:
     struct ModView {
         std::string name, version, authors, description, repository, issues, others;
         std::string approved_version, approved_hash, approved_date;
+        std::string reason_message;
         uint32_t symbols = 0;
     };
     // Which mod and hash trust.toml binds an id to now ("" mod: none).

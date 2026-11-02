@@ -44,6 +44,7 @@ struct SkippedPlugin {
     std::string reason;
     bool disabled = false;  // by the player in anvil.toml: not a fault
     std::string mod;        // the mod's name for a plugin from a mod (folder is then "")
+    i18n::Message why;      // `reason` by code, for the player's language (#158)
 };
 
 // A plugin in <mod>/anvil/<id>/ of a mod enabled in the playset (design §14).
@@ -55,6 +56,7 @@ struct GameModPlugin {
     std::string folder;       // <mod>/anvil/<id>
     std::string state;        // approved | update-pending | pending | conflict | shadowed | invalid
     std::string reason;
+    i18n::Message why;        // `reason` by code, for the player's language (#158)
     std::string hash;         // of the folder in the mod; "" when it cannot be hashed
     std::string version;      // its plugin.toml's; "" when that is broken
     // trust.toml's approval of the id for this mod; empty when there is none.
@@ -64,6 +66,7 @@ struct GameModPlugin {
     std::vector<std::string> others;  // conflict, shadowed: the other mods with this id
     std::string status;       // "loaded" or "skipped" (by the resolver, or because of `state`)
     std::string skip_reason;  // the resolver's, for an approved plugin that does not load
+    i18n::Message skip_why;
     // The folder that loads (the approved copy, or the mod's folder while the
     // copy is not made), or for the others the mod's folder, as `anvil check
     // <folder> --exe <eu4.exe>` sees it.

@@ -4,6 +4,7 @@
 #include "playset.hpp"
 #include "trust.hpp"
 
+#include "i18n/message.hpp"
 #include <filesystem>
 #include <optional>
 #include <set>
@@ -32,7 +33,8 @@ struct ModPlugin {
     std::optional<Manifest> manifest;  // of `folder`
     std::string problem;           // why `folder` cannot load or be approved; "" when it can
     ModPluginState state = ModPluginState::Pending;
-    std::string reason;            // what the log and the player read
+    std::string reason;            // what the log and the player read: the English words of `why`
+    i18n::Message problem_why, why;  // `problem` and `reason` by code, for the player's language (#158)
     // trust.toml's entry for this id; `bound` when it names this mod.
     std::optional<TrustEntry> approval;
     bool bound = false;

@@ -32,6 +32,21 @@ FetchContent_Declare(safetyhook
     GIT_SHALLOW TRUE)
 FetchContent_MakeAvailable(tomlplusplus safetyhook)
 
+# anvil_messages: the player's messages by code (why a plugin is skipped),
+# their English words and the player's language (issue #158). anvil_i18n adds
+# the catalogs and the lookup; only the overlay and the Manager link it, so
+# version.dll carries no translations.
+add_library(anvil_messages STATIC src/i18n/message.cpp)
+target_include_directories(anvil_messages PUBLIC src)
+target_compile_definitions(anvil_messages PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+add_library(anvil_i18n STATIC src/i18n/translate.cpp src/i18n/catalog_fr.cpp src/i18n/catalog_de.cpp
+    src/i18n/catalog_es.cpp)
+target_link_libraries(anvil_i18n PUBLIC anvil_messages)
+if(MSVC)
+    target_compile_options(anvil_messages PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
+    target_compile_options(anvil_i18n PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
+endif()
+
 # anvil_core: the rules shared by version.dll and anvil.exe (manifests, SemVer,
 # the resolver, the game build identity, symbols.toml and its verification
 # against a PE image, settings.toml and the player's values, instruction
@@ -57,7 +72,7 @@ add_library(anvil_core STATIC
     src/core/symbols.cpp
     src/core/trust.cpp)
 target_include_directories(anvil_core PUBLIC include src)
-target_link_libraries(anvil_core PUBLIC tomlplusplus::tomlplusplus Zydis bcrypt)
+target_link_libraries(anvil_core PUBLIC anvil_messages tomlplusplus::tomlplusplus Zydis bcrypt)
 target_compile_definitions(anvil_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
     ANVIL_VERSION="${PROJECT_VERSION}")
 if(MSVC)
@@ -317,8 +332,16 @@ if(ANVIL_BUILD_TESTS)
     add_executable(anvil_overlay_tests tests/overlay_tests.cpp plugins/anvil-overlay/src/notices.cpp
         plugins/anvil-overlay/src/control_client.cpp)
     target_include_directories(anvil_overlay_tests PRIVATE src/control)
-    target_link_libraries(anvil_overlay_tests PRIVATE anvil_loader)
+    target_link_libraries(anvil_overlay_tests PRIVATE anvil_loader anvil_i18n)
     add_test(NAME anvil_overlay_tests COMMAND anvil_overlay_tests)
+
+    # The player's language (issue #158): messages by code, the language from
+    # EU4's settings, and catalogs that translate every marked text of the
+    # overlay's and the Manager's sources (tests/i18n_tests.cpp).
+    add_executable(anvil_i18n_tests tests/i18n_tests.cpp)
+    target_link_libraries(anvil_i18n_tests PRIVATE anvil_core anvil_i18n)
+    target_compile_definitions(anvil_i18n_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_test(NAME anvil_i18n_tests COMMAND anvil_i18n_tests ${CMAKE_CURRENT_SOURCE_DIR})
     # The same on a real Direct3D 9 device with this test as the game image;
     # passes with a note where no device can be created.
     add_executable(anvil_overlay_d3d_tests tests/overlay_d3d_tests.cpp)

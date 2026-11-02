@@ -41,7 +41,7 @@ add_library(anvil_manager_core STATIC
     src/zip.cpp)
 target_include_directories(anvil_manager_core PUBLIC src)
 # wbemuuid, ole32, oleaut32: the antivirus names from Security Center (WMI).
-target_link_libraries(anvil_manager_core PUBLIC anvil_tool PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32)
+target_link_libraries(anvil_manager_core PUBLIC anvil_tool anvil_i18n PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32)
 if(MSVC)
     target_compile_options(anvil_manager_core PRIVATE /W4 /WX)
 endif()

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "i18n/message.hpp"
 #include "pe_image.hpp"
 
 #include <cstdint>
@@ -82,5 +83,9 @@ struct SymbolVerification {
 // flags and `points_to` against the stored pointer, and computes `values`.
 // Does not compare `file.build` with the image's build; the caller does.
 SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image);
+
+// Why a plugin whose symbols do not verify is skipped: the first problem, and
+// how many more there are.
+i18n::Message symbol_mismatch(const std::vector<std::string>& problems);
 
 }  // namespace anvil

@@ -4,6 +4,7 @@
 #include "core/game_build.hpp"
 #include "core/log.hpp"
 #include "zip.hpp"
+#include "i18n/translate.hpp"
 
 #include <windows.h>
 #include <tlhelp32.h>
@@ -232,17 +233,17 @@ GameFolder inspect_game_folder(const fs::path& dir) {
     out.dir = dir;
     std::error_code ec;
     if (dir.empty() || !fs::is_directory(dir, ec)) {
-        out.error = "the folder does not exist";
+        out.error = i18n::tr("the folder does not exist");
         return out;
     }
     out.has_exe = fs::is_regular_file(dir / "eu4.exe", ec);
     if (!out.has_exe) {
-        out.error = "there is no eu4.exe in this folder";
+        out.error = i18n::tr("there is no eu4.exe in this folder");
         return out;
     }
     out.exe_sha256 = sha256_file(dir / "eu4.exe");
     if (out.exe_sha256.empty()) {
-        out.error = "eu4.exe cannot be read";
+        out.error = i18n::tr("eu4.exe cannot be read");
         return out;
     }
     if (const KnownBuild* build = find_known_build_by_sha256(out.exe_sha256)) out.build = build->id;

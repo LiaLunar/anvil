@@ -1,4 +1,5 @@
 #include "benchmark_series.hpp"
+#include "i18n/translate.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -295,40 +296,43 @@ SeriesResult series_result(const Series& series) {
 }
 
 std::string stop_reason_text(std::string_view reason) {
-    if (reason == "player") return "You stopped the series.";
-    if (reason == "too_many_discarded") return "Too many starts did not count, more than the extra starts allow.";
+    using i18n::tr;
+    if (reason == "player") return tr("You stopped the series.");
+    if (reason == "too_many_discarded") return tr("Too many starts did not count, more than the extra starts allow.");
     if (reason == "quit_failed") {
-        return "A start did not quit by itself and had to be ended; later starts would begin from a changed "
-               "settings.txt, so the series ended.";
+        return tr("A start did not quit by itself and had to be ended; later starts would begin from a changed "
+                  "settings.txt, so the series ended.");
     }
-    if (reason == "crashed") return "The game crashed.";
-    if (reason == "safe_mode") return "Anvil started in safe mode after starts that did not reach the menu.";
-    if (reason == "plugin_not_loaded") return "The compared plugin did not load as this arm needs (for example it was skipped).";
+    if (reason == "crashed") return tr("The game crashed.");
+    if (reason == "safe_mode") return tr("Anvil started in safe mode after starts that did not reach the menu.");
+    if (reason == "plugin_not_loaded") return tr("The compared plugin did not load as this arm needs (for example it was skipped).");
     if (reason == "plugin_not_participant") {
-        return "The compared plugin does not take part in the benchmark: update it to a version that does.";
+        return tr("The compared plugin does not take part in the benchmark: update it to a version that does.");
     }
-    if (reason == "timeout") return "A start did not reach the menu within 10 minutes.";
-    if (reason == "environment_changed") return "Steam, the mods or the compared plugin changed during the series.";
+    if (reason == "timeout") return tr("A start did not reach the menu within 10 minutes.");
+    if (reason == "environment_changed") return tr("Steam, the mods or the compared plugin changed during the series.");
     return std::string(reason);
 }
 
 std::string not_counted_text(std::string_view reason) {
-    if (reason == "unclear") return "unclear (open cost between warm and cold)";
-    if (reason == "plugin_learning") return "the plugin was learning";
-    if (reason == "crash") return "crashed before the menu";
-    if (reason == "safe_mode") return "safe mode";
-    if (reason == "arm_mismatch") return "the plugin did not load as the arm needs";
-    if (reason == "not_participant") return "the plugin does not take part";
-    if (reason == "timeout") return "no menu within 10 minutes";
-    if (reason == "no_record") return "no start record";
-    if (reason == "environment_changed") return "the environment changed";
+    using i18n::tr;
+    if (reason == "unclear") return tr("unclear (open cost between warm and cold)");
+    if (reason == "plugin_learning") return tr("the plugin was learning");
+    if (reason == "crash") return tr("crashed before the menu");
+    if (reason == "safe_mode") return tr("safe mode");
+    if (reason == "arm_mismatch") return tr("the plugin did not load as the arm needs");
+    if (reason == "not_participant") return tr("the plugin does not take part");
+    if (reason == "timeout") return tr("no menu within 10 minutes");
+    if (reason == "no_record") return tr("no start record");
+    if (reason == "environment_changed") return tr("the environment changed");
     return std::string(reason);
 }
 
 std::string cold_kind_text(std::string_view kind) {
-    if (kind == "after_boot") return "after boot";
-    if (kind == "after_definitions_update") return "after a definitions update";
-    if (kind == "open_cost") return "cold by open cost";
+    using i18n::tr;
+    if (kind == "after_boot") return tr("after boot");
+    if (kind == "after_definitions_update") return tr("after a definitions update");
+    if (kind == "open_cost") return tr("cold by open cost");
     return std::string(kind);
 }
 

@@ -50,11 +50,11 @@ bool loads_in_safe_mode(std::string_view id) {
     return false;
 }
 
-std::string safe_mode_exclusion(std::string_view id, const std::vector<CrashSummary>& crashes) {
+i18n::Message safe_mode_exclusion(std::string_view id, const std::vector<CrashSummary>& crashes) {
     for (const CrashSummary& crash : crashes) {
         if (crash_in_plugin(crash, id)) {
-            return "safe mode; the crash before it was " + (crash.summary.empty() ? crash.level : crash.summary) +
-                   " (report " + crash.name + ")";
+            const std::string& summary = crash.summary.empty() ? crash.level : crash.summary;
+            return i18n::Message("safe_mode_crash", {i18n::crash_message(crash.level, crash.plugins, summary), crash.name});
         }
     }
     return {};

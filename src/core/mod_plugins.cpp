@@ -29,17 +29,27 @@ bool is_folder(const fs::path& path) {
 
 std::string version_of(const ModPlugin& p) { return p.manifest ? p.manifest->version.to_string() : std::string("?"); }
 
+void set_reason(ModPlugin& p, i18n::Message why) {
+    p.reason = i18n::english(why);
+    p.why = std::move(why);
+}
+
+void set_problem(ModPlugin& p, i18n::Message why) {
+    p.problem = i18n::english(why);
+    p.problem_why = std::move(why);
+}
+
 // The plugin as the approval in its `approval` (bound to its mod) decides it.
 void decide(ModPlugin& p, const fs::path& anvil_dir) {
     const std::optional<TrustEntry>& e = p.approval;
     if (!p.bound) {
         if (!p.problem.empty()) {
             p.state = ModPluginState::Invalid;
-            p.reason = p.problem;
+            set_reason(p, p.problem_why);
         } else {
             p.state = ModPluginState::Pending;
-            p.reason = e ? "approved for another mod ('" + e->mod_name + "'); approve it for this mod to use it"
-                         : "waiting for approval (hash " + short_hash(p.hash) + ")";
+            set_reason(p, e ? i18n::Message("approved_other_mod", {e->mod_name})
+                            : i18n::Message("waiting_approval", {short_hash(p.hash)}));
         }
         return;
     }
@@ -48,25 +58,24 @@ void decide(ModPlugin& p, const fs::path& anvil_dir) {
         p.state = ModPluginState::Approved;
         p.load_folder = copy;
         p.copy_missing = !is_folder(copy);
-        p.reason = "approved on " + e->approved.substr(0, 10) + " (hash " + short_hash(e->hash) + ")";
+        set_reason(p, i18n::Message("approved_on", {e->approved.substr(0, 10), short_hash(e->hash)}));
         return;
     }
     if (is_folder(copy)) {
         p.state = ModPluginState::UpdatePending;
         p.load_folder = copy;
-        p.reason = "the mod has " + (p.problem.empty() ? "version " + version_of(p) + " (hash " + short_hash(p.hash) + "), "
-                                                      : "a version that cannot be approved (" + p.problem + "), ") +
-                   "which is not approved; the approved " + e->version + " loads until then";
+        set_reason(p, p.problem.empty()
+                          ? i18n::Message("update_waits", {version_of(p), short_hash(p.hash), e->version})
+                          : i18n::Message("update_invalid", {p.problem_why, e->version}));
         return;
     }
     if (!p.problem.empty()) {
         p.state = ModPluginState::Invalid;
-        p.reason = p.problem + "; the approved " + e->version + " is gone (no approved copy)";
+        set_reason(p, i18n::Message("approved_gone", {p.problem_why, e->version}));
         return;
     }
     p.state = ModPluginState::Pending;
-    p.reason = "changed since " + e->version + " was approved and the approved copy is missing; waiting for approval (hash " +
-               short_hash(p.hash) + ")";
+    set_reason(p, i18n::Message("changed_copy_missing", {e->version, short_hash(p.hash)}));
 }
 
 // Copies `folder` into its approved copy for `hash` and checks the copy.
@@ -179,21 +188,21 @@ ModDiscovery discover_mod_plugins(const fs::path& anvil_dir, const fs::path& use
             p.mod = mod;
             p.folder = folder;
             if (!is_valid_plugin_id(p.id)) {
-                p.problem = "the folder name is not a plugin id ([a-z0-9-]+, at most 64 characters)";
+                set_problem(p, i18n::Message("bad_folder_id", {}));
             } else {
                 const ManifestResult parsed = load_manifest(folder);
                 if (!parsed.manifest) {
-                    p.problem = "plugin.toml: " + parsed.error;
+                    set_problem(p, "plugin.toml: " + parsed.error);
                 } else if (parsed.manifest->id != p.id) {
-                    p.problem = "plugin.toml has id '" + parsed.manifest->id + "', but its folder is anvil/" + p.id;
-                } else if (std::string missing = missing_entry_reason(*parsed.manifest); !missing.empty()) {
-                    p.problem = missing;
+                    set_problem(p, i18n::Message("id_mismatch", {parsed.manifest->id, p.id}));
+                } else if (i18n::Message missing = missing_entry_reason(*parsed.manifest); !missing.empty()) {
+                    set_problem(p, std::move(missing));
                 }
                 p.manifest = parsed.manifest;
             }
             const FolderHash hashed = hash_plugin_folder(folder);
             p.hash = hashed.sha256;
-            if (!hashed.error.empty() && p.problem.empty()) p.problem = hashed.error;
+            if (!hashed.error.empty() && p.problem.empty()) set_problem(p, hashed.error);
             d.plugins.push_back(std::move(p));
         }
     }
@@ -202,7 +211,7 @@ ModDiscovery discover_mod_plugins(const fs::path& anvil_dir, const fs::path& use
     for (ModPlugin& p : d.plugins) {
         if (!is_valid_plugin_id(p.id)) {
             p.state = ModPluginState::Invalid;
-            p.reason = p.problem;
+            set_reason(p, p.problem_why);
             continue;
         }
         by_id[p.id].push_back(&p);
@@ -225,7 +234,7 @@ ModDiscovery discover_mod_plugins(const fs::path& anvil_dir, const fs::path& use
         if (local_ids.contains(id)) {
             for (ModPlugin* p : group) {
                 p->state = ModPluginState::Shadowed;
-                p->reason = "the local plugin in anvil/plugins has this id and wins";
+                set_reason(*p, i18n::Message("shadowed", {}));
                 for (const ModPlugin* o : others_of(p)) p->others.push_back(o->mod.name);
             }
             continue;
@@ -240,12 +249,10 @@ ModDiscovery discover_mod_plugins(const fs::path& anvil_dir, const fs::path& use
                 decide(*p, anvil_dir);
             } else if (bound != nullptr) {
                 p->state = ModPluginState::Conflict;
-                p->reason = "mod '" + bound->mod.name + "' has this plugin too and is approved for it; approve this one "
-                            "instead to use it";
+                set_reason(*p, i18n::Message("conflict_bound", {bound->mod.name}));
             } else {
                 p->state = ModPluginState::Conflict;
-                p->reason = std::to_string(group.size()) + " enabled mods have a plugin '" + id + "' (" + names_of(others_of(nullptr)) +
-                            ") and none is approved for it, so none loads; approve the one to use";
+                set_reason(*p, i18n::Message("conflict_none", {std::to_string(group.size()), id, names_of(others_of(nullptr))}));
             }
         }
     }

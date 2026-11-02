@@ -337,6 +337,11 @@ SymbolFileResult load_symbols(const std::filesystem::path& file) {
     return parse_symbols_text(text);
 }
 
+i18n::Message symbol_mismatch(const std::vector<std::string>& problems) {
+    if (problems.size() == 1) return i18n::Message("symbol_mismatch", {problems.front()});
+    return i18n::Message("symbol_mismatch_more", {problems.front(), std::to_string(problems.size() - 1)});
+}
+
 SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image) {
     SymbolVerification out;
     const ImageReader& reader = image.reader();

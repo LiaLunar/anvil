@@ -125,6 +125,7 @@ GameReport check_game(const GameOptions& options) {
             plugin.report.with_exe = true;
             plugin.report.problems.push_back({shown(folder / "plugin.toml"), 0, "plugin.toml not found"});
             plugin.report.skip_reason = load_manifest(folder).error;
+            plugin.report.skip_why = plugin.report.skip_reason;
         } else {
             CheckOptions check;
             check.plugin_dir = folder;
@@ -169,6 +170,7 @@ GameReport check_game(const GameOptions& options) {
         gm.folder = shown(p.folder);
         gm.state = state_name(p.state);
         gm.reason = p.reason;
+        gm.why = p.why.empty() ? i18n::Message(p.reason) : p.why;
         gm.hash = p.hash;
         if (p.manifest) gm.version = p.manifest->version.to_string();
         if (p.approval && p.bound) {
@@ -202,11 +204,11 @@ GameReport check_game(const GameOptions& options) {
         const GamePlugin& plugin = report.plugins[i];
         const std::filesystem::path folder = folders[i];
         if (!plugin.report.manifest) {
-            skipped.push_back({plugin.folder, plugin.report.skip_reason, folder, !settings.enabled});
+            skipped.push_back(skipped_for(plugin.folder, plugin.report.skip_why, folder, SkipKind::other, !settings.enabled));
             continue;
         }
-        if (std::string reason = missing_entry_reason(*plugin.report.manifest); !reason.empty()) {
-            skipped.push_back({plugin.report.manifest->id, std::move(reason), folder, plugin.disabled});
+        if (i18n::Message reason = missing_entry_reason(*plugin.report.manifest); !reason.empty()) {
+            skipped.push_back(skipped_for(plugin.report.manifest->id, std::move(reason), folder, SkipKind::other, plugin.disabled));
             continue;
         }
         by_folder[folder] = &plugin.report;
@@ -218,9 +220,9 @@ GameReport check_game(const GameOptions& options) {
         const bool disabled = !settings.enabled || disabled_ids.contains(gm.id);
         const std::filesystem::path folder = gm.report.manifest ? gm.report.manifest->folder : mods.plugins[i].load_folder;
         mod_by_folder[folder] = i;
-        std::string reason = gm.report.manifest ? missing_entry_reason(*gm.report.manifest) : gm.report.skip_reason;
+        i18n::Message reason = gm.report.manifest ? missing_entry_reason(*gm.report.manifest) : gm.report.skip_why;
         if (!reason.empty()) {
-            skipped.push_back({gm.id, std::move(reason), folder, disabled});
+            skipped.push_back(skipped_for(gm.id, std::move(reason), folder, SkipKind::other, disabled));
             continue;
         }
         by_folder[folder] = &gm.report;
@@ -229,7 +231,7 @@ GameReport check_game(const GameOptions& options) {
     // The symbols are verified (and their build compared) by check_plugin already.
     input.verify = [&](const Manifest& m) {
         const auto it = by_folder.find(m.folder);
-        return it == by_folder.end() ? std::string() : it->second->skip_reason;
+        return it == by_folder.end() ? i18n::Message() : it->second->skip_why;
     };
 
     ResolveResult resolved;
@@ -237,7 +239,7 @@ GameReport check_game(const GameOptions& options) {
         resolved = resolve(input);
     } else {
         for (const Manifest& m : input.manifests) {
-            resolved.skipped.push_back({m.id, "anvil.toml has enabled = false: no plugins load", m.folder, true});
+            resolved.skipped.push_back(skipped_for(m.id, i18n::Message("all_disabled", {}), m.folder, SkipKind::other, true));
         }
     }
     skipped.insert(skipped.end(), resolved.skipped.begin(), resolved.skipped.end());
@@ -255,14 +257,17 @@ GameReport check_game(const GameOptions& options) {
     }
     for (const Skipped& s : skipped) {
         const auto mod = mod_by_folder.find(s.folder);
+        // A reason without a code is shown in its English words.
+        const i18n::Message why = s.why.empty() ? i18n::Message(s.reason) : s.why;
         if (mod == mod_by_folder.end()) {
-            report.skipped.push_back({s.id, name_of(s.folder), s.reason, s.disabled, {}});
+            report.skipped.push_back({s.id, name_of(s.folder), s.reason, s.disabled, {}, why});
             continue;
         }
         GameModPlugin& gm = report.mod_plugins[mod->second];
         gm.skip_reason = s.reason;
+        gm.skip_why = why;
         if (s.disabled) gm.status = "disabled";
-        report.skipped.push_back({s.id, {}, s.reason, s.disabled, gm.mod});
+        report.skipped.push_back({s.id, {}, s.reason, s.disabled, gm.mod, why});
     }
     for (size_t i = 0; i < report.plugins.size(); ++i) {
         GamePlugin& plugin = report.plugins[i];

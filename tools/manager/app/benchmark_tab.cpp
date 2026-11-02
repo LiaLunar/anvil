@@ -3,6 +3,7 @@
 #include "core/crash_history.hpp"
 #include "core/log.hpp"
 #include "core/playset.hpp"
+#include "i18n/translate.hpp"
 #include "ui.hpp"
 
 #include <imgui.h>
@@ -18,6 +19,9 @@ namespace {
 
 namespace fs = std::filesystem;
 using namespace ui;
+using i18n::N_;
+using i18n::tr;
+using i18n::trf;
 
 // About one start: the time to ready, the quit and the pause.
 constexpr int kSecondsPerStart = 55;
@@ -37,13 +41,14 @@ std::string signed_difference(double ms, double percent) {
 }
 
 std::string text_of(const Json& v) {
-    if (v.is_null()) return "not set";
+    if (v.is_null()) return tr("not set");
     if (v.is_string()) return v.as_string();
-    if (v.is_bool()) return v.as_bool() ? "yes" : "no";
+    if (v.is_bool()) return v.as_bool() ? tr("yes") : tr("no");
     return write_json(v);
 }
 
-std::string plural(int64_t n, const char* one, const char* many) { return std::to_string(n) + " " + (n == 1 ? one : many); }
+// `one` and `many` hold {0} for the number.
+std::string plural(int64_t n, const char* one, const char* many) { return trf(n == 1 ? one : many, {std::to_string(n)}); }
 
 // A ✓ or ✕ drawn in the line's height (the font has neither glyph).
 void mark(bool ok, bool blocks) {
@@ -81,22 +86,22 @@ void chip(const std::string& label, const ImVec4& color, bool& first, float righ
 
 const char* phase_words(RunPhase phase) {
     switch (phase) {
-    case RunPhase::Starting: return "Starting eu4.exe";
-    case RunPhase::Loading: return "Loading";
-    case RunPhase::Waiting: return "Ready, waiting for plugins to finish";
-    case RunPhase::Quitting: return "Quitting";
-    case RunPhase::Pause: return "Pause before the next start";
-    case RunPhase::Done: return "Done";
+    case RunPhase::Starting: return tr("Starting eu4.exe");
+    case RunPhase::Loading: return tr("Loading");
+    case RunPhase::Waiting: return tr("Ready, waiting for plugins to finish");
+    case RunPhase::Quitting: return tr("Quitting");
+    case RunPhase::Pause: return tr("Pause before the next start");
+    case RunPhase::Done: return tr("Done");
     }
     return "";
 }
 
 std::string not_measured_words(const std::string& item, const std::string& without, const std::string& with) {
-    if (item == "time_to_ready") return "times run to anvil-game.ready, not to Running application";
-    if (item == "no_cold_without") return "no cold start " + without;
-    if (item == "no_cold_with") return "no cold start " + with;
-    if (item == "below_target") return "fewer valid warm starts than the target";
-    if (item == "stopped") return "the series was stopped";
+    if (item == "time_to_ready") return tr("times run to anvil-game.ready, not to Running application");
+    if (item == "no_cold_without") return trf("no cold start {0}", {without});
+    if (item == "no_cold_with") return trf("no cold start {0}", {with});
+    if (item == "below_target") return tr("fewer valid warm starts than the target");
+    if (item == "stopped") return tr("the series was stopped");
     return item;
 }
 
@@ -164,7 +169,7 @@ void BenchmarkTab::reset() {
 
 std::string BenchmarkTab::arm_words(const std::string& arm) const {
     const std::string id = report_ ? (*report_)["series"]["compared"]["id"].as_string() : progress_.series.plugin();
-    return (arm == "with" ? "with " : "without ") + id;
+    return trf(arm == "with" ? N_("with {0}") : N_("without {0}"), {id});
 }
 
 void BenchmarkTab::draw(const BenchmarkContext& context) {
@@ -191,18 +196,18 @@ void BenchmarkTab::check(const BenchmarkContext& context) {
 
 void BenchmarkTab::draw_setup(const BenchmarkContext& context) {
     ImGui::Spacing();
-    wrapped("The start-up benchmark measures how long EU4 takes to start on this computer without a plugin and with "
-            "it. EU4 starts again and again, without the plugin and with it, and each start quits by itself. Nothing "
-            "in your saves, mods or anvil.toml changes.");
+    wrapped(tr("The start-up benchmark measures how long EU4 takes to start on this computer without a plugin and "
+               "with it. EU4 starts again and again, without the plugin and with it, and each start quits by itself. "
+               "Nothing in your saves, mods or anvil.toml changes."));
     ImGui::Spacing();
     if (context.report == nullptr || !context.report->cannot_check.empty()) {
-        colored_wrapped(kWarn, "Install Anvil on the Anvil tab first: the benchmark runs with Anvil and its plugins.");
+        colored_wrapped(kWarn, tr("Install Anvil on the Anvil tab first: the benchmark runs with Anvil and its plugins."));
         draw_kept(context);
         return;
     }
     const std::vector<ComparablePlugin> plugins = comparable_plugins(*context.report);
     if (plugins.empty()) {
-        colored_wrapped(kWarn, "No plugin to compare: enable one on the Plugins tab, or approve one on the Mods tab.");
+        colored_wrapped(kWarn, tr("No plugin to compare: enable one on the Plugins tab, or approve one on the Mods tab."));
         draw_kept(context);
         return;
     }
@@ -213,24 +218,24 @@ void BenchmarkTab::draw_setup(const BenchmarkContext& context) {
     if (checked_report_ != context.report || checked_plugin_ != plugin_) check(context);
 
     ImGui::SetNextItemWidth(ImGui::GetFontSize() * 16);
-    if (ImGui::BeginCombo("Compare", plugin_.c_str())) {
+    if (ImGui::BeginCombo((std::string(tr("Compare")) + "###compare").c_str(), plugin_.c_str())) {
         for (const ComparablePlugin& p : plugins) {
             const std::string label = p.id + " " + p.version + (p.source == "workshop" ? " (Workshop)" : "");
             if (ImGui::Selectable(label.c_str(), p.id == plugin_)) plugin_ = p.id;
         }
         ImGui::EndCombo();
     }
-    ImGui::TextUnformatted("Valid warm starts per arm:");
+    ImGui::TextUnformatted(tr("Valid warm starts per arm:"));
     for (const int t : kTargets) {
         ImGui::SameLine();
         if (ImGui::RadioButton(std::to_string(t).c_str(), target_ == t)) target_ = t;
     }
     ImGui::SameLine();
-    weak("about " + std::to_string(2 * target_) + " starts, about " +
-         std::to_string((2 * target_ * kSecondsPerStart + 59) / 60) + " minutes");
+    weak(trf("about {0} starts, about {1} minutes",
+             {std::to_string(2 * target_), std::to_string((2 * target_ * kSecondsPerStart + 59) / 60)}));
 
     ImGui::Spacing();
-    ImGui::SeparatorText("Before the series");
+    ImGui::SeparatorText(tr("Before the series"));
     for (const SetupCheck& c : checks_) {
         mark(c.ok, c.blocks);
         ImGui::TextUnformatted(c.text.c_str());
@@ -240,32 +245,32 @@ void BenchmarkTab::draw_setup(const BenchmarkContext& context) {
         }
     }
     ImGui::Spacing();
-    wrapped("Please leave the computer alone while the series runs. Keyboard and mouse use is recorded next to each "
-            "start and shown with the result.");
+    wrapped(tr("Please leave the computer alone while the series runs. Keyboard and mouse use is recorded next to "
+               "each start and shown with the result."));
     ImGui::Spacing();
     ImGui::BeginDisabled(!checks_pass(checks_) || checks_.empty());
-    if (ImGui::Button("Start the series")) start(context);
+    if (ImGui::Button(tr("Start the series"))) start(context);
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button("Check again")) check(context);
+    if (ImGui::Button(tr("Check again"))) check(context);
     draw_kept(context);
 }
 
 void BenchmarkTab::draw_kept(const BenchmarkContext& context) {
     if (!kept_) kept_ = kept_reports(benchmarks_dir(context.game));
     ImGui::Spacing();
-    if (!ImGui::CollapsingHeader(("Kept reports (" + std::to_string(kept_->size()) + ")###kept").c_str())) return;
-    if (ImGui::Button("Open the folder")) open_folder(benchmarks_dir(context.game));
+    if (!ImGui::CollapsingHeader((trf("Kept reports ({0})", {std::to_string(kept_->size())}) + "###kept").c_str())) return;
+    if (ImGui::Button(tr("Open the folder"))) open_folder(benchmarks_dir(context.game));
     if (kept_->empty()) {
-        weak("No reports yet. Each series keeps its report here; the last 10 are kept.");
+        weak_wrapped(tr("No reports yet. Each series keeps its report here; the last 10 are kept."));
         return;
     }
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
     if (!ImGui::BeginTable("kept", 5, flags)) return;
-    ImGui::TableSetupColumn("Finished");
-    ImGui::TableSetupColumn("Compared");
-    ImGui::TableSetupColumn("Series");
-    ImGui::TableSetupColumn("Sent", ImGuiTableColumnFlags_WidthFixed);
+    ImGui::TableSetupColumn(tr("Finished"));
+    ImGui::TableSetupColumn(tr("Compared"));
+    ImGui::TableSetupColumn(tr("Series"));
+    ImGui::TableSetupColumn(tr("Sent"), ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableSetupColumn("", ImGuiTableColumnFlags_WidthFixed);
     ImGui::TableHeadersRow();
     for (const KeptReport& k : *kept_) {
@@ -274,14 +279,14 @@ void BenchmarkTab::draw_kept(const BenchmarkContext& context) {
         ImGui::TableNextColumn();
         ImGui::TextUnformatted(k.name.c_str());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(k.readable ? (k.compared + " " + k.version).c_str() : "(not readable)");
+        ImGui::TextUnformatted(k.readable ? (k.compared + " " + k.version).c_str() : tr("(not readable)"));
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(!k.readable ? "" : k.state == "complete" ? "complete" : ("stopped: " + k.stop_reason).c_str());
+        ImGui::TextUnformatted(!k.readable ? "" : k.state == "complete" ? tr("complete") : trf("stopped: {0}", {k.stop_reason}).c_str());
         ImGui::TableNextColumn();
-        ImGui::TextUnformatted(k.sent ? "sent" : "");
+        ImGui::TextUnformatted(k.sent ? tr("sent") : "");
         ImGui::TableNextColumn();
         ImGui::BeginDisabled(!k.readable);
-        if (ImGui::SmallButton("Open")) {
+        if (ImGui::SmallButton(tr("Open"))) {
             std::string error;
             const auto text = read_text_file(k.file, 1 << 20);
             if (auto doc = text ? parse_json(*text, error) : std::nullopt) {
@@ -351,7 +356,7 @@ void BenchmarkTab::poll(const BenchmarkContext& context) {
         runner_.reset();
         series_ = progress_.series;
         if (!progress_.start_error.empty()) series_note_ = progress_.start_error + ".";
-        else if (!progress_.environment_change.empty()) series_note_ = "What changed: " + progress_.environment_change + ".";
+        else if (!progress_.environment_change.empty()) series_note_ = trf("What changed: {0}.", {progress_.environment_change});
         if (series_->rows().empty()) {
             screen_ = Screen::Result;  // nothing ran: no report
             return;
@@ -425,11 +430,13 @@ void BenchmarkTab::draw_running() {
     const std::string arm = arm_name(p.arm);
     ImGui::Spacing();
     if (p.phase == RunPhase::Done || prepared_.valid()) {
-        wrapped("The series has ended. Making its report...");
+        wrapped(tr("The series has ended. Making its report..."));
         return;
     }
     const int expected = std::max(1, s.expected_starts());
-    ImGui::Text("Start %d of about %d, %s", std::max(1, p.start), expected, arm_words(arm).c_str());
+    ImGui::TextUnformatted(trf("Start {0} of about {1}, {2}",
+                               {std::to_string(std::max(1, p.start)), std::to_string(expected), arm_words(arm)})
+                               .c_str());
     ImGui::ProgressBar(static_cast<float>(s.rows().size()) / static_cast<float>(expected), ImVec2(-1, 0), "");
     std::string phase = phase_words(p.phase);
     if (p.phase == RunPhase::Loading) phase += " (" + std::to_string(static_cast<int>(p.seconds)) + " s)";
@@ -437,7 +444,7 @@ void BenchmarkTab::draw_running() {
     weak(phase);
 
     ImGui::Spacing();
-    ImGui::TextUnformatted("Valid warm starts per arm");
+    ImGui::TextUnformatted(tr("Valid warm starts per arm"));
     for (const Arm a : {Arm::Without, Arm::With}) {
         const std::string label = std::to_string(s.warm(a)) + " / " + std::to_string(s.target());
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 12);
@@ -446,24 +453,24 @@ void BenchmarkTab::draw_running() {
         ImGui::SameLine();
         ImGui::TextUnformatted(arm_words(arm_name(a)).c_str());
     }
-    ImGui::Text("Extra starts used: %d / %d", s.extra_starts_used(), kMaxExtraStarts);
+    ImGui::TextUnformatted(trf("Extra starts used: {0} / {1}", {std::to_string(s.extra_starts_used()), std::to_string(kMaxExtraStarts)}).c_str());
 
     if (!s.rows().empty()) {
         ImGui::Spacing();
         bool first = true;
         const float right_edge = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
         for (const StartRow& row : s.rows()) {
-            std::string label = "#" + std::to_string(row.position) + " " + (row.arm == Arm::Without ? "without" : "with");
+            std::string label = "#" + std::to_string(row.position) + " " + (row.arm == Arm::Without ? tr("without") : tr("with"));
             if (row.time_ms) label += " " + seconds(static_cast<double>(*row.time_ms));
             ImVec4 color = ImGui::GetStyleColorVec4(ImGuiCol_Text);
             if (!row.valid) {
-                label += " discarded";
+                label += std::string(" ") + tr("discarded");
                 color = kBad;
             } else if (row.cold_class != "warm") {
-                label += " " + row.cold_class;
+                label += " " + std::string(row.cold_class == "cold" ? tr("cold") : row.cold_class == "unclear" ? tr("unclear") : row.cold_class.c_str());
                 color = kWarn;
             }
-            if (row.input_during_start.value_or(false)) label += " (input)";
+            if (row.input_during_start.value_or(false)) label += std::string(" ") + tr("(input)");
             ImGui::PushID(row.position);
             chip(label, color, first, right_edge);
             ImGui::PopID();
@@ -471,12 +478,12 @@ void BenchmarkTab::draw_running() {
     }
 
     ImGui::Spacing();
-    wrapped("Please leave the computer alone until the series ends. Closing the Manager loses the series; the "
-            "running start still quits by itself.");
+    wrapped(tr("Please leave the computer alone until the series ends. Closing the Manager loses the series; the "
+               "running start still quits by itself."));
     ImGui::Spacing();
     if (p.stopping) {
-        colored_wrapped(kWarn, "Stopping: this start finishes and quits cleanly, then the series ends.");
-    } else if (ImGui::Button("Stop")) {
+        colored_wrapped(kWarn, tr("Stopping: this start finishes and quits cleanly, then the series ends."));
+    } else if (ImGui::Button(tr("Stop"))) {
         runner_->stop();
     }
 }
@@ -485,12 +492,12 @@ void BenchmarkTab::draw_result() {
     ImGui::Spacing();
     if (!report_) {
         if (prepared_.valid()) {
-            wrapped("Making the report...");
+            wrapped(tr("Making the report..."));
             return;
         }
         // The series ended before its first start.
-        colored_wrapped(kWarn, "The series ended before a start ran. " + series_note_);
-        if (ImGui::Button("New series")) reset();
+        colored_wrapped(kWarn, std::string(tr("The series ended before a start ran.")) + " " + series_note_);
+        if (ImGui::Button(tr("New series"))) reset();
         return;
     }
     const Json& r = *report_;
@@ -498,23 +505,24 @@ void BenchmarkTab::draw_result() {
     const Json& result = r["result"];
     const std::string without = arm_words("without"), with = arm_words("with");
     if (series["state"].as_string() == "complete") {
-        colored_wrapped(kGood, "Series complete.");
+        colored_wrapped(kGood, tr("Series complete."));
     } else {
-        colored_wrapped(kWarn, "Series stopped: " + stop_reason_text(series["stop_reason"].as_string()));
+        colored_wrapped(kWarn, trf("Series stopped: {0}", {stop_reason_text(series["stop_reason"].as_string())}));
         if (from_series_ && !series_note_.empty()) weak(series_note_);
     }
-    weak(plural(static_cast<int64_t>(r["starts"].items().size()), "start", "starts") + ", " +
-         std::to_string(result["extra_starts_used"].as_integer()) + " of " + std::to_string(kMaxExtraStarts) +
-         " extra starts used, target " + std::to_string(series["target"].as_integer()) + " valid warm starts per arm.");
+    weak_wrapped(trf("{0}, {1} of {2} extra starts used, target {3} valid warm starts per arm.",
+             {plural(static_cast<int64_t>(r["starts"].items().size()), N_("{0} start"), N_("{0} starts")),
+              std::to_string(result["extra_starts_used"].as_integer()), std::to_string(kMaxExtraStarts),
+              std::to_string(series["target"].as_integer())}));
 
-    ImGui::SeparatorText("Warm starts");
+    ImGui::SeparatorText(tr("Warm starts"));
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
     if (ImGui::BeginTable("warm", 5, flags)) {
-        ImGui::TableSetupColumn("Arm");
+        ImGui::TableSetupColumn(tr("Arm"));
         ImGui::TableSetupColumn("n", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Median");
-        ImGui::TableSetupColumn("Min\xE2\x80\x93max");
-        ImGui::TableSetupColumn("Every time", ImGuiTableColumnFlags_WidthStretch, 3.0f);
+        ImGui::TableSetupColumn(tr("Median"));
+        ImGui::TableSetupColumn(tr("Min\xE2\x80\x93max"));
+        ImGui::TableSetupColumn(tr("Every time"), ImGuiTableColumnFlags_WidthStretch, 3.0f);
         ImGui::TableHeadersRow();
         for (const char* arm : {"without", "with"}) {
             const Json& a = result["warm"][arm];
@@ -540,27 +548,27 @@ void BenchmarkTab::draw_result() {
 
     const Json& d = result["difference"];
     if (d.is_object()) {
-        const std::string line = "With " + series["compared"]["id"].as_string() + ": " +
-                                 signed_difference(d["ms"].as_number(), d["percent"].as_number());
+        const std::string line = trf("With {0}: {1}", {series["compared"]["id"].as_string(),
+                                                       signed_difference(d["ms"].as_number(), d["percent"].as_number())});
         if (d["ranges_overlap"].as_bool()) {
             ImGui::TextUnformatted(line.c_str());
-            colored_wrapped(kWarn, "Ranges overlap: the difference is uncertain.");
+            colored_wrapped(kWarn, tr("Ranges overlap: the difference is uncertain."));
         } else {
             colored_wrapped(d["ms"].as_number() < 0 ? kGood : kBad, line);
         }
     } else {
-        weak("No difference: it needs a valid warm start in both arms.");
+        weak(tr("No difference: it needs a valid warm start in both arms."));
     }
 
-    ImGui::SeparatorText("Cold starts");
+    ImGui::SeparatorText(tr("Cold starts"));
     const Json& cold = result["cold"];
     if (cold["starts"].items().empty()) {
-        weak("No cold start in this series.");
+        weak(tr("No cold start in this series."));
     } else if (ImGui::BeginTable("cold", 4, flags)) {
-        ImGui::TableSetupColumn("Start", ImGuiTableColumnFlags_WidthFixed);
-        ImGui::TableSetupColumn("Arm");
-        ImGui::TableSetupColumn("Time");
-        ImGui::TableSetupColumn("Kind");
+        ImGui::TableSetupColumn(tr("Start"), ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn(tr("Arm"));
+        ImGui::TableSetupColumn(tr("Time"));
+        ImGui::TableSetupColumn(tr("Kind"));
         ImGui::TableHeadersRow();
         for (const Json& c : cold["starts"].items()) {
             ImGui::TableNextRow();
@@ -576,106 +584,112 @@ void BenchmarkTab::draw_result() {
         ImGui::EndTable();
     }
     if (cold["difference"].is_object()) {
-        ImGui::TextUnformatted(("Cold, with " + series["compared"]["id"].as_string() + ": " +
-                                signed_difference(cold["difference"]["ms"].as_number(), cold["difference"]["percent"].as_number()))
+        ImGui::TextUnformatted(trf("Cold, with {0}: {1}", {series["compared"]["id"].as_string(),
+                                                           signed_difference(cold["difference"]["ms"].as_number(),
+                                                                             cold["difference"]["percent"].as_number())})
                                    .c_str());
     } else {
-        weak("A cold difference needs a cold start in both arms.");
+        weak(tr("A cold difference needs a cold start in both arms."));
     }
 
-    ImGui::SeparatorText("Starts that do not count");
-    if (result["not_counted"].items().empty()) weak("None.");
+    ImGui::SeparatorText(tr("Starts that do not count"));
+    if (result["not_counted"].items().empty()) weak(tr("None."));
     for (const Json& n : result["not_counted"].items()) {
         const int64_t position = n["position"].as_integer();
         std::string line = "#" + std::to_string(position) + ": " + not_counted_text(n["reason"].as_string());
         const Json& cost = r["starts"].items()[static_cast<size_t>(position - 1)]["cold_start"]["open_cost"];
         if (n["reason"].as_string() == "unclear" && cost.is_object() && cost["files"].as_integer() > 0) {
             char per_file[64];
-            std::snprintf(per_file, sizeof(per_file), ", %.3f ms per file", cost["ms"].as_number() / cost["files"].as_number());
-            line += per_file;
+            std::snprintf(per_file, sizeof(per_file), "%.3f", cost["ms"].as_number() / cost["files"].as_number());
+            line += ", " + trf("{0} ms per file", {per_file});
         }
         bullet(line);
     }
     if (!result["input_during_start"].items().empty()) {
         std::vector<std::string> positions;
         for (const Json& p : result["input_during_start"].items()) positions.push_back("#" + std::to_string(p.as_integer()));
-        wrapped("Keyboard or mouse was used during " + join(positions) + "; those starts still count.");
+        wrapped(trf("Keyboard or mouse was used during {0}; those starts still count.", {join(positions)}));
     }
     std::vector<std::string> missing;
     for (const Json& item : result["not_measured"].items()) missing.push_back(not_measured_words(item.as_string(), without, with));
-    weak_wrapped("Not measured: " + join(missing) + ".");
+    weak_wrapped(trf("Not measured: {0}.", {join(missing)}));
 
     ImGui::Spacing();
-    if (ImGui::Button("Review the report and send...")) screen_ = Screen::Preview;
+    if (ImGui::Button(tr("Review the report and send..."))) screen_ = Screen::Preview;
     ImGui::SameLine();
-    if (ImGui::Button(from_series_ ? "New series" : "Back")) reset();
+    if (ImGui::Button(from_series_ ? tr("New series") : tr("Back"))) reset();
     if (!report_file_.empty()) {
         ImGui::SameLine();
-        weak("Kept as " + u8(report_file_.filename()));
+        weak(trf("Kept as {0}", {u8(report_file_.filename())}));
     }
-    if (!keep_error_.empty()) colored_wrapped(kWarn, "The report could not be kept: " + keep_error_);
+    if (!keep_error_.empty()) colored_wrapped(kWarn, trf("The report could not be kept: {0}", {keep_error_}));
 }
 
 void BenchmarkTab::draw_preview() {
     const Json& r = *report_;
     const Json& result = r["result"];
     ImGui::Spacing();
-    if (ImGui::SmallButton("< Result")) screen_ = Screen::Result;
+    if (ImGui::SmallButton(tr("< Result"))) screen_ = Screen::Result;
     ImGui::SameLine();
-    ImGui::TextUnformatted("The report, exactly as it is sent");
+    ImGui::TextUnformatted(tr("The report, exactly as it is sent"));
 
-    ImGui::SeparatorText("Result");
+    ImGui::SeparatorText(tr("Result"));
     const Json& w = result["warm"];
     std::string line;
     for (const char* arm : {"without", "with"}) {
         line += (line.empty() ? "" : "; ") + arm_words(arm) + ": " +
-                (w[arm]["median_ms"].is_number() ? "median " + seconds(w[arm]["median_ms"].as_number()) : std::string("no warm start")) +
+                (w[arm]["median_ms"].is_number() ? trf("median {0}", {seconds(w[arm]["median_ms"].as_number())})
+                                                 : std::string(tr("no warm start"))) +
                 " (n = " + std::to_string(w[arm]["n"].as_integer()) + ")";
     }
     if (result["difference"].is_object()) {
         line += "; " + signed_difference(result["difference"]["ms"].as_number(), result["difference"]["percent"].as_number());
     }
     wrapped(line + ".");
-    weak(plural(static_cast<int64_t>(r["starts"].items().size()), "start", "starts") + ", " +
-         plural(static_cast<int64_t>(result["cold"]["starts"].items().size()), "cold start", "cold starts") + ", " +
-         plural(static_cast<int64_t>(result["not_counted"].items().size()), "start that does not count",
-                "starts that do not count") + ".");
+    weak(plural(static_cast<int64_t>(r["starts"].items().size()), N_("{0} start"), N_("{0} starts")) + ", " +
+         plural(static_cast<int64_t>(result["cold"]["starts"].items().size()), N_("{0} cold start"), N_("{0} cold starts")) +
+         ", " +
+         plural(static_cast<int64_t>(result["not_counted"].items().size()), N_("{0} start that does not count"),
+                N_("{0} starts that do not count")) +
+         ".");
 
-    ImGui::SeparatorText("Your computer");
+    ImGui::SeparatorText(tr("Your computer"));
     const Json& s = r["system"];
-    wrapped(s["cpu"].as_string() + ", " + std::to_string(s["logical_cores"].as_integer()) + " logical cores, " +
-            std::to_string(s["ram_gb"].as_integer()) + " GB of memory");
-    wrapped("Drives: game folder " + s["drives"]["game"].as_string() + ", EU4 user folder " + s["drives"]["user"].as_string() +
-            ", Workshop folder " + s["drives"]["workshop"].as_string());
+    wrapped(trf("{0}, {1} logical cores, {2} GB of memory", {s["cpu"].as_string(), std::to_string(s["logical_cores"].as_integer()),
+                                                            std::to_string(s["ram_gb"].as_integer())}));
+    wrapped(trf("Drives: game folder {0}, EU4 user folder {1}, Workshop folder {2}",
+                {s["drives"]["game"].as_string(), s["drives"]["user"].as_string(), s["drives"]["workshop"].as_string()}));
     std::vector<std::string> av;
     for (const Json& a : s["antivirus"].items()) av.push_back(a.as_string());
-    wrapped("Windows build " + std::to_string(s["windows_build"].as_integer()) + "; antivirus: " + (av.empty() ? "none reported" : join(av)));
+    wrapped(trf("Windows build {0}; antivirus: {1}",
+                {std::to_string(s["windows_build"].as_integer()), av.empty() ? std::string(tr("none reported")) : join(av)}));
 
-    ImGui::SeparatorText("Mods");
+    ImGui::SeparatorText(tr("Mods"));
     const Json& m = r["mods"];
-    wrapped(std::to_string(m["enabled"].as_integer()) + " enabled (" + std::to_string(m["local"].as_integer()) +
-            " local, counted only), about " + std::to_string(m["files"].as_integer()) + " files and " +
-            std::to_string(m["size_mb"].as_integer()) + " MB");
+    wrapped(trf("{0} enabled ({1} local, counted only), about {2} files and {3} MB",
+                {std::to_string(m["enabled"].as_integer()), std::to_string(m["local"].as_integer()),
+                 std::to_string(m["files"].as_integer()), std::to_string(m["size_mb"].as_integer())}));
     bool include = include_ids_;
     ImGui::BeginDisabled(sent_ || sending_.valid() || !workshop_ids_);
-    if (ImGui::Checkbox("Include the Workshop ids of my mods", &include)) switch_workshop_ids(include);
+    if (ImGui::Checkbox(tr("Include the Workshop ids of my mods"), &include)) switch_workshop_ids(include);
     ImGui::EndDisabled();
     if (m["workshop_ids"].is_array()) {
         std::vector<std::string> ids;
         for (const Json& id : m["workshop_ids"].items()) ids.push_back(id.as_string());
-        weak(ids.empty() ? "No Workshop mods." : join(ids));
+        weak(ids.empty() ? std::string(tr("No Workshop mods.")) : join(ids));
     }
 
-    ImGui::SeparatorText("Versions");
+    ImGui::SeparatorText(tr("Versions"));
     const Json& v = r["versions"];
-    wrapped("EU4: " + (v["game"]["build"].is_string() ? v["game"]["build"].as_string() : "unknown build, eu4.exe SHA-256 " +
-                                                                                         v["game"]["sha256"].as_string()) +
-            "; Anvil " + v["anvil"].as_string());
+    wrapped(trf("EU4: {0}; Anvil {1}", {v["game"]["build"].is_string()
+                                            ? v["game"]["build"].as_string()
+                                            : trf("unknown build, eu4.exe SHA-256 {0}", {v["game"]["sha256"].as_string()}),
+                                        v["anvil"].as_string()}));
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_SizingStretchProp;
     if (ImGui::BeginTable("versions", 4, flags)) {
-        ImGui::TableSetupColumn("Plugin");
-        ImGui::TableSetupColumn("Version");
-        ImGui::TableSetupColumn("Source");
+        ImGui::TableSetupColumn(tr("Plugin"));
+        ImGui::TableSetupColumn(tr("Version"));
+        ImGui::TableSetupColumn(tr("Source"));
         ImGui::TableSetupColumn("SHA-256", ImGuiTableColumnFlags_WidthStretch, 3.0f);
         ImGui::TableHeadersRow();
         for (const Json& p : v["plugins"].items()) {
@@ -685,14 +699,15 @@ void BenchmarkTab::draw_preview() {
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(p["version"].as_string().c_str());
             ImGui::TableNextColumn();
-            ImGui::TextUnformatted(p["source"].as_string() == "workshop" ? ("Workshop " + p["workshop_item"].as_string()).c_str() : "local");
+            ImGui::TextUnformatted(p["source"].as_string() == "workshop" ? trf("Workshop {0}", {p["workshop_item"].as_string()}).c_str()
+                                                                         : tr("local"));
             ImGui::TableNextColumn();
             ImGui::TextUnformatted(p["sha256"].as_string().c_str());
         }
         ImGui::EndTable();
     }
 
-    ImGui::SeparatorText("Plugin state in each start");
+    ImGui::SeparatorText(tr("Plugin state in each start"));
     std::vector<std::string> ids;
     for (const Json& start : r["starts"].items()) {
         for (const auto& [id, state] : start["plugins"].members()) {
@@ -706,7 +721,7 @@ void BenchmarkTab::draw_preview() {
                                             static_cast<float>(ids.size() + 1) +
                                         ImGui::GetStyle().ScrollbarSize + 2))) {
         ImGui::TableSetupScrollFreeze(1, 1);
-        ImGui::TableSetupColumn("Plugin", ImGuiTableColumnFlags_WidthFixed);
+        ImGui::TableSetupColumn(tr("Plugin"), ImGuiTableColumnFlags_WidthFixed);
         for (const Json& start : r["starts"].items()) {
             ImGui::TableSetupColumn(("#" + std::to_string(start["position"].as_integer())).c_str(), ImGuiTableColumnFlags_WidthFixed);
         }
@@ -722,10 +737,14 @@ void BenchmarkTab::draw_preview() {
                     weak("-");
                     continue;
                 }
-                std::string cell = p["state"].as_string();
-                if (cell == "disabled") cell += p["by"].as_string() == "arm" ? " (arm)" : " (you)";
-                if (cell == "skipped") cell += ": " + p["reason"].as_string();
-                if (p["participant"].as_bool() && !p["done"].as_bool()) cell += ", not finished";
+                const std::string state = p["state"].as_string();
+                std::string cell = state == "loaded"     ? tr("loaded")
+                                   : state == "disabled" ? (p["by"].as_string() == "arm" ? tr("disabled (arm)") : tr("disabled (you)"))
+                                   : state == "skipped"  ? trf("skipped: {0}", {p["reason"].as_string()})
+                                   : state == "failed"   ? tr("failed")
+                                   : state == "pending"  ? tr("pending")
+                                                         : state;
+                if (p["participant"].as_bool() && !p["done"].as_bool()) cell += ", " + std::string(tr("not finished"));
                 ImGui::TextUnformatted(cell.c_str());
             }
         }
@@ -733,7 +752,7 @@ void BenchmarkTab::draw_preview() {
     }
 
     for (const auto& [plugin, schema] : r["plugin_schemas"].members()) {
-        ImGui::SeparatorText(("Fields reported by " + plugin).c_str());
+        ImGui::SeparatorText(trf("Fields reported by {0}", {plugin}).c_str());
         std::vector<int> starts;
         for (const Json& start : r["starts"].items()) {
             if (start["plugins"][plugin]["participant"].as_bool()) starts.push_back(static_cast<int>(start["position"].as_integer()));
@@ -743,7 +762,7 @@ void BenchmarkTab::draw_preview() {
         if (std::find(starts.begin(), starts.end(), shown) == starts.end()) shown = starts.front();
         ImGui::PushID(plugin.c_str());
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 8);
-        if (ImGui::BeginCombo("Start", ("#" + std::to_string(shown)).c_str())) {
+        if (ImGui::BeginCombo((std::string(tr("Start")) + "###start").c_str(), ("#" + std::to_string(shown)).c_str())) {
             for (const int position : starts) {
                 if (ImGui::Selectable(("#" + std::to_string(position)).c_str(), position == shown)) shown = position;
             }
@@ -751,9 +770,9 @@ void BenchmarkTab::draw_preview() {
         }
         const Json& entry = r["starts"].items()[static_cast<size_t>(shown - 1)]["plugins"][plugin];
         if (!entry["done"].as_bool()) {
-            colored_wrapped(kWarn, "In this start " + plugin + " had not finished when the game quit: values it set later are missing.");
+            colored_wrapped(kWarn, trf("In this start {0} had not finished when the game quit: values it set later are missing.", {plugin}));
         }
-        if (entry["learning"].is_string()) weak("Learning: " + entry["learning"].as_string());
+        if (entry["learning"].is_string()) weak(trf("Learning: {0}", {entry["learning"].as_string()}));
         std::string group = "\x01";
         for (const auto& [name, field] : schema.members()) {
             const size_t dot = name.find('.');
@@ -775,14 +794,14 @@ void BenchmarkTab::draw_preview() {
         }
         ImGui::PopID();
     }
-    weak_wrapped("Field labels appear only here, not in the report. Never in a report: computer and account names, paths, drive "
-         "models and serial numbers, the GPU, free disk space, local mod names, dates and times of day, free text, log "
-         "lines, crash reports, or any install or player identifier.");
+    weak_wrapped(tr("Field labels appear only here, not in the report. Never in a report: computer and account names, "
+                    "paths, drive models and serial numbers, the GPU, free disk space, local mod names, dates and times "
+                    "of day, free text, log lines, crash reports, or any install or player identifier."));
 
     ImGui::Spacing();
-    if (ImGui::CollapsingHeader("Show the JSON", ImGuiTreeNodeFlags_DefaultOpen)) {
+    if (ImGui::CollapsingHeader((std::string(tr("Show the JSON")) + "###json-header").c_str(), ImGuiTreeNodeFlags_DefaultOpen)) {
         ImGui::InputTextMultiline("##json", &report_text_, ImVec2(-1, ImGui::GetTextLineHeight() * 18), ImGuiInputTextFlags_ReadOnly);
-        weak("These are exactly the bytes kept on this computer, sent and copied.");
+        weak_wrapped(tr("These are exactly the bytes kept on this computer, sent and copied."));
     }
     draw_send();
 }
@@ -792,13 +811,13 @@ void BenchmarkTab::draw_send() {
     std::snprintf(size, sizeof(size), "%.1f KB", static_cast<double>(report_text_.size()) / 1024.0);
     ImGui::Spacing();
     ImGui::BeginDisabled(sent_ || sending_.valid());
-    const std::string send = sent_ ? std::string("Sent") : sending_.valid() ? std::string("Sending...") : "Send (" + std::string(size) + ")";
-    if (ImGui::Button(send.c_str())) sending_ = std::async(std::launch::async, post_report, report_text_);
+    const std::string send = sent_ ? std::string(tr("Sent")) : sending_.valid() ? std::string(tr("Sending...")) : trf("Send ({0})", {size});
+    if (ImGui::Button((send + "###send").c_str())) sending_ = std::async(std::launch::async, post_report, report_text_);
     ImGui::EndDisabled();
     ImGui::SameLine();
-    if (ImGui::Button((std::string("Copy (") + size + ")").c_str())) {
-        copy_outcome_ = copy_to_clipboard(window_, report_text_) ? "Copied. Paste it into an issue or a message."
-                                                                 : "The clipboard could not be opened.";
+    if (ImGui::Button((trf("Copy ({0})", {size}) + "###copy").c_str())) {
+        copy_outcome_ = copy_to_clipboard(window_, report_text_) ? tr("Copied. Paste it into an issue or a message.")
+                                                                 : tr("The clipboard could not be opened.");
     }
     if (!send_outcome_.empty()) {
         if (send_failed_) colored_wrapped(kWarn, send_outcome_);
@@ -806,11 +825,11 @@ void BenchmarkTab::draw_send() {
     }
     if (!copy_outcome_.empty()) weak(copy_outcome_);
     ImGui::Spacing();
-    weak_wrapped("Send uploads this report to bench.happydwarf.dev, run on Cloudflare. Cloudflare sees your IP address "
-                 "for rate limiting; it is not stored. The server adds only the day it received the report, and keeps "
-                 "reports for 24 months. To have this report deleted, send its series id " +
-                 (*report_)["series_id"].as_string() + " to " + kPrivacyAddress + ".");
-    if (ImGui::SmallButton("The privacy note")) open_url(kPrivacyUrl);
+    weak_wrapped(trf("Send uploads this report to bench.happydwarf.dev, run on Cloudflare. Cloudflare sees your IP "
+                     "address for rate limiting; it is not stored. The server adds only the day it received the report, "
+                     "and keeps reports for 24 months. To have this report deleted, send its series id {0} to {1}.",
+                     {(*report_)["series_id"].as_string(), kPrivacyAddress}));
+    if (ImGui::SmallButton(tr("The privacy note"))) open_url(kPrivacyUrl);
 }
 
 }  // namespace anvil::manager

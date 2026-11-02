@@ -134,6 +134,30 @@ build/Release/anvil_bench.exe --memory --out bench-memory.json
 bench/run-lab.ps1 -Memory   # exit 1 over a budget
 ```
 
+## Texts for players and translations
+
+The overlay and the Manager show their texts in the player's language (design
+§15). A text the player reads goes through `tr("…")`, or `trf("… {0} …", {arg})`
+when it has arguments (`src/i18n/translate.hpp`); a text picked from several
+(a ternary, a table) is marked with `N_("…")` where it is written. Build
+sentences whole, with placeholders, rather than from pieces, since word order
+differs between languages. `anvil.log`, `anvil check` and the benchmark
+reports stay English.
+
+A reason the core gives (why a plugin is skipped or failed) is a message by
+code: add the code and its English words to `src/i18n/message.cpp` and build
+it with `i18n::Message("code", {args})`.
+
+Every new or changed English text needs its entry in each catalog,
+`src/i18n/catalog_fr.cpp`, `catalog_de.cpp` and `catalog_es.cpp`.
+`anvil_i18n_tests` (in `ctest`) names what is missing or unused, a translation
+whose placeholders differ, and a character the fonts do not have;
+`build/Release/anvil_i18n_tests.exe --keys` prints every text a catalog needs.
+A translation is checked by a native speaker before it counts as done; the
+pull request says which entries are not checked yet. To see a language without
+changing EU4's settings, start the game or the Manager with `ANVIL_LANGUAGE`
+set to `en`, `fr`, `de` or `es`.
+
 ## Benchmark receiver
 
 `services/bench-receiver/` is the Cloudflare Worker that takes the start-up

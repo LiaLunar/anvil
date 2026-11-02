@@ -3,6 +3,7 @@
 #pragma once
 
 #include "anvil_control.h"
+#include "i18n/translate.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -21,6 +22,10 @@ struct PluginRow {
     uint32_t settings = 0;
     std::string mod;                 // a plugin from a mod: the mod's name
     bool awaiting_approval = false;  // skipped until the player approves it
+    anvil::i18n::Message why;        // `reason` by code; empty from a core before 1.7
+
+    // The reason in the player's language.
+    std::string reason_text() const { return why.empty() ? reason : anvil::i18n::text(why); }
 };
 
 // A plugin in a mod (design §14), as anvil.control reports it.
@@ -36,6 +41,9 @@ struct ModRow {
     bool can_revoke = false;
     bool approved_next = false;  // approved in this game; loads from the next start
     bool revoked_next = false;
+    anvil::i18n::Message why;    // `reason` by code; empty from a core before 1.7
+
+    std::string reason_text() const { return why.empty() ? reason : anvil::i18n::text(why); }
 
     // Waits for the player: not approved yet, an update, or a conflict.
     bool waiting() const {
@@ -49,6 +57,9 @@ struct CrashInfo {
     std::wstring path;
     bool before_game_ready = false;
     bool is_new = false;
+
+    // "in plugin x's code" in the player's language.
+    std::string summary_text() const { return anvil::i18n::text(anvil::i18n::crash_message(level, plugins, summary)); }
 };
 
 class ControlClient {
@@ -58,6 +69,8 @@ public:
     explicit operator bool() const { return service_ != nullptr; }
 
     AnvilControlStatus status() const;
+    // The player's language ("en" from a core before 1.7).
+    anvil::i18n::Language language() const;
     std::vector<PluginRow> plugins() const;
     std::vector<std::string> warnings() const;
     std::optional<CrashInfo> previous_crash() const;

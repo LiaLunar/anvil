@@ -2,6 +2,8 @@
 
 #include "manifest.hpp"
 
+#include "i18n/message.hpp"
+
 #include <filesystem>
 #include <functional>
 #include <string>
@@ -20,7 +22,7 @@ struct ResolveInput {
     std::string benchmark_without;
     // Optional check after the API and Anvil version checks (the plugin's
     // symbols.toml); returns why the plugin must be skipped, empty = keep it.
-    std::function<std::string(const Manifest&)> verify;
+    std::function<i18n::Message(const Manifest&)> verify;
 };
 
 // Why a plugin is skipped, in words the start-up benchmark's record may carry
@@ -31,14 +33,19 @@ const char* skip_kind_name(SkipKind kind);  // "other", "safe_mode", ...
 
 struct Skipped {
     std::string id;     // may be a folder name when the manifest is broken
-    std::string reason;
+    std::string reason;  // the English words of `why`
     std::filesystem::path folder;  // the plugin folder
     bool disabled = false;         // disabled by the player in anvil.toml, or by the benchmark arm; not a fault
     bool benchmark_arm = false;    // disabled by the arm of a benchmark start (ResolveInput::benchmark_without)
     std::string mod;               // the mod's name for a plugin from a mod (design §14)
     bool awaiting_approval = false;  // a plugin from a mod that waits for the player's approval
     SkipKind kind = SkipKind::other;   // not used while `disabled`
+    i18n::Message why;                 // the reason by code, for the player's language (#158)
 };
+
+// A skipped plugin whose `reason` holds the English words of `why`.
+Skipped skipped_for(std::string id, i18n::Message why, std::filesystem::path folder, SkipKind kind = SkipKind::other,
+                    bool disabled = false);
 
 struct ResolveResult {
     std::vector<Manifest> order;  // load order: all early plugins first, then main

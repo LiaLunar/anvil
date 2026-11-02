@@ -210,19 +210,29 @@ int main() {
         p->settings.init(std::move(*schema.file), dir / "anvil" / "data" / "anvil-overlay" / "settings.toml",
                          "anvil-overlay", [](const std::string&) { return std::optional<std::string>(); });
         plugins.push_back(std::move(p));
-        std::vector<anvil::Skipped> skipped{{"tongs", "safe mode", dir / "tongs", false}};
+        std::vector<anvil::Skipped> skipped{{"tongs", "safe mode", dir / "tongs", false},
+                                            anvil::skipped_for("bellows", anvil::i18n::Message("requires_missing", {"tongs", "*"}),
+                                                               dir / "bellows")};
         anvil::ControlSources sources;
         sources.anvil_dir = dir / "anvil";
         sources.anvil_version = "1.1.0";
+        sources.language = "de";
         sources.plugins = &plugins;
         sources.skipped = &skipped;
         anvil::Control control(sources);
         control.loading_done();
         ControlClient client(control.service());
-        CHECK(static_cast<bool>(client) && client.status().plugins == 2);
+        CHECK(static_cast<bool>(client) && client.status().plugins == 3);
+        CHECK(client.language() == anvil::i18n::Language::German && ControlClient().language() == anvil::i18n::Language::English);
         const auto rows = client.plugins();
-        CHECK(rows.size() == 2 && rows[0].id == "anvil-overlay" && rows[0].early && rows[0].settings == 1);
+        CHECK(rows.size() == 3 && rows[0].id == "anvil-overlay" && rows[0].early && rows[0].settings == 1);
         CHECK(rows[1].id == "tongs" && rows[1].state == "skipped" && rows[1].reason == "safe mode");
+        // The reason by code reaches the overlay, which words it in the player's language (#158).
+        CHECK(rows[2].reason == "requires plugin 'tongs' (*), which is not loaded" && rows[2].why.code == "requires_missing");
+        CHECK(rows[2].reason_text() == rows[2].reason && rows[1].reason_text() == "safe mode");
+        anvil::i18n::set_language(anvil::i18n::Language::German);
+        CHECK(rows[2].reason_text() == "benötigt das Plugin 'tongs' (*), das nicht geladen ist");
+        anvil::i18n::set_language(anvil::i18n::Language::English);
         CHECK(client.setting_count("anvil-overlay") == 1);
         const auto options = client.setting_options("anvil-overlay", 0);
         CHECK(options.size() == 2 && options[0].first == "off" && options[0].second == "Off" && options[1].second == "on");

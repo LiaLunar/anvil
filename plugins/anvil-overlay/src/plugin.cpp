@@ -342,6 +342,7 @@ struct AnvilOverlay : anvil::Plugin {
                                "needs the core service " ANVIL_CONTROL_SERVICE " v1, which this Anvil does not offer");
         }
         s.control = overlay::ControlClient(control);
+        anvil::i18n::set_language(s.control.language());
         s.panel_key.store(cfg::panel_key.get().code);
         s.notifications.store(cfg::notifications.get());
         s.notification_seconds.store(cfg::notification_seconds.get());

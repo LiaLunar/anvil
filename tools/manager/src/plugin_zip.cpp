@@ -4,11 +4,13 @@
 #include "core/log.hpp"
 #include "core/manifest.hpp"
 #include "files.hpp"
+#include "i18n/translate.hpp"
 
 #include <windows.h>
 
 #include <algorithm>
 #include <atomic>
+#include <functional>
 
 namespace anvil::manager {
 namespace {
@@ -62,11 +64,11 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
         }
     }
     if (manifest == nullptr) {
-        out.error = "the zip holds no plugin.toml: it is not an Anvil plugin";
+        out.error = i18n::tr("the zip holds no plugin.toml: it is not an Anvil plugin");
         return out;
     }
     if (tie) {
-        out.error = "the zip holds more than one plugin; install them one by one";
+        out.error = i18n::tr("the zip holds more than one plugin; install them one by one");
         return out;
     }
     out.root = manifest->path.substr(0, manifest->path.size() - std::string_view("plugin.toml").size());
@@ -80,7 +82,7 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
 
     const fs::path stage = fresh_folder(temp_dir, "anvil-manager-check");
     if (stage.empty()) {
-        out.error = "cannot create a temporary folder in " + narrow(temp_dir.wstring());
+        out.error = i18n::trf("cannot create a temporary folder in {0}", {narrow(temp_dir.wstring())});
         return out;
     }
     if (unpack(zip, out.files, out.root, stage, out.error)) {
@@ -104,25 +106,30 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
         }
         in_zip(out.report.cannot_check);
         in_zip(out.report.skip_reason);
+        const std::function<void(i18n::Message&)> in_zip_message = [&](i18n::Message& m) {
+            in_zip(m.text);
+            for (i18n::Message& a : m.args) in_zip_message(a);
+        };
+        in_zip_message(out.report.skip_why);
     }
-    const std::string entry_missing = out.report.manifest ? missing_entry_reason(*out.report.manifest) : std::string();
+    const i18n::Message entry_missing = out.report.manifest ? missing_entry_reason(*out.report.manifest) : i18n::Message();
     remove_tree(stage);
     if (!out.error.empty()) return out;
     if (!out.report.manifest) {
         // plugin.toml does not parse: say why in the loader's words.
         out.error = out.report.problems.empty() ? out.report.cannot_check : out.report.problems.front().message;
-        if (out.error.empty()) out.error = "plugin.toml cannot be read";
+        if (out.error.empty()) out.error = i18n::tr("plugin.toml cannot be read");
         return out;
     }
     const Manifest& m = *out.report.manifest;
     out.id = m.id;
     out.version = m.version.to_string();
     if (std::find(standard_plugins.begin(), standard_plugins.end(), m.id) != standard_plugins.end()) {
-        out.error = m.id + " comes with Anvil; repair Anvil instead of installing it from a zip";
+        out.error = i18n::trf("{0} comes with Anvil; repair Anvil instead of installing it from a zip", {m.id});
         return out;
     }
     if (!entry_missing.empty() || out.report.exit_code == cli::kExitCannotCheck) {
-        out.error = !entry_missing.empty() ? entry_missing : out.report.cannot_check;
+        out.error = !entry_missing.empty() ? i18n::text(entry_missing) : out.report.cannot_check;
         return out;
     }
     out.would_skip = !out.report.skip_reason.empty();
@@ -134,8 +141,8 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
         const std::string name = narrow(folder.filename().wstring());
         if (installed.manifest && installed.manifest->id != m.id && name == m.id) {
             // Another plugin in the folder this one would take: never replaced.
-            out.error = "anvil/plugins/" + name + " holds the plugin " + installed.manifest->id +
-                        "; move or remove it first";
+            out.error = i18n::trf("{0} holds the plugin {1}; move or remove it first",
+                                  {"anvil/plugins/" + name, installed.manifest->id});
             return out;
         }
         if ((installed.manifest && installed.manifest->id == m.id) || (!installed.manifest && name == m.id)) {
@@ -150,13 +157,13 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
 PluginInstallResult install_plugin_zip(const ZipArchive& zip, const PluginZipCheck& check, const fs::path& game_dir) {
     PluginInstallResult result;
     if (!check.error.empty() || check.id.empty()) {
-        result.error = check.error.empty() ? "the zip was not checked" : check.error;
+        result.error = check.error.empty() ? std::string(i18n::tr("the zip was not checked")) : check.error;
         return result;
     }
     const fs::path work = game_dir / "anvil" / "data" / "anvil" / "manager";
     const fs::path incoming = fresh_folder(work, check.id + ".incoming");
     if (incoming.empty()) {
-        result.error = "cannot create a folder in " + narrow(work.wstring());
+        result.error = i18n::trf("cannot create a folder in {0}", {narrow(work.wstring())});
         result.access_denied = GetLastError() == ERROR_ACCESS_DENIED;
         return result;
     }
@@ -184,7 +191,7 @@ PluginInstallResult install_plugin_zip(const ZipArchive& zip, const PluginZipChe
             !MoveFileExW(folder.c_str(), previous.c_str(), 0)) {
             const DWORD code = GetLastError();
             remove_tree(incoming);
-            return fail("cannot move " + narrow(folder.wstring()) + " aside; is a file in it open?", code);
+            return fail(i18n::trf("cannot move {0} aside; is a file in it open?", {narrow(folder.wstring())}), code);
         }
         aside.push_back(folder);
         aside.push_back(previous);
@@ -193,7 +200,7 @@ PluginInstallResult install_plugin_zip(const ZipArchive& zip, const PluginZipChe
         const DWORD code = GetLastError();
         for (size_t i = 0; i + 1 < aside.size(); i += 2) MoveFileExW(aside[i + 1].c_str(), aside[i].c_str(), 0);
         remove_tree(incoming);
-        return fail("cannot move the plugin to " + narrow(target.wstring()), code);
+        return fail(i18n::trf("cannot move the plugin to {0}", {narrow(target.wstring())}), code);
     }
     for (size_t i = 0; i + 1 < aside.size(); i += 2) remove_tree(aside[i + 1]);
     result.ok = true;
@@ -213,7 +220,7 @@ bool remove_plugin_folder(const fs::path& game_dir, const std::string& folder,
     }
     const fs::path path = game_dir / "anvil" / "plugins" / widen(folder);
     if (const DWORD code = remove_tree(path); code != 0) {
-        error = "cannot remove " + narrow(path.wstring()) + " (error " + std::to_string(code) + ")";
+        error = i18n::trf("cannot remove {0} (error {1})", {narrow(path.wstring()), std::to_string(code)});
         return false;
     }
     return true;

@@ -13,8 +13,6 @@
 namespace anvil {
 namespace {
 
-std::string phase_name(Phase p) { return p == Phase::Early ? "early" : "main"; }
-
 // Skips plugins that declare a conflict with a plugin that stays loaded. A plugin's
 // conflicts are checked against the candidates that passed the earlier filters
 // (a candidate that is only removed later, for its dependencies, still counts).
@@ -27,13 +25,12 @@ std::string phase_name(Phase p) { return p == Phase::Early ? "early" : "main"; }
 // resolved again (A <-> B keeps B).
 void prune_conflicts(std::map<std::string, Manifest>& candidates, std::vector<Skipped>& skipped) {
     // Ids (by id order) of the candidates each plugin conflicts with, with the reason text.
-    std::map<std::string, std::map<std::string, std::string>> targets;
+    std::map<std::string, std::map<std::string, i18n::Message>> targets;
     for (const auto& [id, m] : candidates) {
         for (const auto& c : m.conflicts) {
             const auto other = candidates.find(c.id);
             if (other != candidates.end() && c.range.matches(other->second.version)) {
-                targets[id].emplace(c.id, "conflicts with " + c.id + " " + other->second.version.to_string() +
-                                              "; disable one of them");
+                targets[id].emplace(c.id, i18n::Message("conflicts", {c.id, other->second.version.to_string()}));
             }
         }
     }
@@ -50,8 +47,7 @@ void prune_conflicts(std::map<std::string, Manifest>& candidates, std::vector<Sk
         return out;
     };
     const auto drop = [&](const std::string& id, const std::string& other) {
-        skipped.push_back({.id = id, .reason = targets.at(id).at(other), .folder = candidates.at(id).folder,
-                           .kind = SkipKind::conflict});
+        skipped.push_back(skipped_for(id, targets.at(id).at(other), candidates.at(id).folder, SkipKind::conflict));
         alive.erase(id);
     };
 
@@ -98,28 +94,26 @@ void prune_dependencies(std::map<std::string, Manifest>& candidates, std::vector
         changed = false;
         for (auto it = candidates.begin(); it != candidates.end();) {
             const Manifest& m = it->second;
-            std::string reason;
+            i18n::Message reason;
             for (const auto& d : m.dependencies) {
                 const auto dep = candidates.find(d.id);
                 if (dep == candidates.end()) {
                     if (d.implied) {
-                        reason = "affects gameplay, so it needs plugin '" + d.id +
-                                 "', which is not loaded (Anvil suspends gameplay plugins in ironman and multiplayer "
-                                 "through it)";
+                        reason = i18n::Message("needs_anvil_game", {d.id});
                     } else if (!d.optional) {
-                        reason = "requires plugin '" + d.id + "' (" + d.range.text() + "), which is not loaded";
+                        reason = i18n::Message("requires_missing", {d.id, d.range.text()});
                     }
                 } else if (!d.range.matches(dep->second.version)) {
                     if (!d.optional) {
-                        reason = "requires '" + d.id + "' " + d.range.text() + ", found " + dep->second.version.to_string();
+                        reason = i18n::Message("requires_version", {d.id, d.range.text(), dep->second.version.to_string()});
                     }
                 } else if (m.phase == Phase::Early && dep->second.phase == Phase::Main) {
-                    reason = "early plugin cannot depend on main-phase plugin '" + d.id + "'";
+                    reason = i18n::Message("early_needs_main", {d.id});
                 }
                 if (!reason.empty()) break;
             }
             if (!reason.empty()) {
-                skipped.push_back({.id = m.id, .reason = reason, .folder = m.folder, .kind = SkipKind::dependency});
+                skipped.push_back(skipped_for(m.id, reason, m.folder, SkipKind::dependency));
                 it = candidates.erase(it);
                 changed = true;
             } else {
@@ -184,6 +178,17 @@ const char* skip_kind_name(SkipKind kind) {
     return "other";
 }
 
+Skipped skipped_for(std::string id, i18n::Message why, std::filesystem::path folder, SkipKind kind, bool disabled) {
+    Skipped s;
+    s.id = std::move(id);
+    s.reason = i18n::english(why);
+    s.folder = std::move(folder);
+    s.disabled = disabled;
+    s.kind = kind;
+    s.why = std::move(why);
+    return s;
+}
+
 ResolveResult resolve(const ResolveInput& input) {
     ResolveResult result;
     std::map<std::string, Manifest> candidates;
@@ -192,38 +197,35 @@ ResolveResult resolve(const ResolveInput& input) {
     // 1. Per-plugin checks and duplicate ids (first one wins).
     for (const auto& m : input.manifests) {
         if (candidates.contains(m.id)) {
-            result.skipped.push_back({.id = m.id,
-                                      .reason = "duplicate id; already provided by " +
-                                                narrow(candidates[m.id].folder.wstring()),
-                                      .folder = m.folder,
-                                      .kind = SkipKind::conflict});
+            result.skipped.push_back(skipped_for(
+                m.id, i18n::Message("duplicate_id", {narrow(candidates[m.id].folder.wstring())}), m.folder,
+                SkipKind::conflict));
             continue;
         }
         if (disabled.contains(m.id)) {
-            result.skipped.push_back({m.id, "disabled in anvil.toml", m.folder, true});
+            result.skipped.push_back(skipped_for(m.id, i18n::Message("disabled", {}), m.folder, SkipKind::other, true));
             continue;
         }
         if (!input.benchmark_without.empty() && m.id == input.benchmark_without) {
-            Skipped s{m.id, "left out by the start-up benchmark (ANVIL_BENCHMARK=without:" + m.id + ")", m.folder, true};
+            Skipped s = skipped_for(m.id, i18n::Message("benchmark_without", {m.id}), m.folder, SkipKind::other, true);
             s.benchmark_arm = true;
             result.skipped.push_back(std::move(s));
             continue;
         }
         if (m.api != input.host_api) {
-            result.skipped.push_back({m.id, "built for plugin API " + std::to_string(m.api) + ", Anvil provides API " +
-                                                std::to_string(input.host_api), m.folder});
+            result.skipped.push_back(skipped_for(
+                m.id, i18n::Message("api_mismatch", {std::to_string(m.api), std::to_string(input.host_api)}), m.folder));
             continue;
         }
         if (m.anvil && input.host_version && !m.anvil->matches(*input.host_version)) {
-            result.skipped.push_back({m.id, "requires Anvil " + m.anvil->text() + ", this is Anvil " +
-                                                input.host_version->to_string(), m.folder});
+            result.skipped.push_back(skipped_for(
+                m.id, i18n::Message("anvil_version", {m.anvil->text(), input.host_version->to_string()}), m.folder));
             continue;
         }
         if (input.verify) {
-            std::string reason = input.verify(m);
+            i18n::Message reason = input.verify(m);
             if (!reason.empty()) {
-                result.skipped.push_back(
-                    {.id = m.id, .reason = std::move(reason), .folder = m.folder, .kind = SkipKind::verification});
+                result.skipped.push_back(skipped_for(m.id, std::move(reason), m.folder, SkipKind::verification));
                 continue;
             }
         }
@@ -256,10 +258,9 @@ ResolveResult resolve(const ResolveInput& input) {
         }
         if (stuck.empty()) break;
         for (const auto& id : stuck) {
-            result.skipped.push_back({.id = id,
-                                      .reason = "dependency/load_after cycle in " + phase_name(stuckPhase) + " phase",
-                                      .folder = candidates.at(id).folder,
-                                      .kind = SkipKind::dependency});
+            result.skipped.push_back(skipped_for(
+                id, i18n::Message(stuckPhase == Phase::Early ? "cycle_early" : "cycle_main", {}),
+                candidates.at(id).folder, SkipKind::dependency));
             candidates.erase(id);
         }
     }

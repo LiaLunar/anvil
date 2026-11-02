@@ -290,7 +290,7 @@ void control_tests() {
         // Two unfinished starts: the two newest reports from before readiness.
         auto crashes = safe_mode_crashes(dir, 2);
         CHECK(crashes.size() == 2 && crashes[0].name == "2026-10-20_12-00-00" && crashes[1].name == "2026-10-20_10-00-00");
-        const std::string reason = safe_mode_exclusion("anvil-overlay", crashes);
+        const std::string reason = anvil::i18n::english(safe_mode_exclusion("anvil-overlay", crashes));
         CHECK(reason.find("safe mode") == 0 && reason.find("in X") != std::string::npos &&
               reason.find("2026-10-20_10-00-00") != std::string::npos);
         CHECK(safe_mode_exclusion("anvil-game", crashes).empty());  // only on the stack, or after readiness

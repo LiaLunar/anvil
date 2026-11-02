@@ -6,6 +6,8 @@
 //   AnvilManager.exe --check-package          exit code 0 when the package it carries is sound
 //   AnvilManager.exe --remove-after-exit <exe> <pid>   (internal: the uninstall's last step)
 #include "core/log.hpp"
+#include "core/playset.hpp"
+#include "i18n/translate.hpp"
 #include "manager_app.hpp"
 #include "platform.hpp"
 
@@ -259,6 +261,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         if (args[i] == L"--game" && i + 1 < args.size()) game = args[++i];
     }
     remove_stale_copies();
+    // The language of EU4's settings (#158); ManagerApp follows the chosen game folder later.
+    anvil::i18n::set_language(anvil::i18n::choose_language(anvil::eu4_user_dir(game)).language);
 
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     std::string package_error;
@@ -289,7 +293,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
 
     Graphics graphics;
     if (!graphics.create(window)) {
-        MessageBoxW(window, L"Direct3D 11 is not available on this computer.", L"Anvil Manager", MB_ICONERROR);
+        MessageBoxW(window, anvil::widen(anvil::i18n::tr("Direct3D 11 is not available on this computer.")).c_str(),
+                    L"Anvil Manager", MB_ICONERROR);
         return 1;
     }
     g_graphics = &graphics;

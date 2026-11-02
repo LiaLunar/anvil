@@ -22,6 +22,10 @@ IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND window, UINT message,
 namespace overlay {
 namespace {
 
+using anvil::i18n::N_;
+using anvil::i18n::tr;
+using anvil::i18n::trf;
+
 enum class Tab { None, Status, Mods, Settings, Crash, Log };
 
 struct ShownNotice {
@@ -95,6 +99,17 @@ void say(std::string text, bool error) {
     u.message_error = error;
 }
 
+// A translated text as one ImGui line or a wrapped one.
+void line(const std::string& text) { ImGui::TextUnformatted(text.c_str()); }
+void wrapped(const std::string& text) { ImGui::TextWrapped("%s", text.c_str()); }
+void colored(const ImVec4& color, const std::string& text) { ImGui::TextColored(color, "%s", text.c_str()); }
+void weak(const std::string& text) { ImGui::TextDisabled("%s", text.c_str()); }
+void weak_wrapped(const std::string& text) {
+    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
+    wrapped(text);
+    ImGui::PopStyleColor();
+}
+
 void copy_to_clipboard(const std::string& text) {
     Ui& u = ui();
     u.copy = text;
@@ -126,9 +141,9 @@ void refresh(bool force) {
 void disable_plugin(const std::string& id) {
     const std::string error = shared().control.disable_next_start(id);
     if (error.empty()) {
-        say(id + " is disabled from the next start (disabled_plugins in anvil.toml).", false);
+        say(trf("{0} is disabled from the next start (disabled_plugins in anvil.toml).", {id}), false);
     } else {
-        say("Cannot disable " + id + ": " + error, true);
+        say(trf("Cannot disable {0}: {1}", {id, error}), true);
     }
     refresh(true);
     // The notices offer it no more.
@@ -141,7 +156,7 @@ void disable_plugin(const std::string& id) {
                                      }),
                       actions.end());
         if (error.empty() && shown.notice.id == "crash") {
-            shown.notice.lines.push_back(id + " is disabled from the next start.");
+            shown.notice.lines.push_back(trf("{0} is disabled from the next start.", {id}));
         }
     }
 }
@@ -372,43 +387,55 @@ void draw_notices(ULONGLONG now) {
 
 // ---- the panel ---------------------------------------------------------------------------
 
-const char* mode_text(const AnvilControlStatus& s) {
-    if (s.ironman && s.multiplayer) return "ironman multiplayer game";
-    if (s.ironman) return "ironman game";
-    if (s.multiplayer) return "multiplayer game";
-    return "single-player game";
+// The game the player is in, as a whole sentence (the words differ by language).
+std::string session_text(const AnvilControlStatus& s) {
+    const char* mode = s.ironman && s.multiplayer ? (s.gameplay_active > 0 ? N_("In an ironman multiplayer game; {0} gameplay plugin(s) act ({1}).")
+                                                                           : N_("In an ironman multiplayer game; no gameplay plugin acts."))
+                       : s.ironman ? (s.gameplay_active > 0 ? N_("In an ironman game; {0} gameplay plugin(s) act ({1}).")
+                                                            : N_("In an ironman game; no gameplay plugin acts."))
+                       : s.multiplayer ? (s.gameplay_active > 0 ? N_("In a multiplayer game; {0} gameplay plugin(s) act ({1}).")
+                                                                : N_("In a multiplayer game; no gameplay plugin acts."))
+                                       : (s.gameplay_active > 0 ? N_("In a single-player game; {0} gameplay plugin(s) act ({1}).")
+                                                                : N_("In a single-player game; no gameplay plugin acts."));
+    return trf(mode, {std::to_string(s.gameplay_active), s.gameplay_hash});
+}
+
+// A plugin's state word in the table.
+const char* state_word(const std::string& state) {
+    if (state == "loaded") return tr("loaded");
+    if (state == "failed") return tr("failed");
+    if (state == "skipped") return tr("skipped");
+    if (state == "pending") return tr("pending");
+    return state.c_str();
 }
 
 void draw_status() {
     Ui& u = ui();
     const AnvilControlStatus& s = u.status;
-    ImGui::Text("Anvil %s, game build %s", s.anvil_version ? s.anvil_version : "?",
-                s.game_build ? s.game_build : "unknown");
+    line(trf("Anvil {0}, game build {1}", {s.anvil_version ? s.anvil_version : "?", s.game_build ? s.game_build : tr("unknown")}));
     if (s.safe_mode) {
-        ImGui::TextColored(kRed, "Safe mode: the last %u starts ended before the game was ready.", s.unfinished_starts);
+        colored(kRed, trf("Safe mode: the last {0} starts ended before the game was ready.", {std::to_string(s.unfinished_starts)}));
     } else if (s.unfinished_starts > 0) {
-        ImGui::TextColored(kAmber, "%u earlier start(s) ended before the game was ready.", s.unfinished_starts);
+        colored(kAmber, trf("{0} earlier start(s) ended before the game was ready.", {std::to_string(s.unfinished_starts)}));
     }
-    if (s.session) {
-        if (s.gameplay_active > 0) {
-            ImGui::Text("In a %s; %u gameplay plugin(s) act (%s).", mode_text(s), s.gameplay_active, s.gameplay_hash);
-        } else {
-            ImGui::Text("In a %s; no gameplay plugin acts.", mode_text(s));
-        }
-    }
-    if (!s.loading_done) ImGui::TextDisabled("Plugins are still loading.");
-    ImGui::Text("%u loaded, %u failed, %u skipped", s.loaded, s.failed, s.skipped);
+    if (s.session) line(session_text(s));
+    if (!s.loading_done) weak(tr("Plugins are still loading."));
+    line(trf("{0} loaded, {1} failed, {2} skipped",
+             {std::to_string(s.loaded), std::to_string(s.failed), std::to_string(s.skipped)}));
 
     const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
     const float warnings_height = u.warnings.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing() * 6.0f;
     if (ImGui::BeginTable("plugins", 5, flags, ImVec2(0.0f, -warnings_height - ImGui::GetFrameHeightWithSpacing()))) {
         ImGui::TableSetupScrollFreeze(0, 1);
-        ImGui::TableSetupColumn("Plugin", ImGuiTableColumnFlags_WidthStretch, 1.2f);
-        ImGui::TableSetupColumn("Version", ImGuiTableColumnFlags_WidthStretch, 0.6f);
-        ImGui::TableSetupColumn("State", ImGuiTableColumnFlags_WidthStretch, 0.6f);
-        ImGui::TableSetupColumn("Details", ImGuiTableColumnFlags_WidthStretch, 2.4f);
-        ImGui::TableSetupColumn("Next start", ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn(tr("Plugin"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
+        ImGui::TableSetupColumn(tr("Version"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
+        ImGui::TableSetupColumn(tr("State"), ImGuiTableColumnFlags_WidthStretch, 0.6f);
+        ImGui::TableSetupColumn(tr("Details"), ImGuiTableColumnFlags_WidthStretch, 2.4f);
+        // As wide as its button, which runs longer in some languages than in English.
+        const float button = ImGui::CalcTextSize(tr("Disable at next start")).x + ImGui::GetStyle().FramePadding.x * 2.0f;
+        ImGui::TableSetupColumn(tr("Next start"), ImGuiTableColumnFlags_WidthFixed,
+                                std::max(button, ImGui::CalcTextSize(tr("Next start")).x));
         ImGui::TableHeadersRow();
         for (const PluginRow& p : u.plugins) {
             ImGui::PushID(p.id.c_str());
@@ -420,18 +447,21 @@ void draw_status() {
             ImGui::TextUnformatted(p.version.c_str());
             ImGui::TableNextColumn();
             const ImVec4 color = p.state == "loaded" ? kGreen : p.state == "failed" ? kRed : kAmber;
-            ImGui::TextColored(color, "%s", p.state.c_str());
+            colored(color, state_word(p.state));
             ImGui::TableNextColumn();
-            std::string details = p.reason;
+            std::vector<std::string> details;
             // A skipped one's reason names its mod already.
-            if (!p.mod.empty() && p.state != "skipped") details = "from mod '" + p.mod + "'" + (details.empty() ? "" : "; " + details);
-            if (p.suspended) details += details.empty() ? "suspended in this game" : "; suspended in this game";
-            if (p.gameplay) details += details.empty() ? "changes the game" : "; changes the game";
-            ImGui::TextWrapped("%s", details.c_str());
+            if (!p.mod.empty() && p.state != "skipped") details.push_back(trf("from mod '{0}'", {p.mod}));
+            if (!p.reason.empty()) details.push_back(p.reason_text());
+            if (p.suspended) details.push_back(tr("suspended in this game"));
+            if (p.gameplay) details.push_back(tr("changes the game"));
+            std::string text;
+            for (const std::string& d : details) text += (text.empty() ? "" : "; ") + d;
+            wrapped(text);
             ImGui::TableNextColumn();
             if (p.disabled_next) {
-                ImGui::TextDisabled("disabled");
-            } else if (ImGui::SmallButton("Disable at next start")) {
+                weak(tr("disabled"));
+            } else if (ImGui::SmallButton(tr("Disable at next start"))) {
                 disable_plugin(p.id);
             }
             ImGui::PopID();
@@ -439,7 +469,7 @@ void draw_status() {
         ImGui::EndTable();
     }
     if (!u.warnings.empty()) {
-        ImGui::Text("Warnings (%zu)", u.warnings.size());
+        line(trf("Warnings ({0})", {std::to_string(u.warnings.size())}));
         if (ImGui::BeginChild("warnings", ImVec2(0.0f, warnings_height - ImGui::GetFrameHeightWithSpacing()),
                               ImGuiChildFlags_Borders)) {
             for (const std::string& w : u.warnings) ImGui::TextWrapped("%s", w.c_str());
@@ -453,7 +483,7 @@ void draw_status() {
 std::string mod_key(const ModRow& m) { return m.id + "/" + m.mod; }
 
 std::string mod_source(const ModRow& m) {
-    return "mod '" + m.mod + "' (" + (m.workshop_id.empty() ? std::string("local mod") : "Workshop " + m.workshop_id) + ")";
+    return trf("mod '{0}' ({1})", {m.mod, m.workshop_id.empty() ? std::string(tr("local mod")) : trf("Workshop {0}", {m.workshop_id})});
 }
 
 // After an approval or a revocation: the panel and the notice show what is left.
@@ -468,9 +498,9 @@ void mods_changed() {
 void approve(const ModRow& m) {
     const std::string error = shared().control.approve_mod_plugin(m);
     if (error.empty()) {
-        say(m.id + " " + m.version + " from " + mod_source(m) + " is approved; it loads from the next start.", false);
+        say(trf("{0} {1} from {2} is approved; it loads from the next start.", {m.id, m.version, mod_source(m)}), false);
     } else {
-        say("Cannot approve " + m.id + ": " + error, true);
+        say(trf("Cannot approve {0}: {1}", {m.id, error}), true);
     }
     ui().confirm_approve.clear();
     mods_changed();
@@ -479,34 +509,34 @@ void approve(const ModRow& m) {
 void revoke(const ModRow& m) {
     const std::string error = shared().control.revoke_mod_plugin(m);
     if (error.empty()) {
-        say("The approval of " + m.id + " is revoked; it does not load from the next start.", false);
+        say(trf("The approval of {0} is revoked; it does not load from the next start.", {m.id}), false);
     } else {
-        say("Cannot revoke " + m.id + ": " + error, true);
+        say(trf("Cannot revoke {0}: {1}", {m.id, error}), true);
     }
     mods_changed();
 }
 
 const char* state_text(const ModRow& m) {
-    if (m.approved_next) return "approved for the next start";
-    if (m.revoked_next) return "revoked from the next start";
-    if (m.state == "approved") return m.loaded ? "approved, loaded" : "approved";
-    if (m.state == "update-pending") return m.loaded ? "update waits; the approved version is loaded" : "update waits";
-    if (m.state == "pending") return "waits for approval";
-    if (m.state == "conflict") return "conflict";
-    if (m.state == "shadowed") return "a local plugin wins";
-    return "cannot be approved";
+    if (m.approved_next) return tr("approved for the next start");
+    if (m.revoked_next) return tr("revoked from the next start");
+    if (m.state == "approved") return m.loaded ? tr("approved, loaded") : tr("approved");
+    if (m.state == "update-pending") return m.loaded ? tr("update waits; the approved version is loaded") : tr("update waits");
+    if (m.state == "pending") return tr("waits for approval");
+    if (m.state == "conflict") return tr("conflict");
+    if (m.state == "shadowed") return tr("a local plugin wins");
+    return tr("cannot be approved");
 }
 
 void draw_mods() {
     Ui& u = ui();
     if (u.mods.empty()) {
-        ImGui::TextWrapped("No enabled mod in the playset has plugins (anvil/<id>/ in the mod's folder).");
+        wrapped(tr("No enabled mod in the playset has plugins (anvil/<id>/ in the mod's folder)."));
         return;
     }
-    ImGui::TextWrapped("Plugins from mods are native code: they run with the game's permissions and can do anything "
-                       "your Windows account can. Approve only plugins whose authors you trust. An approval covers "
-                       "these exact files (their hash); an update waits for a new approval. Approved plugins load "
-                       "from the next start, from Anvil's own copy.");
+    wrapped(tr("Plugins from mods are native code: they run with the game's permissions and can do anything "
+               "your Windows account can. Approve only plugins whose authors you trust. An approval covers "
+               "these exact files (their hash); an update waits for a new approval. Approved plugins load "
+               "from the next start, from Anvil's own copy."));
     ImGui::Separator();
     if (ImGui::BeginChild("mods", ImVec2(0.0f, 0.0f))) {
         for (const ModRow& m : u.mods) {
@@ -517,40 +547,42 @@ void draw_mods() {
             const std::string header = m.id + (m.version.empty() ? "" : " " + m.version) + "  -  " + mod_source(m);
             const bool open = ImGui::CollapsingHeader(header.c_str(), m.waiting() ? ImGuiTreeNodeFlags_DefaultOpen : 0);
             ImGui::SameLine();
-            ImGui::TextColored(color, "%s", state_text(m));
+            colored(color, state_text(m));
             if (open) {
                 ImGui::Indent();
-                if (!m.name.empty()) ImGui::Text("Name: %s", m.name.c_str());
-                if (!m.authors.empty()) ImGui::TextWrapped("Authors: %s", m.authors.c_str());
-                if (!m.description.empty()) ImGui::TextWrapped("%s", m.description.c_str());
+                if (!m.name.empty()) line(trf("Name: {0}", {m.name}));
+                if (!m.authors.empty()) wrapped(trf("Authors: {0}", {m.authors}));
+                if (!m.description.empty()) wrapped(m.description);
                 if (m.gameplay) {
-                    ImGui::TextColored(kAmber, "Changes the game (affects_gameplay): suspended in ironman and multiplayer "
-                                               "unless you allow it.");
+                    ImGui::PushStyleColor(ImGuiCol_Text, kAmber);
+                    wrapped(tr("Changes the game (affects_gameplay): suspended in ironman and multiplayer unless you allow it."));
+                    ImGui::PopStyleColor();
                 } else {
-                    ImGui::TextUnformatted("Does not change the game's simulation (affects_gameplay = false).");
+                    wrapped(tr("Does not change the game's simulation (affects_gameplay = false)."));
                 }
-                ImGui::Text("Game addresses (symbols): %u", m.symbols);
-                ImGui::TextWrapped("Hash: %s", m.hash.empty() ? "-" : m.hash.c_str());
-                if (!m.repository.empty()) ImGui::TextWrapped("Source: %s", m.repository.c_str());
+                line(trf("Game addresses (symbols): {0}", {std::to_string(m.symbols)}));
+                wrapped(trf("Hash: {0}", {m.hash.empty() ? "-" : m.hash}));
+                if (!m.repository.empty()) wrapped(trf("Source: {0}", {m.repository}));
                 if (!m.approved_hash.empty()) {
-                    ImGui::TextWrapped("Approved: %s on %s (hash %s)", m.approved_version.c_str(),
-                                       m.approved_date.substr(0, 10).c_str(), m.approved_hash.substr(0, 8).c_str());
+                    wrapped(trf("Approved: {0} on {1} (hash {2})",
+                                {m.approved_version, m.approved_date.substr(0, 10), m.approved_hash.substr(0, 8)}));
                 }
-                ImGui::TextWrapped("%s", m.reason.c_str());
+                wrapped(m.reason_text());
                 if (m.can_approve && !m.approved_next) {
                     if (u.confirm_approve == mod_key(m)) {
-                        ImGui::TextColored(kAmber, "Approve native code from %s? It loads from the next start.",
-                                           mod_source(m).c_str());
-                        if (ImGui::Button("Approve")) approve(m);
+                        ImGui::PushStyleColor(ImGuiCol_Text, kAmber);
+                        wrapped(trf("Approve native code from {0}? It loads from the next start.", {mod_source(m)}));
+                        ImGui::PopStyleColor();
+                        if (ImGui::Button(tr("Approve"))) approve(m);
                         ImGui::SameLine();
-                        if (ImGui::Button("Cancel")) u.confirm_approve.clear();
-                    } else if (ImGui::Button(m.state == "update-pending" ? "Approve the update..." : "Approve...")) {
+                        if (ImGui::Button(tr("Cancel"))) u.confirm_approve.clear();
+                    } else if (ImGui::Button(m.state == "update-pending" ? tr("Approve the update...") : tr("Approve..."))) {
                         u.confirm_approve = mod_key(m);
                     }
                 }
                 if (m.can_revoke) {
                     if (m.can_approve && !m.approved_next) ImGui::SameLine();
-                    if (ImGui::Button("Revoke the approval")) revoke(m);
+                    if (ImGui::Button(tr("Revoke the approval"))) revoke(m);
                 }
                 ImGui::Unindent();
             }
@@ -584,7 +616,7 @@ void draw_setting(const std::string& plugin, AnvilSetting id, const AnvilControl
     const float width = 220.0f * scale();
     ImGui::PushID(static_cast<int>(id));
     const auto applied = [&](const std::string& error) {
-        apply_result(error, std::string(label) + (info.restart ? ": saved; applies at the next start" : ": applied"));
+        apply_result(error, trf(info.restart ? N_("{0}: saved; applies at the next start") : N_("{0}: applied"), {label}));
     };
     switch (info.type) {
     case ANVIL_CONTROL_SETTING_BOOL: {
@@ -659,7 +691,7 @@ void draw_setting(const std::string& plugin, AnvilSetting id, const AnvilControl
     }
     case ANVIL_CONTROL_SETTING_KEY: {
         const bool recording = s.recording_key.load() && u.record_plugin == plugin && u.record_setting == id;
-        const std::string shown = recording ? "Press a key (Esc cancels)" : saved.empty() ? "(none)" : saved;
+        const std::string shown = recording ? tr("Press a key (Esc cancels)") : saved.empty() ? tr("(none)") : saved;
         if (ImGui::Button((shown + "##key").c_str(), ImVec2(width, 0.0f)) && !recording) {
             u.record_plugin = plugin;
             u.record_setting = id;
@@ -670,7 +702,7 @@ void draw_setting(const std::string& plugin, AnvilSetting id, const AnvilControl
         ImGui::TextUnformatted(label);
         if (!saved.empty()) {
             ImGui::SameLine();
-            if (ImGui::SmallButton("Clear")) {
+            if (ImGui::SmallButton(tr("Clear"))) {
                 AnvilControlValue v{0, 0.0, nullptr};
                 applied(control.set(plugin, id, v));
             }
@@ -686,12 +718,11 @@ void draw_setting(const std::string& plugin, AnvilSetting id, const AnvilControl
         // restart = true: the saved value waits for the next start. Otherwise
         // an ANVIL_<ID>_<NAME> variable overrides it until the next change.
         ImGui::SameLine();
-        ImGui::TextDisabled(info.restart ? "(now %s; applies at the next start)" : "(now %s, from the environment)",
-                            current.c_str());
+        weak_wrapped(trf(info.restart ? N_("(now {0}; applies at the next start)") : N_("(now {0}, from the environment)"), {current}));
     }
     if (saved != fallback) {
         ImGui::SameLine();
-        if (ImGui::SmallButton("Reset")) applied(control.reset(plugin, id));
+        if (ImGui::SmallButton(tr("Reset"))) applied(control.reset(plugin, id));
     }
     ImGui::PopID();
 }
@@ -704,7 +735,7 @@ void draw_settings() {
         if (p.settings > 0) with_settings.push_back(&p);
     }
     if (with_settings.empty()) {
-        ImGui::TextDisabled("No plugin declares settings.");
+        weak(tr("No plugin declares settings."));
         return;
     }
     if (u.selected_plugin.empty() ||
@@ -734,31 +765,31 @@ void draw_settings() {
         for (const std::string& w : control.setting_warnings(u.selected_plugin)) ImGui::TextColored(kAmber, "%s", w.c_str());
     }
     ImGui::EndChild();
-    ImGui::TextDisabled("Values are saved in anvil\\data\\%s\\settings.toml.", u.selected_plugin.c_str());
+    weak(trf("Values are saved in {0}.", {"anvil\\data\\" + u.selected_plugin + "\\settings.toml"}));
 }
 
 void draw_crash() {
     Ui& u = ui();
     if (!u.crash) {
-        ImGui::TextDisabled("No crash report from an earlier start.");
+        weak(tr("No crash report from an earlier start."));
         return;
     }
     const CrashInfo& c = *u.crash;
-    ImGui::Text("Report %s%s", c.name.c_str(), c.before_game_ready ? ", before the game was ready" : "");
-    ImGui::TextWrapped("The crash was %s.", c.summary.empty() ? c.level.c_str() : c.summary.c_str());
+    line(trf(c.before_game_ready ? N_("Report {0}, before the game was ready") : N_("Report {0}"), {c.name}));
+    wrapped(trf("The crash was {0}.", {c.summary_text()}));
     if (!c.plugins.empty()) {
         std::string list;
         for (const std::string& id : c.plugins) list += (list.empty() ? "" : ", ") + id;
-        ImGui::TextWrapped("Plugins involved: %s", list.c_str());
+        wrapped(trf("Plugins involved: {0}", {list}));
     }
     if (!c.issues.empty()) {
-        ImGui::TextWrapped("Report it at %s", c.issues.c_str());
+        wrapped(trf("Report it at {0}", {c.issues}));
         ImGui::SameLine();
-        if (ImGui::SmallButton("Copy link")) copy_to_clipboard(c.issues);
+        if (ImGui::SmallButton(tr("Copy link"))) copy_to_clipboard(c.issues);
     }
-    if (ImGui::Button("Copy report")) {
+    if (ImGui::Button(tr("Copy report"))) {
         copy_to_clipboard(c.report);
-        say("The report is in the clipboard. Nothing is uploaded.", false);
+        say(tr("The report is in the clipboard. Nothing is uploaded."), false);
     }
     if (c.level == "in_plugin_code" || c.level == "in_plugin_change") {
         for (const std::string& id : c.plugins) {
@@ -766,8 +797,8 @@ void draw_crash() {
             if (row == u.plugins.end()) continue;
             ImGui::SameLine();
             if (row->disabled_next) {
-                ImGui::TextDisabled("%s: disabled from the next start", id.c_str());
-            } else if (ImGui::Button(("Disable " + id + " at the next start").c_str())) {
+                weak(trf("{0}: disabled from the next start", {id}));
+            } else if (ImGui::Button((trf("Disable {0} at the next start", {id}) + "##disable-" + id).c_str())) {
                 disable_plugin(id);
             }
         }
@@ -781,11 +812,11 @@ void draw_crash() {
 void draw_log() {
     Ui& u = ui();
     const ULONGLONG now = GetTickCount64();
-    bool refresh_now = ImGui::Button("Refresh");
+    bool refresh_now = ImGui::Button(tr("Refresh"));
     ImGui::SameLine();
-    ImGui::Checkbox("Follow", &u.log_follow);
+    ImGui::Checkbox(tr("Follow"), &u.log_follow);
     ImGui::SameLine();
-    if (ImGui::Button("Copy")) copy_to_clipboard(u.log);
+    if (ImGui::Button(tr("Copy"))) copy_to_clipboard(u.log);
     if (u.log_refreshed == 0 || refresh_now || (u.log_follow && now - u.log_refreshed > 2000)) {
         u.log = shared().control.log_tail(400);
         u.log_refreshed = now;
@@ -814,21 +845,22 @@ void draw_panel() {
         if (!u.message.empty()) {
             ImGui::TextColored(u.message_error ? kRed : kGreen, "%s", u.message.c_str());
             ImGui::SameLine();
-            if (ImGui::SmallButton("OK")) u.message.clear();
+            if (ImGui::SmallButton(tr("OK"))) u.message.clear();
         }
         if (ImGui::BeginTabBar("tabs")) {
+            // The tab's id stays English, so a tab keeps its place whatever the language.
             const auto tab = [&](const char* name, Tab which, void (*body)()) {
                 const ImGuiTabItemFlags flags = u.requested_tab == which ? ImGuiTabItemFlags_SetSelected : 0;
-                if (ImGui::BeginTabItem(name, nullptr, flags)) {
+                if (ImGui::BeginTabItem((std::string(tr(name)) + "###" + name).c_str(), nullptr, flags)) {
                     body();
                     ImGui::EndTabItem();
                 }
             };
-            tab("Status", Tab::Status, draw_status);
-            tab("Mods", Tab::Mods, draw_mods);
-            tab("Settings", Tab::Settings, draw_settings);
-            tab("Crash report", Tab::Crash, draw_crash);
-            tab("Log", Tab::Log, draw_log);
+            tab(N_("Status"), Tab::Status, draw_status);
+            tab(N_("Mods"), Tab::Mods, draw_mods);
+            tab(N_("Settings"), Tab::Settings, draw_settings);
+            tab(N_("Crash report"), Tab::Crash, draw_crash);
+            tab(N_("Log"), Tab::Log, draw_log);
             u.requested_tab = Tab::None;
             ImGui::EndTabBar();
         }
@@ -854,7 +886,7 @@ void ui_frame(IDirect3DDevice9* device) {
     if (const int64_t recorded = s.recorded_key.exchange(-1); recorded >= 0) {
         if (recorded > 0 && !u.record_plugin.empty()) {
             AnvilControlValue v{recorded, 0.0, nullptr};
-            apply_result(s.control.set(u.record_plugin, u.record_setting, v), "Key saved");
+            apply_result(s.control.set(u.record_plugin, u.record_setting, v), tr("Key saved"));
         }
         u.record_plugin.clear();
     }
