@@ -700,7 +700,7 @@ Exceeding a budget blocks the release and any change to stubs, chains or core st
 Plugins are native code with the game's permissions:
 - local plugins are trusted by placement, and plugins from mods (Workshop or local) need per-version approval;
 - Anvil and its standard plugins never download anything; the Manager's release check is opt-in and only links;
-- releases are built by GitHub Actions with SHA-256 sums and provenance attestation. They are not signed yet: signing the executables and DLLs is [#157](https://github.com/happy-dwarf-team/anvil/issues/157).
+- releases are built by GitHub Actions with SHA-256 sums and provenance attestation. They are not signed, decided on 2026-11-02 ([#157](https://github.com/happy-dwarf-team/anvil/issues/157)): players who want to check a download compare it with `SHA256SUMS.txt` or the attestation, and SmartScreen asks once on the first start.
 
 ## 20. Build, test, release
 
@@ -715,10 +715,10 @@ The fog of the map ([#12](https://github.com/happy-dwarf-team/anvil/issues/12)) 
 
 **Decided**
 - The ABI stability policy for API 2: [ADR 0001](adr/0001-plugin-api-2-compatibility.md), summarized in §9 and in `CONTRIBUTING.md`.
+- Code signing ([#157](https://github.com/happy-dwarf-team/anvil/issues/157)), 2026-11-02: not planned. Releases keep SHA-256 sums and the build attestation (§19), and the README says how to check them and how to report an antivirus false positive.
 
 **Issues**
-- Code signing: [#157](https://github.com/happy-dwarf-team/anvil/issues/157) (SignPath Foundation first, Certum's open-source certificate if refused; the executables and the DLLs).
-- Localization of player messages in the overlay and the Manager: [#158](https://github.com/happy-dwarf-team/anvil/issues/158), after the Unicode Patch port.
+- Localization of player messages in the overlay and the Manager: [#158](https://github.com/happy-dwarf-team/anvil/issues/158), after the Unicode Patch port. Decided on 2026-11-02: the language follows EU4's own language setting; English, French, German and Spanish come first; Chinese, Japanese and Korean come with the Unicode Patch port ([#104](https://github.com/happy-dwarf-team/anvil/issues/104)), which brings the fonts they need.
 - The safe Rust `anvil` crate: [#159](https://github.com/happy-dwarf-team/anvil/issues/159), when the first Rust plugin is written.
 - Other storefront builds ([#36](https://github.com/happy-dwarf-team/anvil/issues/36)): the GOG builds in [#160](https://github.com/happy-dwarf-team/anvil/issues/160), waiting for a GOG binary.
 - Call counts of text hooks (a lighter context): a step of the Unicode Patch port, [#104](https://github.com/happy-dwarf-team/anvil/issues/104#issuecomment-6407336807).

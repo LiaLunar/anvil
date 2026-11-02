@@ -68,6 +68,14 @@ build is always at
 [releases/latest](https://github.com/happy-dwarf-team/anvil/releases/latest)).
 `SHA256SUMS.txt` there holds the checksums of the assets.
 
+Releases are not code-signed. To check a download, compare its SHA-256
+(`Get-FileHash <file>` in PowerShell) with `SHA256SUMS.txt`, or verify the
+build attestation with the GitHub CLI:
+`gh attestation verify <file> --repo happy-dwarf-team/anvil`. An antivirus may
+flag `version.dll` because it is a proxy DLL; such false positives can be
+reported to Microsoft through the
+[WDSI submission](https://www.microsoft.com/wdsi/filesubmission) page.
+
 **With Anvil Manager (`AnvilManager.exe`).** Run it, and it finds the game
 through Steam (or lets you pick the folder that contains `eu4.exe`).
 "Install Anvil" copies `version.dll`, the standard plugins and the Manager
