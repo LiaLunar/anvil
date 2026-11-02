@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.6.1](https://github.com/happy-dwarf-team/anvil/compare/v1.6.0...v1.6.1) (2026-11-02)
+
+
+### Bug Fixes
+
+* **log-throttle:** name a message in anvil.log without its line break ([#176](https://github.com/happy-dwarf-team/anvil/issues/176)) ([f8673e6](https://github.com/happy-dwarf-team/anvil/commit/f8673e6b79919750082726040d5d78fc1fdaa701))
+
 ## [1.6.0](https://github.com/happy-dwarf-team/anvil/compare/v1.5.2...v1.6.0) (2026-11-01)
 
 
