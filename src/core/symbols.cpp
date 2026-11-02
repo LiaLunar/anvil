@@ -14,9 +14,11 @@ namespace {
 
 constexpr size_t kMaxSymbolBytes = 65536;
 
-const std::set<std::string_view> kTopKeys = {"build", "symbol"};
-const std::set<std::string_view> kSymbolKeys = {"rva",  "export",    "bytes",  "memory", "points_to",
-                                                "type", "signature", "resume", "values", "note"};
+const std::set<std::string_view> kTopKeys = {"build", "builds", "symbol"};
+const std::set<std::string_view> kSymbolKeys = {"rva",  "export",    "bytes",  "memory", "points_to", "type",
+                                                "signature", "resume", "values", "note",   "build"};
+// The keys a symbol may give per build (`build."<id>"`) in a file with `builds`.
+const std::set<std::string_view> kPlacementKeys = {"rva", "bytes", "points_to"};
 const std::set<std::string_view> kValueKeys = {"at", "size", "rip_relative", "type"};
 
 struct Fail {
@@ -77,7 +79,7 @@ int hex_digit(char c) {
 }
 
 // "48 8B ?? 24": hex pairs or "??" (any byte), whitespace ignored, at least one fixed byte.
-void parse_bytes(std::string_view text, Symbol& s) {
+void parse_bytes(std::string_view text, SymbolPlacement& s) {
     std::string digits;
     for (char c : text) {
         if (c != ' ' && c != '\t' && c != '\r' && c != '\n') digits.push_back(c);
@@ -145,7 +147,8 @@ std::string get_string(const toml::node& node, std::string_view key, bool allow_
     return value->get();
 }
 
-SymbolValue parse_value(const std::string& name, const toml::node& node, const Symbol& s) {
+// The structure of values.<name>; check_value checks it against each build's bytes.
+SymbolValue parse_value(const std::string& name, const toml::node& node) {
     if (!valid_name(name)) throw Fail{"value name '" + name + "' must match [a-z][a-z0-9_]* (max 64 characters)"};
     const std::string where = "values." + name;
     const auto* table = node.as_table();
@@ -169,6 +172,11 @@ SymbolValue parse_value(const std::string& name, const toml::node& node, const S
     }
     if (!has_at) throw Fail{where + ": missing 'at'"};
     if ((v.size != 0) == (v.rip_relative != 0)) throw Fail{where + ": needs exactly one of 'size' and 'rip_relative'"};
+    return v;
+}
+
+void check_value(const SymbolValue& v, const SymbolPlacement& s) {
+    const std::string where = "values." + v.name;
     if (s.bytes.empty()) throw Fail{where + ": values are read from 'bytes', which the symbol does not declare"};
     const uint32_t span = v.rip_relative != 0 ? 4 : v.size;
     if (v.at > s.bytes.size() || span > s.bytes.size() - v.at) {
@@ -181,27 +189,45 @@ SymbolValue parse_value(const std::string& name, const toml::node& node, const S
     if (v.rip_relative != 0 && v.rip_relative < v.at + 4) {
         throw Fail{where + ": rip_relative (the end of the instruction) must be at least at + 4"};
     }
-    return v;
 }
 
-// One key of a [symbol.<name>] table.
-void parse_symbol_key(Symbol& s, const toml::table*& values, const std::string& key, const toml::node& item) {
-    if (!kSymbolKeys.contains(key)) throw Fail{"unknown key '" + key + "'"};
+// rva, bytes or points_to: shared by every build or in one build's table.
+void parse_placement_key(SymbolPlacement& p, const std::string& key, const toml::node& item) {
     if (key == "rva") {
-        s.rva = get_u32(item, key);
-        if (*s.rva == 0) throw Fail{"rva must not be 0"};
+        p.rva = get_u32(item, key);
+        if (*p.rva == 0) throw Fail{"rva must not be 0"};
+    } else if (key == "bytes") {
+        parse_bytes(get_string(item, key), p);
+    } else if (key == "points_to") {
+        p.points_to = get_u32(item, key);
+    }
+}
+
+// What a [symbol.<name>] table holds besides the Symbol's own fields.
+struct SymbolTables {
+    SymbolPlacement shared;               // the placement keys given for every build
+    const toml::table* values = nullptr;
+    const toml::table* builds = nullptr;  // the build."<id>" tables
+    uint32_t builds_line = 0;
+};
+
+// One key of a [symbol.<name>] table.
+void parse_symbol_key(Symbol& s, SymbolTables& t, const std::string& key, const toml::node& item, uint32_t line) {
+    if (!kSymbolKeys.contains(key)) throw Fail{"unknown key '" + key + "'"};
+    if (kPlacementKeys.contains(key)) {
+        parse_placement_key(t.shared, key, item);
     } else if (key == "export") {
         s.export_name = get_string(item, key);
-    } else if (key == "bytes") {
-        parse_bytes(get_string(item, key), s);
+    } else if (key == "build") {
+        t.builds = item.as_table();
+        t.builds_line = line;
+        if (t.builds == nullptr) throw Fail{"build must be a table of build.\"<id>\" tables"};
     } else if (key == "memory") {
         const std::string memory = get_string(item, key);
         if (memory == "code") s.memory = MemoryKind::Code;
         else if (memory == "read") s.memory = MemoryKind::Read;
         else if (memory == "write") s.memory = MemoryKind::Write;
         else throw Fail{"memory must be \"code\", \"read\" or \"write\", not \"" + memory + "\""};
-    } else if (key == "points_to") {
-        s.points_to = get_u32(item, key);
     } else if (key == "type") {
         s.type = get_string(item, key);
     } else if (key == "signature") {
@@ -212,41 +238,106 @@ void parse_symbol_key(Symbol& s, const toml::table*& values, const std::string& 
     } else if (key == "resume") {
         s.resume = get_string(item, key);
     } else if (key == "values") {
-        values = item.as_table();
-        if (values == nullptr) throw Fail{"values must be a table"};
+        t.values = item.as_table();
+        if (t.values == nullptr) throw Fail{"values must be a table"};
     } else if (key == "note") {
         s.note = get_string(item, key, true);
     }
 }
 
-Symbol parse_symbol(const std::string& name, const toml::node& node) {
+// The shared placement keys with those of build `id`'s table, if the symbol has one.
+SymbolPlacement placement_for(const std::string& id, const SymbolTables& t) {
+    SymbolPlacement p = t.shared;
+    p.build = id;
+    const toml::node* node = t.builds != nullptr ? t.builds->get(id) : nullptr;
+    if (node == nullptr) return p;
+    p.line = line_of(node->source());
+    const auto* table = node->as_table();
+    if (table == nullptr) throw Fail{"build.\"" + id + "\" must be a table", p.line};
+    for (const auto& [key, item, line] : in_file_order(*table)) {
+        at_line(line, [&] {
+            if (!kPlacementKeys.contains(key)) {
+                throw Fail{"build.\"" + id + "\": unknown key '" + key + "' (a build gives rva, bytes or points_to)"};
+            }
+            const bool shared = key == "rva"     ? t.shared.rva.has_value()
+                                : key == "bytes" ? !t.shared.bytes.empty()
+                                                 : t.shared.points_to.has_value();
+            if (shared) throw Fail{"build.\"" + id + "\": " + key + " is already given for every build"};
+            parse_placement_key(p, key, *item);
+        });
+    }
+    return p;
+}
+
+// The rules of design §5.2 that one build's placement must meet before its values are read.
+void check_placement(Symbol& s, const SymbolPlacement& p) {
+    if (p.rva.has_value() == !s.export_name.empty()) throw Fail{"needs exactly one of 'rva' and 'export'"};
+    const int kinds = !s.signature.empty() + p.points_to.has_value() + !s.type.empty();
+    if (kinds > 1) throw Fail{"declares more than one of 'signature' (function), 'points_to' (slot) and 'type' (data)"};
+    const SymbolKind kind = !s.signature.empty() ? SymbolKind::Function
+                            : p.points_to        ? SymbolKind::Slot
+                            : !s.type.empty()    ? SymbolKind::Data
+                                                 : SymbolKind::Site;
+    if (s.placements.empty()) {
+        s.kind = kind;
+    } else if (kind != s.kind) {
+        throw Fail{"is a " + std::string(symbol_kind_name(kind)) + " here and a " + symbol_kind_name(s.kind) + " in " +
+                   s.placements.front().build + "; give points_to for every build or for none"};
+    }
+    if (p.rva) {
+        if (!s.memory) throw Fail{"a symbol at an rva needs 'memory' (code, read or write)"};
+        if (p.bytes.empty() && !p.points_to && kind != SymbolKind::Data) {
+            throw Fail{"a symbol at an rva needs 'bytes' or 'points_to' to be verified"};
+        }
+    }
+}
+
+// `builds`: the builds the file declares; `per_build`: it lists them in `builds`,
+// so the symbol may have build."<id>" tables.
+Symbol parse_symbol(const std::string& name, const toml::node& node, const std::vector<std::string>& builds,
+                    bool per_build) {
     const auto* table = node.as_table();
     if (table == nullptr) throw Fail{"must be a table"};
     Symbol s;
     s.name = name;
-    const toml::table* values = nullptr;
+    SymbolTables t;
     for (const auto& [key, item, line] : in_file_order(*table)) {
-        at_line(line, [&] { parse_symbol_key(s, values, key, *item); });
+        at_line(line, [&] { parse_symbol_key(s, t, key, *item, line); });
     }
-    if (s.rva.has_value() == !s.export_name.empty()) throw Fail{"needs exactly one of 'rva' and 'export'"};
-    const int kinds = !s.signature.empty() + s.points_to.has_value() + !s.type.empty();
-    if (kinds > 1) throw Fail{"declares more than one of 'signature' (function), 'points_to' (slot) and 'type' (data)"};
-    s.kind = !s.signature.empty() ? SymbolKind::Function
-             : s.points_to       ? SymbolKind::Slot
-             : !s.type.empty()   ? SymbolKind::Data
-                                 : SymbolKind::Site;
-    if (s.rva) {
-        if (!s.memory) throw Fail{"a symbol at an rva needs 'memory' (code, read or write)"};
-        if (s.bytes.empty() && !s.points_to && s.kind != SymbolKind::Data) {
-            throw Fail{"a symbol at an rva needs 'bytes' or 'points_to' to be verified"};
+    if (t.builds != nullptr) {
+        if (!per_build) throw Fail{"build.\"<id>\" tables need the list of builds at the top: builds = [...]", t.builds_line};
+        for (const auto& [id, item, line] : in_file_order(*t.builds)) {
+            if (std::find(builds.begin(), builds.end(), id) == builds.end()) {
+                throw Fail{"build.\"" + id + "\": builds does not list " + id, line};
+            }
         }
     }
-    if (values != nullptr) {
-        for (const auto& [value_name, item, line] : in_file_order(*values)) {
-            at_line(line, [&] { s.values.push_back(parse_value(value_name, *item, s)); });
+    std::vector<uint32_t> value_lines;
+    for (const auto& id : builds) {
+        try {
+            const SymbolPlacement p = placement_for(id, t);
+            at_line(p.line, [&] { check_placement(s, p); });
+            // Parsed once, after the first build's checks, as when files had one build.
+            if (t.values != nullptr && s.placements.empty()) {
+                for (const auto& [value_name, item, line] : in_file_order(*t.values)) {
+                    at_line(line, [&] { s.values.push_back(parse_value(value_name, *item)); });
+                    value_lines.push_back(line);
+                }
+            }
+            for (size_t i = 0; i < s.values.size(); ++i) at_line(value_lines[i], [&] { check_value(s.values[i], p); });
+            if (!s.resume.empty() && p.bytes.empty()) at_line(p.line, [] { throw Fail{"resume needs 'bytes': the block it ends"}; });
+            s.placements.push_back(p);
+        } catch (Fail& f) {
+            if (per_build) f.message = "in build " + id + ": " + f.message;
+            throw;
         }
     }
-    if (!s.resume.empty() && s.bytes.empty()) throw Fail{"resume needs 'bytes': the block it ends"};
+    const SymbolPlacement& first = s.placements.front();
+    s.rva = first.rva;
+    s.bytes = first.bytes;
+    s.mask = first.mask;
+    s.points_to = first.points_to;
+    s.placement_line = first.line;
     return s;
 }
 
@@ -269,6 +360,35 @@ const Symbol* SymbolFile::find(std::string_view name) const {
     return nullptr;
 }
 
+bool SymbolFile::declares(std::string_view build_id) const {
+    return std::find(builds.begin(), builds.end(), build_id) != builds.end();
+}
+
+std::string SymbolFile::build_list() const {
+    std::string out;
+    for (const auto& b : builds) out += (out.empty() ? "" : ", ") + b;
+    return out;
+}
+
+std::string SymbolFile::build_words() const { return (builds.size() > 1 ? "builds " : "build ") + build_list(); }
+
+bool select_build(SymbolFile& file, std::string_view build_id) {
+    const auto at = std::find(file.builds.begin(), file.builds.end(), build_id);
+    if (at == file.builds.end()) return false;
+    const size_t index = static_cast<size_t>(at - file.builds.begin());
+    for (auto& s : file.symbols) {
+        if (index >= s.placements.size()) continue;  // a symbol not from the parser keeps its own fields
+        const SymbolPlacement& p = s.placements[index];
+        s.rva = p.rva;
+        s.bytes = p.bytes;
+        s.mask = p.mask;
+        s.points_to = p.points_to;
+        s.placement_line = p.line;
+    }
+    file.build = *at;
+    return true;
+}
+
 SymbolFileResult parse_symbols_text(std::string_view text) {
     SymbolFileResult result;
     toml::table table;
@@ -287,12 +407,30 @@ SymbolFileResult parse_symbols_text(std::string_view text) {
         for (const auto& [key, node, line] : in_file_order(table)) {
             if (!kTopKeys.contains(key)) throw Fail{"unknown key '" + key + "'", line};
         }
-        if (const auto* build = table.get("build")) {
-            file.build_line = line_of(build->source());
-            at_line(file.build_line, [&] { file.build = get_string(*build, "build"); });
-        } else {
-            throw Fail{"missing 'build'"};
+        const auto* build = table.get("build");
+        const auto* builds = table.get("builds");
+        if (build != nullptr && builds != nullptr) {
+            throw Fail{"give either 'build' or 'builds', not both", line_of(builds->source())};
         }
+        if (build != nullptr) {
+            file.build_line = line_of(build->source());
+            at_line(file.build_line, [&] { file.builds.push_back(get_string(*build, "build")); });
+        } else if (builds != nullptr) {
+            file.builds_listed = true;
+            file.build_line = line_of(builds->source());
+            at_line(file.build_line, [&] {
+                const auto* list = builds->as_array();
+                if (list == nullptr || list->empty()) throw Fail{"builds must be a list of build ids such as [\"eu4-…\"]"};
+                for (const auto& item : *list) {
+                    const std::string id = get_string(item, "builds[]");
+                    if (file.declares(id)) throw Fail{"builds lists " + id + " twice"};
+                    file.builds.push_back(id);
+                }
+            });
+        } else {
+            throw Fail{"missing 'build' (or 'builds')"};
+        }
+        file.build = file.builds.front();
         if (const auto* node = table.get("symbol")) {
             const auto* symbols = node->as_table();
             if (symbols == nullptr) throw Fail{"symbol must be a table of [symbol.<name>] tables", line_of(node->source())};
@@ -301,7 +439,7 @@ SymbolFileResult parse_symbols_text(std::string_view text) {
                 Symbol s;
                 at_line(line, [&] {
                     if (!valid_name(name)) throw Fail{"the name must match [a-z][a-z0-9_]* (max 64 characters)"};
-                    s = parse_symbol(name, *item);
+                    s = parse_symbol(name, *item, file.builds, file.builds_listed);
                 });
                 s.id = static_cast<uint32_t>(file.symbols.size());
                 s.line = line;
@@ -335,6 +473,11 @@ SymbolFileResult load_symbols(const std::filesystem::path& file) {
     std::string text = buffer.str();
     if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);  // saved by Notepad
     return parse_symbols_text(text);
+}
+
+i18n::Message build_mismatch(const SymbolFile& file, std::string_view build_id) {
+    if (file.builds.size() == 1) return i18n::Message("symbols_build", {file.builds.front(), std::string(build_id)});
+    return i18n::Message("symbols_builds", {file.build_list(), std::string(build_id)});
 }
 
 i18n::Message symbol_mismatch(const std::vector<std::string>& problems) {

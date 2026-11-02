@@ -25,8 +25,10 @@ void set_skip(CheckReport& report, i18n::Message why) {
     report.skip_why = std::move(why);
 }
 
-constexpr int kLockFormat = 1;
+// symbols.lock: format 1 for a symbols.toml with `build`, 2 for one with `builds`.
 const std::set<std::string_view> kLockKeys = {"format", "tool", "symbols_sha256", "exe_sha256", "build", "result"};
+const std::set<std::string_view> kLockKeys2 = {"format", "tool", "symbols_sha256", "check"};
+const std::set<std::string_view> kLockCheckKeys = {"build", "exe_sha256", "result"};
 
 std::string hex(uint64_t value) {
     char text[24];
@@ -64,8 +66,12 @@ const char* known_build(std::string_view sha256) {
     return build != nullptr ? build->id : nullptr;
 }
 
+// A problem of a symbol in the selected build: at its table for that build, if it has one.
+uint32_t line_in_build(const Symbol& s) { return s.placement_line != 0 ? s.placement_line : s.line; }
+
 // Compares the plugin's symbols with an eu4.exe file and writes symbols.lock.
-void check_against_exe(const CheckOptions& options, const SymbolFile& file, const std::string& symbols_text,
+// The file's symbols are those of the exe's build, if it declares it, else of its first.
+void check_against_exe(const CheckOptions& options, SymbolFile file, const std::string& symbols_text,
                        const std::string& symbols_path, CheckReport& report) {
     auto cannot = [&](const std::string& why) {
         report.exit_code = kExitCannotCheck;
@@ -81,32 +87,39 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
 
     const auto& build_of = options.build_of ? options.build_of : known_build;
     const size_t before = report.problems.size();
+    const bool several = file.builds_listed;
+    bool declared = false;  // the exe's build is one of the file's
     if (const char* id = build_of(report.exe_sha256)) {
         report.exe_build = id;
-        if (report.exe_build != file.build) {
+        declared = select_build(file, id);
+        if (!declared) {
             report.problems.push_back({symbols_path, file.build_line,
-                                       "symbols.toml is for " + file.build + ", " + report.exe_name + " is " + report.exe_build});
-            set_skip(report, i18n::Message("symbols_build", {file.build, report.exe_build}));
+                                       "symbols.toml is for " + file.build_list() + ", " + report.exe_name + " is " +
+                                           report.exe_build});
+            set_skip(report, build_mismatch(file, report.exe_build));
         }
     } else {
         set_skip(report, i18n::Message("build_unknown", {}));
         report.problems.push_back({symbols_path, file.build_line,
                                    report.exe_name + " (SHA-256 " + report.exe_sha256 +
-                                       ") is not a game build this Anvil knows; symbols.toml declares " + file.build});
+                                       ") is not a game build this Anvil knows; symbols.toml declares " + file.build_list()});
     }
+    report.build = file.build;
 
     const SymbolVerification verification = verify_symbols(file, *image);
     std::set<uint32_t> failed;
     for (size_t i = 0; i < verification.problems.size(); ++i) {
         const Symbol& s = file.symbols[verification.failed[i]];
         failed.insert(s.id);
-        report.problems.push_back({symbols_path, s.line, verification.problems[i]});
+        report.problems.push_back({symbols_path, line_in_build(s),
+                                   (several ? "in build " + file.build + ": " : std::string()) + verification.problems[i]});
     }
     // The loader checks the build first and gives the first failing symbol.
     if (report.skip_reason.empty() && !verification.problems.empty()) set_skip(report, symbol_mismatch(verification.problems));
     for (const auto& s : file.symbols) {
         if (failed.contains(s.id) || s.memory != MemoryKind::Code || s.bytes.empty()) continue;
-        report.code_ranges.push_back({s.name, s.line, verification.symbols[s.id].rva, static_cast<uint32_t>(s.bytes.size())});
+        report.code_ranges.push_back(
+            {s.name, line_in_build(s), verification.symbols[s.id].rva, static_cast<uint32_t>(s.bytes.size())});
     }
     // Instruction boundaries (design §16) of the symbols that verified.
     for (const auto& s : file.symbols) {
@@ -114,10 +127,11 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
         const uint32_t rva = verification.symbols[s.id].rva;
         const Section* section = image->section_of(rva, 1);
         if (section == nullptr) continue;
-        const std::string where = "symbol " + s.name + " (rva " + hex(rva) + "): ";
+        const std::string where =
+            (several ? "in build " + file.build + ": " : std::string()) + "symbol " + s.name + " (rva " + hex(rva) + "): ";
         if (has_instruction_boundaries(s, section->kind)) {
             const std::string problem = check_instruction_boundaries(s, rva, *reader);
-            if (!problem.empty()) report.problems.push_back({symbols_path, s.line, where + problem});
+            if (!problem.empty()) report.problems.push_back({symbols_path, line_in_build(s), where + problem});
         }
         // A block replacement continues at `resume`: it must be code.
         if (!s.resume.empty()) {
@@ -125,7 +139,7 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
             if (failed.contains(target->id)) continue;
             const Section* resume = image->section_of(verification.symbols[target->id].rva, 1);
             if (resume != nullptr && resume->kind != MemoryKind::Code) {
-                report.problems.push_back({symbols_path, s.line,
+                report.problems.push_back({symbols_path, line_in_build(s),
                                            where + "resume names " + s.resume + ", which is not in code (section " +
                                                resume->name + ")"});
             }
@@ -133,16 +147,36 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
     }
 
     if (!options.write_lock) return;
-    SymbolsLock lock;
-    lock.tool = tool_name();
-    lock.symbols_sha256 = symbols_digest(symbols_text);
-    lock.exe_sha256 = report.exe_sha256;
-    lock.build = report.exe_build.empty() ? "unknown" : report.exe_build;
-    lock.ok = report.problems.size() == before;
-    const std::string text = lock_text(lock);
     const std::filesystem::path lock_path = options.plugin_dir / kLockFile;
     std::string existing;
-    if (read_file(lock_path, existing) && existing == text) {
+    const bool has_existing = read_file(lock_path, existing);
+    SymbolsLock lock;
+    lock.format = file.builds_listed ? 2 : 1;
+    lock.tool = tool_name();
+    lock.symbols_sha256 = symbols_digest(symbols_text);
+    const LockCheck check{report.exe_sha256, report.exe_build.empty() ? "unknown" : report.exe_build,
+                          report.problems.size() == before};
+    if (lock.format == 1) {
+        lock.checks.push_back(check);
+    } else {
+        // A check of a build symbols.toml does not declare belongs to no build: the lock is left alone.
+        if (!declared) return;
+        // The other builds' checks stay while symbols.toml is the same.
+        std::optional<SymbolsLock> previous;
+        if (has_existing) previous = parse_lock(existing).lock;
+        for (const auto& build : file.builds) {
+            if (build == check.build) {
+                lock.checks.push_back(check);
+                continue;
+            }
+            if (!previous || previous->format != 2 || previous->symbols_sha256 != lock.symbols_sha256) continue;
+            for (const auto& c : previous->checks) {
+                if (c.build == build) lock.checks.push_back(c);
+            }
+        }
+    }
+    const std::string text = lock_text(lock);
+    if (has_existing && existing == text) {
         report.lock = "unchanged";
         return;
     }
@@ -153,9 +187,10 @@ void check_against_exe(const CheckOptions& options, const SymbolFile& file, cons
     report.lock = "written";
 }
 
-// Without the game: symbols.lock must describe this symbols.toml and a clean check.
-void check_lock(const CheckOptions& options, const std::string& symbols_text, const std::string& symbols_path,
-                CheckReport& report) {
+// Without the game: symbols.lock must describe this symbols.toml and a clean
+// check, of every build when it lists `builds`.
+void check_lock(const CheckOptions& options, const SymbolFile& file, const std::string& symbols_text,
+                const std::string& symbols_path, CheckReport& report) {
     const std::string lock_path = shown_path(options.plugin_dir, kLockFile);
     std::string text;
     if (!read_file(options.plugin_dir / kLockFile, text)) {
@@ -174,13 +209,24 @@ void check_lock(const CheckOptions& options, const std::string& symbols_text, co
                                        std::string(kLockFile)});
         return;
     }
-    if (!parsed.lock->ok) {
-        report.problems.push_back({lock_path, parsed.result_line,
-                                   "the last anvil check --exe (eu4.exe " + parsed.lock->build +
+    for (const LockCheck& c : parsed.lock->checks) {
+        if (c.ok) continue;
+        report.problems.push_back({lock_path, c.result_line,
+                                   "the last anvil check --exe (eu4.exe " + c.build +
                                        ") found problems; fix symbols.toml and run it again"});
         return;
     }
-    report.lock = "matches";
+    bool complete = true;
+    for (const auto& build : file.builds) {
+        if (!file.builds_listed) break;
+        const auto& checks = parsed.lock->checks;
+        if (std::any_of(checks.begin(), checks.end(), [&](const LockCheck& c) { return c.build == build; })) continue;
+        report.problems.push_back({lock_path, 0,
+                                   "no check of build " + build + ": run anvil check --exe with its eu4.exe and commit " +
+                                       std::string(kLockFile)});
+        complete = false;
+    }
+    if (complete) report.lock = "matches";
 }
 
 }  // namespace
@@ -244,12 +290,16 @@ std::string symbols_digest(std::string_view text) {
 std::string lock_text(const SymbolsLock& lock) {
     std::string out = "# Written by anvil check --exe; anvil check without the game fails when it does not match\n"
                       "# symbols.toml. Commit it with symbols.toml.\n";
-    out += "format = " + std::to_string(kLockFormat) + "\n";
+    out += "format = " + std::to_string(lock.format) + "\n";
     out += "tool = " + json_string(lock.tool) + "\n";
     out += "symbols_sha256 = " + json_string(lock.symbols_sha256) + "\n";
-    out += "exe_sha256 = " + json_string(lock.exe_sha256) + "\n";
-    out += "build = " + json_string(lock.build) + "\n";
-    out += std::string("result = ") + (lock.ok ? "\"ok\"" : "\"problems\"") + "\n";
+    for (const LockCheck& c : lock.checks) {
+        if (lock.format != 1) out += "\n[[check]]\n";
+        if (lock.format == 1) out += "exe_sha256 = " + json_string(c.exe_sha256) + "\n";
+        out += "build = " + json_string(c.build) + "\n";
+        if (lock.format != 1) out += "exe_sha256 = " + json_string(c.exe_sha256) + "\n";
+        out += std::string("result = ") + (c.ok ? "\"ok\"" : "\"problems\"") + "\n";
+    }
     return out;
 }
 
@@ -269,29 +319,58 @@ LockResult parse_lock(std::string_view text) {
         result.line = node != nullptr ? static_cast<uint32_t>(node->source().begin.line) : 0;
         return result;
     };
-    for (const auto& [key, node] : table) {
-        if (!kLockKeys.contains(key.str())) return fail("unknown key '" + std::string(key.str()) + "'", &node);
-    }
     const auto format = table["format"].value_exact<int64_t>();
+    const std::set<std::string_view>& keys = format == 2 ? kLockKeys2 : kLockKeys;
+    for (const auto& [key, node] : table) {
+        if (!keys.contains(key.str())) return fail("unknown key '" + std::string(key.str()) + "'", &node);
+    }
     if (!format) return fail("missing 'format'", nullptr);
-    if (*format != kLockFormat) {
+    if (*format != 1 && *format != 2) {
         return fail("format " + std::to_string(*format) + " is not supported by " + tool_name() + "; update anvil",
                     table.get("format"));
     }
     SymbolsLock lock;
-    for (const auto& [key, out] : {std::pair{"tool", &lock.tool}, std::pair{"symbols_sha256", &lock.symbols_sha256},
-                                   std::pair{"exe_sha256", &lock.exe_sha256}, std::pair{"build", &lock.build}}) {
+    lock.format = static_cast<int>(*format);
+    for (const auto& [key, out] : {std::pair{"tool", &lock.tool}, std::pair{"symbols_sha256", &lock.symbols_sha256}}) {
         const auto value = table[key].value_exact<std::string>();
         if (!value) return fail(std::string("missing or invalid '") + key + "'", table.get(key));
         *out = *value;
     }
-    const auto outcome = table["result"].value_exact<std::string>();
-    if (!outcome || (*outcome != "ok" && *outcome != "problems")) {
-        return fail("result must be \"ok\" or \"problems\"", table.get("result"));
+    // A check: the top of a format 1 lock, or one [[check]] table of format 2.
+    auto read_check = [&](const toml::table& t) -> bool {
+        LockCheck c;
+        for (const auto& [key, out] : {std::pair{"exe_sha256", &c.exe_sha256}, std::pair{"build", &c.build}}) {
+            const auto value = t[key].value_exact<std::string>();
+            if (!value) {
+                fail(std::string("missing or invalid '") + key + "'", t.get(key) != nullptr ? t.get(key) : &t);
+                return false;
+            }
+            *out = *value;
+        }
+        const auto outcome = t["result"].value_exact<std::string>();
+        if (!outcome || (*outcome != "ok" && *outcome != "problems")) {
+            fail("result must be \"ok\" or \"problems\"", t.get("result") != nullptr ? t.get("result") : &t);
+            return false;
+        }
+        c.ok = *outcome == "ok";
+        c.result_line = static_cast<uint32_t>(t.get("result")->source().begin.line);
+        lock.checks.push_back(std::move(c));
+        return true;
+    };
+    if (lock.format == 1) {
+        if (!read_check(table)) return result;
+    } else if (const auto* checks = table.get("check")) {
+        const auto* list = checks->as_array();
+        if (list == nullptr || !list->is_array_of_tables()) return fail("check must be [[check]] tables", checks);
+        for (const auto& item : *list) {
+            const auto& t = *item.as_table();
+            for (const auto& [key, node] : t) {
+                if (!kLockCheckKeys.contains(key.str())) return fail("unknown key 'check." + std::string(key.str()) + "'", &node);
+            }
+            if (!read_check(t)) return result;
+        }
     }
-    lock.ok = *outcome == "ok";
     result.symbols_line = static_cast<uint32_t>(table.get("symbols_sha256")->source().begin.line);
-    result.result_line = static_cast<uint32_t>(table.get("result")->source().begin.line);
     result.lock = std::move(lock);
     return result;
 }
@@ -346,6 +425,7 @@ CheckReport check_plugin(const CheckOptions& options) {
             return report;
         }
         report.build = symbols.file->build;
+        report.builds = symbols.file->builds;
         report.symbols = symbols.file->symbols.size();
         // Names `anvil gen` refuses, in any language it writes, fail the build later.
         const GeneratedHeaders headers = generate_headers(*symbols.file, relative.generic_string(), true, true, true);
@@ -356,7 +436,7 @@ CheckReport check_plugin(const CheckOptions& options) {
             check_against_exe(options, *symbols.file, text, symbols_path, report);
             if (report.exit_code == kExitCannotCheck) return report;
         } else {
-            check_lock(options, text, symbols_path, report);
+            check_lock(options, *symbols.file, text, symbols_path, report);
         }
     }
     // settings.toml: the loader skips a plugin whose declarations do not parse.
@@ -412,6 +492,9 @@ std::string report_json(const CheckReport& report, const std::string& pad, const
     out += in + "\"plugin\": " + (report.plugin.empty() ? std::string("null") : json_string(report.plugin)) + ",\n";
     if (report.has_symbols) {
         out += in + "\"build\": " + json_string(report.build) + ",\n";
+        out += in + "\"builds\": [";
+        for (size_t i = 0; i < report.builds.size(); ++i) out += (i == 0 ? "" : ", ") + json_string(report.builds[i]);
+        out += "],\n";
         out += in + "\"symbols\": " + std::to_string(report.symbols) + ",\n";
     }
     if (report.has_settings) out += in + "\"settings\": " + std::to_string(report.settings) + ",\n";
@@ -449,7 +532,9 @@ std::string report_summary(const CheckReport& report) {
     if (!report.has_symbols && !report.plugin.empty()) {
         summary += ": no symbols.toml (runs on every game build)";
     } else if (report.has_symbols) {
-        summary += ": " + std::to_string(report.symbols) + " symbol(s) for " + report.build;
+        std::string builds;
+        for (const auto& b : report.builds) builds += (builds.empty() ? "" : ", ") + b;
+        summary += ": " + std::to_string(report.symbols) + " symbol(s) for " + (builds.empty() ? report.build : builds);
         if (report.with_exe) {
             summary += ", checked against " + report.exe_name + " (" +
                        (report.exe_build.empty() ? std::string("unknown build") : report.exe_build) + ")";

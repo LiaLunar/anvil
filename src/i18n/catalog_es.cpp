@@ -991,6 +991,8 @@ extern const Translation kSpanish[] = {
      "suspendido en esta partida"},
     {"symbols.toml is for build {0}, the game is {1}",
      "symbols.toml es para la versión {0}, el juego es {1}"},
+    {"symbols.toml is for builds {0}, the game is {1}",
+     "symbols.toml es para las versiones {0}, el juego es {1}"},
     {"the archive has more than {0} entries",
      "el archivo tiene más de {0} entradas"},
     {"the archive unpacks to more than {0} MB",

@@ -511,6 +511,100 @@ int main(int argc, char** argv) {
         CHECK(not_pe.exit_code == kExitCannotCheck && !fs::exists(fx.root / "not-pe" / kLockFile));
     });
 
+    run("check --exe with several builds keeps one check per build in symbols.lock", [&] {
+        const fs::path second_exe = fx.root / "game" / "second.exe";
+        TestImage image = boundary_image();
+        image.put(0x1000, {0x48, 0x8B, 0x81, 0x08, 0x04, 0x00, 0x00, 0xC3});  // the field 0x10 lower
+        const auto image_bytes = image.file();
+        write(second_exe, std::string(image_bytes.begin(), image_bytes.end()));
+        const std::string first_sha = fx.exe_sha256, second_sha = sha256_file(second_exe);
+        auto check = [&](const fs::path& dir, const fs::path& exe) {
+            CheckOptions options;
+            options.plugin_dir = dir;
+            options.exe = exe;
+            options.build_of = [=](std::string_view sha) -> const char* {
+                return sha == first_sha ? "test-build" : sha == second_sha ? "second-build" : nullptr;
+            };
+            return check_plugin(options);
+        };
+        const std::string text = "builds = [\"test-build\", \"second-build\"]\n"
+                                 "\n"
+                                 "[symbol.speed_object]\n"
+                                 "rva = 0x1000\n"
+                                 "memory = \"code\"\n"
+                                 "signature = \"void* (void* session)\"\n"
+                                 "values.speed = { at = 3, size = 4 }\n"
+                                 "build.\"test-build\" = { bytes = \"48 8B 81 18 04 00 00 C3\" }\n"
+                                 "build.\"second-build\" = { bytes = \"48 8B 81 08 04 00 00 C3\" }\n";
+        const fs::path dir = fx.plugin("several", text);
+
+        const auto first = check(dir, fx.exe);
+        print_problems(first);
+        CHECK(first.exit_code == kExitOk && first.lock == "written" && first.build == "test-build");
+        CHECK(first.builds == std::vector<std::string>({"test-build", "second-build"}));
+        CHECK(contains(format_report(first, Format::Text), "1 symbol(s) for test-build, second-build"));
+        CHECK(contains(report_json(first), "\"builds\": [\"test-build\", \"second-build\"]"));
+        std::string lock = read(dir / kLockFile);
+        CHECK(contains(lock, "format = 2\n") && contains(lock, "[[check]]\nbuild = \"test-build\"\nexe_sha256 = \"" + first_sha));
+        CHECK(!contains(lock, "second-build"));
+        const auto incomplete = fx.check(dir, false);
+        CHECK(incomplete.exit_code == kExitProblems && has_problem(incomplete, 0, "no check of build second-build"));
+
+        const auto second = check(dir, second_exe);
+        print_problems(second);
+        CHECK(second.exit_code == kExitOk && second.lock == "written" && second.build == "second-build");
+        lock = read(dir / kLockFile);
+        CHECK(contains(lock, "build = \"test-build\"") && lock.find("test-build\"\nexe") < lock.find("second-build\"\nexe"));
+        CHECK(check(dir, second_exe).lock == "unchanged" && check(dir, fx.exe).lock == "unchanged");
+        const auto offline = fx.check(dir, false);
+        CHECK(offline.exit_code == kExitOk && offline.lock == "matches");
+        const LockResult parsed = parse_lock(lock);
+        CHECK(parsed.lock && parsed.lock->format == 2 && parsed.lock->checks.size() == 2 && parsed.lock->checks[1].ok);
+
+        // A build the file does not declare is reported and leaves the lock alone.
+        const fs::path unknown_exe = fx.root / "game" / "third.exe";
+        image.put(0x10F0, {0xCC});
+        const auto unknown_bytes = image.file();
+        write(unknown_exe, std::string(unknown_bytes.begin(), unknown_bytes.end()));
+        const auto unknown = check(dir, unknown_exe);
+        CHECK(has_problem(unknown, 1, "symbols.toml declares test-build, second-build") && unknown.lock.empty());
+        CHECK(read(dir / kLockFile) == lock);
+
+        // A failing symbol is reported at its build's table; a changed file drops the other build's check.
+        write(dir / "symbols.toml", text.substr(0, text.rfind("08 04")) + "09 04 00 00 C3\" }\n");
+        const auto failing = check(dir, second_exe);
+        CHECK(has_problem(failing, 9, "in build second-build: symbol speed_object (rva 0x1000): byte +0x3"));
+        lock = read(dir / kLockFile);
+        CHECK(contains(lock, "result = \"problems\"") && !contains(lock, "test-build\"\nexe"));
+        CHECK(has_problem(fx.check(dir, false), 10, "the last anvil check --exe (eu4.exe second-build) found problems"));
+
+        write(dir / kLockFile, "format = 2\ntool = \"t\"\nsymbols_sha256 = \"x\"\n\n[[check]]\nbuild = \"b\"\nexe_sha256 = \"y\"\n"
+                               "result = \"ok\"\nextra = 1\n");
+        CHECK(has_problem(fx.check(dir, false), 9, "unknown key 'check.extra'"));
+        write(dir / kLockFile, "format = 3\n");
+        CHECK(has_problem(fx.check(dir, false), 1, "format 3 is not supported"));
+    });
+
+    run("gen with several builds: a value is a constant only when every build has it", [] {
+        const auto file = parse_symbols_text("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\n"
+                                             "values.same = { at = 0, size = 1 }\nvalues.differs = { at = 3, size = 4 }\n"
+                                             "values.target = { at = 3, rip_relative = 7 }\n"
+                                             "build.\"a\" = { rva = 0x1000, bytes = \"48 8B 05 10 00 00 00\" }\n"
+                                             "build.\"b\" = { rva = 0x1010, bytes = \"48 8B 05 00 00 00 00\" }\n");
+        CHECK(file.file.has_value());
+        const GeneratedHeaders h = generate_headers(*file.file, "symbols.toml", true, true, true);
+        CHECK(h.error.empty());
+        CHECK(contains(h.c, "(builds a, b). Do not edit."));
+        CHECK(contains(h.c, "/* site, rva 0x1000 in a, 0x1010 in b */"));
+        CHECK(contains(h.c, "#define SYMVAL_S_SAME UINT64_C(0x48)"));
+        CHECK(contains(h.c, "/* SYMVAL_S_DIFFERS: differs between the game builds"));
+        // 0x1000 + 7 + 0x10 and 0x1010 + 7 + 0: the same RVA in both.
+        CHECK(contains(h.c, "#define SYMVAL_S_TARGET UINT64_C(0x1017)"));
+        CHECK(contains(h.cpp, "static constexpr ::std::uint64_t same = 0x48;"));
+        CHECK(contains(h.cpp, "// differs: differs between the game builds") && !contains(h.cpp, "differs = "));
+        CHECK(contains(h.rust, "// S_DIFFERS: differs between the game builds"));
+    });
+
     run("instruction boundaries: whole instructions, no JRCXZ/JECXZ/LOOP* in the stolen bytes", [&] {
         auto check_one = [&](const std::string& body) {
             return fx.check(fx.plugin("boundaries", symbol("s", body)), true);

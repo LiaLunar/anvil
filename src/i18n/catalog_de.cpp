@@ -991,6 +991,8 @@ extern const Translation kGerman[] = {
      "in dieser Partie ausgesetzt"},
     {"symbols.toml is for build {0}, the game is {1}",
      "symbols.toml ist für Version {0}, das Spiel ist {1}"},
+    {"symbols.toml is for builds {0}, the game is {1}",
+     "symbols.toml ist für die Versionen {0}, das Spiel ist {1}"},
     {"the archive has more than {0} entries",
      "das Archiv hat mehr als {0} Einträge"},
     {"the archive unpacks to more than {0} MB",

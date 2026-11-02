@@ -159,6 +159,35 @@ signature = "const char* ()"
 - **Exports:** an `export` symbol is resolved through the export table; `bytes`, if given, check the prologue.
 - **Schema:** unknown keys are errors. Names match `[a-z][a-z0-9_]*` (they become identifiers in generated headers), and a symbol's id is its position in the file. A symbol has exactly one of `rva` and `export`; one at an `rva` needs `memory` and `bytes` or `points_to` (a data symbol may have neither). `signature`, `points_to` and `type` exclude each other. A value has `at` and either `size` (1, 2, 4 or 8, little-endian) or `rip_relative`, the offset of the instruction's end, at least `at + 4`: it yields the RVA `rva + rip_relative + disp32`. `resume` names another symbol and needs `bytes`, the block it ends.
 
+**Several builds.** Decided in [#160](https://github.com/happy-dwarf-team/anvil/issues/160) (2026-11-02). A file for more than one build lists them in `builds` instead of `build`, and keeps one declaration per symbol: what the symbol is (kind, `memory`, `signature`, `type`, `values`, `resume`, `note`, `export`) is shared, and only where it is (`rva`, `bytes`, `points_to`) may differ, in a `build."<id>"` table of the symbol:
+
+```toml
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
+
+[symbol.frame]                                # the same bytes, another address
+bytes = "48 89 5C 24 08 48 89 6C 24 10"
+memory = "code"
+signature = "uintptr_t (void* app, uint8_t outer)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C25A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC400 }
+
+[symbol.speed_object]                         # other bytes: a table per build
+memory = "code"
+values.speed = { at = 3, size = 4 }           # 0x418 on Steam, 0x408 on GOG
+
+[symbol.speed_object.build."eu4-1.37.5-steam-win64"]
+rva = 0x8024D0
+bytes = "48 8B 81 18 04 00 00 C3"
+
+[symbol.speed_object.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x801850
+bytes = "48 8B 81 08 04 00 00 C3"
+```
+
+- **Rules:** each of `rva`, `bytes` and `points_to` is given for every build or per build, not both; a `build` table may hold only these three and only for a build `builds` lists. Every build must satisfy the schema above on its own (an error names the build), and a symbol has the same kind in every build. A symbol whose keys are all shared, such as an export with the same prologue, needs no tables.
+- **Ids and values:** a symbol keeps one id in every build, so plugin code does not change with the build. The loader selects the running game's build (§7); `anvil check --exe` the exe's (§16). `anvil gen` writes a value as a constant only when every build has the same one; a value that differs is read when the game loads (`symbol_value`, `Host::value`), as for an export's RVA.
+- **Why one file:** the issue weighed one file per build against this. Here the shared part, which is most of a declaration, is written once and cannot drift between builds, and `anvil check` still names the build of every problem. A build is added by adding it to `builds` and a table to each symbol whose address or bytes differ; the second GOG build (1.37.5.0) comes this way once a copy is checked. If several plugins come to need the same per-build tables, the shared address library declined in §21 is the next question.
+
 ### 5.3 `settings.toml`
 
 Decided in [Plugin configuration convention and the overlay settings panel](https://github.com/happy-dwarf-team/anvil/issues/35).
@@ -193,12 +222,19 @@ label = "Panel key"
 
 ## 6. Game build identity
 
-Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", and the overlay says so: it runs on every build. Other storefront builds are not supported yet ([Other distributions of EU4 1.37.5](https://github.com/happy-dwarf-team/anvil/issues/36)): the GOG builds wait for a GOG binary ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)), and the Microsoft Store and Epic builds are not planned (§21).
+Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", and the overlay says so: it runs on every build. A plugin with `symbols` loads only on a build its file declares (§5.2).
+
+| Build id | Store | `eu4.exe` SHA-256 |
+| --- | --- | --- |
+| `eu4-1.37.5-steam-win64` | Steam | `9AD3EFE1…D771A` |
+| `eu4-1.37.5.2-gog-win64` | GOG, 1.37.5.2 of 2025-11-13 | `D29CF745…5319` |
+
+New ids carry the store and all four parts of the version, since GOG ships two builds of 1.37.5 ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)); the Steam id keeps its name, which every plugin declares. The other GOG build (1.37.5.0, `5f4145ce…88ee`) would be `eu4-1.37.5.0-gog-win64` once a copy is checked. The Microsoft Store and Epic builds are not planned (§21, [#36](https://github.com/happy-dwarf-team/anvil/issues/36)).
 
 ## 7. Verification before loading
 
 For each plugin, before its DLL is loaded and before any plugin has changed anything, Anvil:
-1. parses `plugin.toml`, `symbols.toml` and `settings.toml`; an unknown key or a schema error skips the plugin;
+1. parses `plugin.toml`, `symbols.toml` and `settings.toml`; an unknown key or a schema error skips the plugin, and so does a `symbols.toml` that does not declare the running build; with several builds it takes that build's addresses and bytes (§5.2);
 2. resolves `export` symbols;
 3. compares every symbol with the image: `(actual & mask) == (expected & mask)`, the memory kind against the section flags, and `points_to` against the stored pointer;
 4. computes `values`.
@@ -562,7 +598,7 @@ Decided in [Player UI: in-game overlay and Anvil Manager](https://github.com/hap
 - **`anvil gen [--lang c|cpp|rust] <symbols.toml> <out-dir>`** writes both headers without `--lang` (`--lang rust` writes only `symbols.gen.rs`, and `settings.gen.rs` for a settings file, §9) and leaves a file alone when its content would not change:
   - `symbols.gen.h`: `SYM_<NAME>` ids, `sym_<name>_fn` pointer types from `signature`, `SYMVAL_<SYMBOL>_<VALUE>` constants;
   - `symbols.gen.hpp`: namespace `sym` with a constant per symbol whose type `sym::Types::<name>` derives from `anvil::Function<signature>`, `Site`, `Slot` or `Data<type>` ([`anvil_symbols.hpp`](../include/anvil/anvil_symbols.hpp)) and holds `symbol_name`, values as `static constexpr` members (`sym::root_and_date.date_offset`), and an `anvil::Data<type>` for each typed `rip_relative` value (`sym::root`);
-  - a value is the integer in the declared bytes, or for `rip_relative` an RVA, which gen cannot know for an `export` symbol. The plugin declares the types named in `signature` and `type` before including the header. Names the C++ header cannot hold (keywords, a value called `id`, `value` or `symbol_name`, two `sym::` names alike) are errors.
+  - a value is the integer in the declared bytes, or for `rip_relative` an RVA, which gen cannot know for an `export` symbol, nor when the builds of a file with `builds` give different ones (a comment then says to read it when the game loads). The plugin declares the types named in `signature` and `type` before including the header. Names the C++ header cannot hold (keywords, a value called `id`, `value` or `symbol_name`, two `sym::` names alike) are errors.
 - **`anvil gen [--lang c|cpp|rust] [--settings <file>] <settings.toml> <out-dir>`** does the same for settings; one call may take `symbols.toml` and `settings.toml` together. A file is a settings file when `--settings` names it, its name ends in `settings.toml` or it has `[setting.<name>]` tables. Nothing is written when an input fails.
   - `settings.gen.h`: `CFG_<NAME>` ids with the type, default, limits and label in a comment, `CFG_<NAME>_<OPTION>` indices of enum options, and with a key setting `ANVIL_KEY_SHIFT`/`CTRL`/`ALT` and `ANVIL_KEY_VK(code)`;
   - `settings.gen.rs`: the same ids and option indices as Rust constants (§9);
@@ -580,7 +616,7 @@ Decided in [Player UI: in-game overlay and Anvil Manager](https://github.com/hap
   - The plugins that pass discovery (a readable `plugin.toml`, the entry DLL present) go to the loader's own resolver (`ResolveInput`, shared code in `anvil_core`): API and `anvil` range, build and symbols, duplicates, disabled ids, `conflicts`, dependencies and cycles. The result is what loads, in which order, and what is skipped and why, in the words of the loader's log. Only what the loader acts on skips a plugin: a failing instruction-boundary check is a problem of the plugin, which still loads.
   - **Overlapping ranges (warning).** `symbols.toml` does not say which symbols a plugin will change, so every verified symbol with `memory = "code"` and declared `bytes` counts as a range `[rva, rva + length)`. For each pair of plugins that load together, ranges that overlap are reported as one warning, at the symbol of the plugin that loads first (`file:line: warning: …`; `::warning` with `github`), naming both symbols, and counting further overlaps of the pair. An identical range (same address and length) is the normal case of a chain (§8.2) and is not reported. Whether two plugins really change the same bytes is decided at load by the change registry, which refuses the second change (§8.3). A warning never changes the exit code, and plugins that are skipped overlap nothing. Symbols of other memory kinds and symbols without `bytes` are not compared.
   - **Exit codes** as in `check`. 0: nothing is wrong. 1: a plugin has problems, a plugin that is not disabled by the player is skipped, or `anvil.toml` does not parse. What the player disabled (`disabled_plugins`, `enabled = false`) is listed but does not count, and neither do its problems (text and `github` print them as warnings). 2: no folder, no `eu4.exe` (or not a readable game image), no `anvil` folder, or a plugin whose files cannot be read. With 2 for the whole folder nothing else is printed.
-  - **JSON** is one object, which the Manager (§15) reads. `plugins[]` has one entry per folder of `anvil/plugins`, each the result `anvil check` prints for one plugin (`result`, `exit_code`, `plugin`, `build` and `symbols` with a `symbols.toml`, `settings` (their number) with a `settings.toml`, `exe`, `problems`) plus `folder` and `status`; the other sections are always present, empty when there is nothing:
+  - **JSON** is one object, which the Manager (§15) reads. `plugins[]` has one entry per folder of `anvil/plugins`, each the result `anvil check` prints for one plugin (`result`, `exit_code`, `plugin`, `build` (the build checked: the exe's, if the file declares it), `builds` and `symbols` with a `symbols.toml`, `settings` (their number) with a `settings.toml`, `exe`, `problems`) plus `folder` and `status`; the other sections are always present, empty when there is nothing:
     ```json
     {
       "tool": "anvil 1.0.0",
@@ -594,6 +630,7 @@ Decided in [Player UI: in-game overlay and Anvil Manager](https://github.com/hap
       "plugins": [
         {"folder": "hello", "status": "loaded",   // "loaded" | "skipped" | "disabled"
          "result": "ok", "exit_code": 0, "plugin": "hello", "build": "eu4-1.37.5-steam-win64",
+         "builds": ["eu4-1.37.5-steam-win64"],
          "symbols": 3, "exe": {"sha256": "…", "build": "…"}, "problems": []}
       ],
       "load_order": [{"id": "hello", "version": "0.1.0", "phase": "early", "folder": "hello"}],   // early plugins first
@@ -614,6 +651,23 @@ Decided in [Player UI: in-game overlay and Anvil Manager](https://github.com/hap
   ```
 
   It lies next to `plugin.toml` and is committed. `--exe` writes it also when it finds problems, so CI fails until they are fixed, but not when a file does not parse or the exe cannot be read. Without `--exe`, a plugin with `symbols` fails on a missing lock, a different digest, `result = "problems"`, an unknown key or a newer `format`.
+
+  A `symbols.toml` with `builds` (§5.2) gets format 2, with one check per build in the order of `builds`. `--exe` replaces the check of its exe's build and keeps the others while the digest is the same, so the author runs it once with each build's `eu4.exe`; an exe of a build the file does not declare is reported and leaves the lock alone. Without `--exe`, every build needs a check, and each must be `ok`:
+  ```toml
+  format = 2
+  tool = "anvil 1.7.0"
+  symbols_sha256 = "…"
+
+  [[check]]
+  build = "eu4-1.37.5-steam-win64"
+  exe_sha256 = "9AD3EFE1…771A"
+  result = "ok"
+
+  [[check]]
+  build = "eu4-1.37.5.2-gog-win64"
+  exe_sha256 = "D29CF745…5319"
+  result = "ok"
+  ```
 - **SDK:** `anvil-sdk-windows-x64.zip`, an asset of every release next to `anvil-windows-x64.zip`, in `SHA256SUMS.txt` and with the same build attestation. CI builds it with the release's own `anvil.exe` and builds the examples from it before it is published. [`sdk/`](../sdk) holds its CMake files and README.
   ```
   include/anvil/{anvil_plugin.h, anvil.hpp, anvil_symbols.hpp, anvil_game.h}
@@ -725,12 +779,12 @@ The fog of the map ([#12](https://github.com/happy-dwarf-team/anvil/issues/12)) 
 **Issues**
 - Localization of player messages in the overlay and the Manager: [#158](https://github.com/happy-dwarf-team/anvil/issues/158). Decided on 2026-11-02: the language follows EU4's own language setting; English, French, German and Spanish come first; Chinese, Japanese and Korean come with the Unicode Patch port ([#104](https://github.com/happy-dwarf-team/anvil/issues/104)), which brings the fonts they need. English, French, German and Spanish are in (§15); the French, German and Spanish catalogs wait for a native speaker's check, and who checks them is still open.
 - The safe Rust `anvil` crate: [#159](https://github.com/happy-dwarf-team/anvil/issues/159), when the first Rust plugin is written.
-- Other storefront builds ([#36](https://github.com/happy-dwarf-team/anvil/issues/36)): the GOG builds in [#160](https://github.com/happy-dwarf-team/anvil/issues/160), waiting for a GOG binary.
+- Other storefront builds ([#36](https://github.com/happy-dwarf-team/anvil/issues/36)): GOG 1.37.5.2 is known and `anvil-game` declares it ([#160](https://github.com/happy-dwarf-team/anvil/issues/160), §5.2, §6); GOG 1.37.5.0 waits for a copy, and Bellows and Tongs for their own ports.
 - Call counts of text hooks (a lighter context): a step of the Unicode Patch port, [#104](https://github.com/happy-dwarf-team/anvil/issues/104#issuecomment-6407336807).
 
 **Not planned**
 - Hot reload: nothing is unloaded in API 2 ([ADR 0001](adr/0001-plugin-api-2-compatibility.md)), so a publisher of services never disappears under its consumers; a restart and `anvil check` without the game are the authoring loop.
-- A shared address library: Anvil supports one build, whose addresses no longer change, and every plugin verifies its own bytes, so plugins share knowledge of the game through the services of library plugins (`anvil-game` today) instead of shared addresses. Several builds would reopen it ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)).
+- A shared address library: the builds Anvil supports no longer change, and every plugin verifies its own bytes, so plugins share knowledge of the game through the services of library plugins (`anvil-game` today) instead of shared addresses. With the GOG build, each plugin's `symbols.toml` lists its own per-build addresses (§5.2); the question comes back if several plugins need the same tables ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)).
 - A vcpkg port: the SDK is headers and a host tool that `FetchContent` with a hash already delivers, and a port would build `anvil.exe` from source instead of the attested release binary ([research](https://github.com/happy-dwarf-team/anvil/blob/research/vcpkg-port/docs/research/vcpkg-port.md)). It comes back as an issue when an author asks.
 - OpenGL in the overlay: Direct3D 9 is EU4's default renderer on Windows, and everything the overlay shows is also in the Manager.
 - Setting profiles per playset or save: nobody has asked, and `restart = false` settings change in the overlay while the game runs.

@@ -1,118 +1,163 @@
-# The game code and data anvil-game reads, for EU4 1.37.5 (Steam, win64).
-# Every offset it uses is a value taken from verified bytes, so a different
-# build or a changed function skips the plugin instead of misreading memory.
-# Sources: EU4 engine lab, docs/reverse-engineering.md, and Tongs (the frame
-# hook, the session and the ironman/multiplayer gate, checked live there).
-build = "eu4-1.37.5-steam-win64"
+# The game code and data anvil-game reads, for EU4 1.37.5 (Steam and GOG
+# 1.37.5.2, win64). Every offset it uses is a value taken from verified bytes,
+# so a different build or a changed function skips the plugin instead of
+# misreading memory. Sources: EU4 engine lab, docs/reverse-engineering.md, and
+# Tongs (the frame hook, the session and the ironman/multiplayer gate, checked
+# live there on Steam). The GOG addresses were found by the Steam bytes and
+# named by the eu4.pdb GOG ships next to eu4.exe (anvil#160).
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
 
 # --- the main loop ---
 
 [symbol.frame]
-rva = 0x14C25A0
 # mov [rsp+8],rbx; mov [rsp+10h],rbp; mov [rsp+18h],rsi; mov [rsp+20h],rdi; push r14; sub rsp,70h
 bytes = "48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 70"
 memory = "code"
 signature = "uintptr_t (void* app, uint8_t outer)"
 note = "one frame: outer = 1 from the main loop (and the first-start language loop), 0 for frames drawn inside a game update or a save load"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C25A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC400 }       # CApplication::UpdateOneFrame
 
 [symbol.frame_counter]
-rva = 0x14C2A23
 bytes = "48 FF 87 20 03 00 00"                    # inc qword [rdi+320h]
 memory = "code"
 values.counter = { at = 3, size = 4 }
 note = "inside the frame function: the frame counter app+0x320, once per frame"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C2A23 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC87D }
 
 [symbol.main_loop_frame]
-rva = 0x14C2E0E
 bytes = "B2 01 48 8B CE E8 88 F7 FF FF 44 38 B6 83 00 00 00"   # mov dl,1; mov rcx,rsi; call frame; cmp [rsi+83h],r14b
 memory = "code"
 values.quit = { at = 13, size = 4 }
 note = "main loop: frame(app, 1), then the quit flag app+0x83"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C2E0E }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BCC6E }       # CApplication::Run
 
 [symbol.main_loop_quit]
-rva = 0x14C2DD0
 bytes = "44 38 B6 F8 02 00 00 75 48"              # cmp [rsi+2F8h],r14b; jne exit
 memory = "code"
 values.quit_request = { at = 3, size = 4 }
 note = "main loop: the second quit flag app+0x2F8, checked before each frame"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C2DD0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BCC30 }
 
 # --- readiness ---
 
 [symbol.ready_store]
-rva = 0x205EED
-bytes = "48 89 1D 0C 36 14 02 C6 05 53 A0 13 02 01"   # mov [2349500h],rbx; mov byte [233FF4Eh],1
 memory = "code"
 values.ready_flag = { at = 9, rip_relative = 14, type = "uint8_t" }
-note = "end of start-up: the byte at 0x233FF4E becomes 1 (the lab's ready marker, with 'Running application')"
+note = "end of start-up: the ready byte becomes 1 (the lab's ready marker, with 'Running application')"
+
+[symbol.ready_store.build."eu4-1.37.5-steam-win64"]
+rva = 0x205EED
+bytes = "48 89 1D 0C 36 14 02 C6 05 53 A0 13 02 01"   # mov [2349500h],rbx; mov byte [233FF4Eh],1
+
+[symbol.ready_store.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x205EAD                                     # CEU4Application::InitGame
+bytes = "48 89 1D CC 74 12 02 C6 05 13 DF 11 02 01"   # mov [232D380h],rbx; mov byte [2323DCEh],1
 
 # --- the session ---
 
 [symbol.root_and_date]
-rva = 0x14321FC
-bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"   # mov rax,[233FE78h]; mov ebx,[rax+1DD0h]
 memory = "code"
 values.root = { at = 3, rip_relative = 7, type = "uintptr_t" }
 values.date = { at = 9, size = 4 }
 note = "top bar: the game root object, its current date (int32, hours; 43808760 = unset)"
 
+[symbol.root_and_date.build."eu4-1.37.5-steam-win64"]
+rva = 0x14321FC
+bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"   # mov rax,[233FE78h]; mov ebx,[rax+1DD0h]
+
+[symbol.root_and_date.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x142C19C                                    # CTopbarGui::RefreshSpeedControlsWindow
+bytes = "48 8B 05 55 7B EF 00 8B 98 D0 1D 00 00"   # mov rax,[2323CF8h] (CCurrentGameState::_pInstance); mov ebx,[rax+1DD0h]
+
 [symbol.session_of_root]
-rva = 0x848976
-bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
 memory = "code"
 values.session = { at = 13, size = 4 }
 values.speed_slot = { at = 22, size = 4 }
 note = "pause command: the session at root+0x1E00, its vtable slot 0x100 (speed_object)"
 
+[symbol.session_of_root.build."eu4-1.37.5-steam-win64"]
+rva = 0x848976
+bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+
+[symbol.session_of_root.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x847CD6                                     # CPauseGame::Execute
+bytes = "48 8B 05 1B C0 AD 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+
 [symbol.session_speed_slot]
-rva = 0x1CB8560
 memory = "read"
-points_to = 0x8024D0
-note = "slot 0x100 of the game session's vtable 0x1CB8460; in the menu and while loading the session has another class"
+note = "slot 0x100 of the game session's vtable; in the menu and while loading the session has another class"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CB8560, points_to = 0x8024D0 }   # vtable 0x1CB8460
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CA1188, points_to = 0x801850 }   # CInGameIdler::`vftable' 0x1CA1088
 
 [symbol.speed_object]
-rva = 0x8024D0
-bytes = "48 8B 81 18 04 00 00 C3"                  # mov rax,[rcx+418h]; ret
 memory = "code"
 values.speed = { at = 3, size = 4 }
-note = "session vtable slot 0x100: the game-speed object at session+0x418"
+note = "session vtable slot 0x100: the game-speed object (session+0x418 on Steam, +0x408 on GOG)"
+
+[symbol.speed_object.build."eu4-1.37.5-steam-win64"]
+rva = 0x8024D0
+bytes = "48 8B 81 18 04 00 00 C3"                  # mov rax,[rcx+418h]; ret
+
+[symbol.speed_object.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x801850                                     # CInGameIdler::AccessGameSpeed
+bytes = "48 8B 81 08 04 00 00 C3"                  # mov rax,[rcx+408h]; ret
 
 [symbol.set_session]
-rva = 0x756A30
 # mov [rsp+10h],rbp; mov [rsp+18h],rsi; push rdi; sub rsp,20h; mov [rcx+1E00h],rdx
 bytes = "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 89 91 00 1E 00 00"
 memory = "code"
 signature = "void (void* root, void* session)"
 note = "puts a session into the root (root+0x1E00) and hands it to every country; called while a save or a new game loads, also from the game menu, where the same session object comes back"
+build."eu4-1.37.5-steam-win64" = { rva = 0x756A30 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x755BF0 }        # CGameState::SetGraphicsOwner
 
 [symbol.ironman_gate]
-rva = 0x6E9128
-bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
 memory = "code"
 values.ironman = { at = 36, size = 4 }
 note = "console registration: the multiplayer/ironman gate is is_multiplayer(session) or the root byte +0x24D0 (ironman)"
 
+[symbol.ironman_gate.build."eu4-1.37.5-steam-win64"]
+rva = 0x6E9128
+bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48 8B 0D 32 6D C5 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+
+[symbol.ironman_gate.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6E8B08                                     # CEU3Idler::RestoreDeviceObjects
+bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+
 [symbol.is_multiplayer]
-rva = 0x6EAA10
 bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
 memory = "code"
 signature = "bool (void* session)"
 note = "multiplayer check through session vtable slot 0x318, as the console registration calls it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }        # CEU3Idler::IsMultiplayerWithPlayers
 
 # --- quitting a benchmark start (docs/spec/benchmark-v1.md §2) ---
 # SDL 2.0.4 is linked into eu4.exe with its dynamic API; SDL_QUIT pushed on the
 # main thread quits like the menu's Quit (anvil#134). Taken from Tongs' "Input".
 
 [symbol.sdl_dynapi_init]
-rva = 0x17325DD
-bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"   # lea rcx,[SDL_PushEvent]; mov [slot 88],rcx
 memory = "code"
 values.push_event = { at = 3, rip_relative = 7 }
 values.push_event_slot = { at = 10, rip_relative = 14 }
 note = "SDL 2.0.4 dynamic API: slot 88 of the jump table is SDL_PushEvent"
 
+[symbol.sdl_dynapi_init.build."eu4-1.37.5-steam-win64"]
+rva = 0x17325DD
+bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"   # lea rcx,[SDL_PushEvent]; mov [slot 88],rcx
+
+[symbol.sdl_dynapi_init.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x171C25D                                    # SDL_DYNAPI_entry
+bytes = "48 8D 0D AC 45 01 00 48 89 0D 55 80 87 00"   # lea rcx,[SDL_PushEvent_REAL]; mov [jump_table+2C0h],rcx
+
 [symbol.sdl_push_event]
-rva = 0x1746B90
 bytes = "40 57 48 83 EC 20 48 8B F9 E8 82 B3 01 00 89 47 04"   # push rdi; sub rsp,20h; mov rdi,rcx; call SDL_GetTicks; mov [rdi+4],eax
 memory = "code"
 signature = "int (void* event)"
 note = "SDL_PushEvent: stamps the event's time with SDL_GetTicks, then queues it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1746B90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1730810 }       # SDL_PushEvent_REAL

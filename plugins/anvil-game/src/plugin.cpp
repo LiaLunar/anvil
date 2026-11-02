@@ -201,10 +201,13 @@ void push_quit(void*) {
     const std::uintptr_t base = host.game().image_base;
     // SDL's own calls go through its dynamic API table; it still points at
     // the SDL_PushEvent we call, or something else has taken it over.
+    // RVAs that differ between the game builds, so read when the game loads.
     std::uintptr_t slot = 0;
-    std::memcpy(&slot, reinterpret_cast<const void*>(base + sym::sdl_dynapi_init.push_event_slot), sizeof(slot));
+    std::memcpy(&slot, reinterpret_cast<const void*>(base + host.value(sym::sdl_dynapi_init, "push_event_slot")),
+                sizeof(slot));
     const auto push_event = host.function(sym::sdl_push_event);
-    if (slot != base + sym::sdl_dynapi_init.push_event || slot != reinterpret_cast<std::uintptr_t>(push_event)) {
+    if (slot != base + host.value(sym::sdl_dynapi_init, "push_event") ||
+        slot != reinterpret_cast<std::uintptr_t>(push_event)) {
         host.warn("benchmark start: SDL's SDL_PushEvent slot points elsewhere; not quitting");
         return;
     }
@@ -256,7 +259,8 @@ struct AnvilGame : anvil::Plugin {
         g_layout.root = host.data(sym::root);
         g_layout.date = sym::root_and_date.date;
         g_layout.session = sym::session_of_root.session;
-        g_layout.speed = sym::speed_object.speed;
+        // The session is 0x10 bytes shorter before the speed object in the GOG build.
+        g_layout.speed = static_cast<std::uint32_t>(host.value(sym::speed_object, "speed"));
         g_layout.ironman = sym::ironman_gate.ironman;
         // The slot is verified to hold speed_object, at the offset the pause
         // command calls; the class's vtable starts that far before it.

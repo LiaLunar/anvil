@@ -28,8 +28,8 @@ private:
 };
 
 
-// Loads a plugin's symbols.toml, checks its `build` against the running game
-// (`build_id`; nullptr when the build is unknown) and verifies every symbol
+// Loads a plugin's symbols.toml, checks that it declares the running game's
+// build (`build_id`; nullptr when the build is unknown), selects it and verifies every symbol
 // against the image at `image_base`. Returns an empty message when the plugin
 // may be loaded, otherwise why it must be skipped. On success `verified` and
 // `declared`, if given, receive the resolved symbols and the parsed file.

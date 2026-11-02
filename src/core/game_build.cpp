@@ -11,10 +11,14 @@
 namespace anvil {
 namespace {
 
-// Builds Anvil knows. Plugins refer to them by id in plugin.toml.
+// Builds Anvil knows. Plugins refer to them by id in symbols.toml. Ids carry
+// the store and, from the GOG builds on, all four parts of the version, since
+// GOG ships 1.37.5.0 and 1.37.5.2 (design §6); the Steam id keeps its name.
 constexpr KnownBuild kKnownBuilds[] = {
     {"eu4-1.37.5-steam-win64", 0x66FE6AB9u, 0x25E0000u, 0x024BAF19u, 0x1A337C8u, 38462504ull,
      "9AD3EFE1AF169F40EE577F9DAE5DEBBC87AF6FB8B5450FB345EBF110DC4D771A"},
+    {"eu4-1.37.5.2-gog-win64", 0x6915E11Fu, 0x25C3000u, 0x0249C6C0u, 0x1A1D448u, 38345336ull,
+     "D29CF745F245A5CDD74FE7B500599DDDD4A61089AFFB04B02044056F23155319"},
 };
 
 }  // namespace

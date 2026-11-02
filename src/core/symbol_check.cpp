@@ -9,7 +9,7 @@ i18n::Message check_plugin_symbols(const std::filesystem::path& symbols_file, co
     SymbolFileResult parsed = load_symbols(symbols_file);
     if (!parsed.file) return parsed.error;
     if (build_id == nullptr) return i18n::Message("build_unknown", {});
-    if (parsed.file->build != build_id) return i18n::Message("symbols_build", {parsed.file->build, build_id});
+    if (!select_build(*parsed.file, build_id)) return build_mismatch(*parsed.file, build_id);
     const OriginalImageReader reader(patches, image_base);
     std::string error;
     const auto image = PeImage::parse(reader, error);

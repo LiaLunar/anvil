@@ -28,11 +28,24 @@ struct SymbolValue {
     std::string type;           // optional, for generated headers
 };
 
+// Where a symbol is in one game build (design §5.2): the keys a file with
+// several `builds` may give per build.
+struct SymbolPlacement {
+    std::string build;
+    uint32_t line = 0;  // of its `build."<id>"` table; 0 when every key is shared
+    std::optional<uint32_t> rva;
+    std::vector<uint8_t> bytes;
+    std::vector<uint8_t> mask;
+    std::optional<uint32_t> points_to;
+};
+
 struct Symbol {
     uint32_t id = 0;  // declaration order in the file: the plugin's AnvilSymbol
     std::string name;
     uint32_t line = 0;  // of its [symbol.<name>] table in symbols.toml
+    uint32_t placement_line = 0;  // of its table for the selected build; 0 when it has none
     SymbolKind kind = SymbolKind::Site;
+    // rva, bytes, mask and points_to are those of the selected build (SymbolFile::build).
     std::optional<uint32_t> rva;  // exactly one of rva and export_name
     std::string export_name;
     std::vector<uint8_t> bytes;  // expected bytes; may be empty
@@ -44,14 +57,22 @@ struct Symbol {
     std::string resume;     // another symbol; empty = the end of the block
     std::vector<SymbolValue> values;
     std::string note;
+    std::vector<SymbolPlacement> placements;  // one per SymbolFile::builds, in that order
 };
 
 struct SymbolFile {
-    std::string build;  // the game build these symbols are for
-    uint32_t build_line = 0;  // of `build` in symbols.toml
-    std::vector<Symbol> symbols;  // in declaration order (index == id)
+    std::vector<std::string> builds;  // `build`, or the list `builds`: the game builds these symbols are for
+    bool builds_listed = false;       // the file gives `builds`: its symbols may have build."<id>" tables
+    std::string build;                // the selected build, the first one after parsing
+    uint32_t build_line = 0;          // of `build` or `builds` in symbols.toml
+    std::vector<Symbol> symbols;      // in declaration order (index == id)
 
     const Symbol* find(std::string_view name) const;
+    bool declares(std::string_view build_id) const;
+    // `builds` joined with ", " for messages.
+    std::string build_list() const;
+    // "build <id>" or "builds <id>, <id>" for comments and messages.
+    std::string build_words() const;
 };
 
 struct SymbolFileResult {
@@ -64,6 +85,10 @@ struct SymbolFileResult {
 // and inconsistent declarations are errors; the image is not consulted.
 SymbolFileResult parse_symbols_text(std::string_view text);
 SymbolFileResult load_symbols(const std::filesystem::path& file);
+
+// Makes `build_id` the selected build: every symbol takes its placement for
+// it. False, and the file unchanged, when the file does not declare it.
+bool select_build(SymbolFile& file, std::string_view build_id);
 
 struct VerifiedSymbol {
     uint32_t rva = 0;  // resolved (exports) or declared
@@ -87,5 +112,8 @@ SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image);
 // Why a plugin whose symbols do not verify is skipped: the first problem, and
 // how many more there are.
 i18n::Message symbol_mismatch(const std::vector<std::string>& problems);
+
+// Why a plugin whose symbols.toml does not declare the game's build is skipped.
+i18n::Message build_mismatch(const SymbolFile& file, std::string_view build_id);
 
 }  // namespace anvil

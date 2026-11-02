@@ -40,8 +40,12 @@ _Avoid_: disabling (that lasts until the next start), unloading, pausing
 
 ### Changing the game
 
+**Game build**:
+One `eu4.exe` that Anvil knows by its PE header and SHA-256, named by a build id with the store and the version, such as `eu4-1.37.5.2-gog-win64`. Symbols are declared for game builds.
+_Avoid_: version (two GOG builds share 1.37.5), edition, platform
+
 **Symbol**:
-A game address that a plugin declares together with what must be found there, such as the expected bytes, the kind of memory or the value a pointer holds.
+A game address that a plugin declares together with what must be found there, such as the expected bytes, the kind of memory or the value a pointer holds. One declaration may give it a different address and bytes in each game build.
 _Avoid_: offset, signature, address (for a declared one)
 
 **Change**:

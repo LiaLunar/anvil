@@ -286,6 +286,79 @@ signature = "const char* ()"
         CHECK(contains(parse_error(with_symbol(load + "values.x = 4\n")), "values.x must be a table"));
     });
 
+    run("symbols: several builds share a declaration, rva, bytes and points_to per build", [] {
+        const std::string text = "builds = [\"build-a\", \"build-b\"]\n"
+                                 "[symbol.s]\n"
+                                 "memory = \"code\"\n"
+                                 "values.op = { at = 0, size = 1 }\n"
+                                 "bytes = \"48 8B\"\n"
+                                 "build.\"build-a\" = { rva = 0x1000 }\n"
+                                 "build.\"build-b\" = { rva = 0x1010 }\n"
+                                 "[symbol.t]\n"
+                                 "memory = \"code\"\n"
+                                 "values.reg = { at = 2, size = 1 }\n"
+                                 "[symbol.t.build.\"build-a\"]\n"
+                                 "rva = 0x1000\n"
+                                 "bytes = \"48 8B 81\"\n"
+                                 "[symbol.t.build.\"build-b\"]\n"
+                                 "rva = 0x1010\n"
+                                 "bytes = \"48 8B 05\"\n";
+        auto file = symbols(text);
+        CHECK(file.builds_listed && file.builds.size() == 2 && file.build == "build-a" && file.build_line == 1);
+        CHECK(file.build_words() == "builds build-a, build-b");
+        CHECK(file.symbols.size() == 2 && file.symbols[0].placements.size() == 2);
+        CHECK(file.symbols[0].rva == 0x1000u && file.symbols[0].bytes.size() == 2 && file.symbols[0].placement_line == 6);
+        CHECK(file.symbols[1].bytes[2] == 0x81 && file.symbols[1].placement_line == 11 && file.symbols[1].line == 8);
+        CHECK(select_build(file, "build-b") && file.build == "build-b");
+        CHECK(file.symbols[0].rva == 0x1010u && file.symbols[0].placement_line == 7);
+        CHECK(file.symbols[1].rva == 0x1010u && file.symbols[1].bytes[2] == 0x05 && file.symbols[1].placement_line == 14);
+        CHECK(!select_build(file, "build-c") && file.build == "build-b");
+        // A file with `build` has one placement, without a table of its own.
+        const SymbolFile one = symbols(kGoodSymbols);
+        CHECK(!one.builds_listed && one.builds.size() == 1 && one.symbols[0].placements.size() == 1 &&
+              one.symbols[0].placement_line == 0);
+        // Everything shared: an export with the same bytes in every build needs no tables.
+        CHECK(parse_error("builds = [\"a\", \"b\"]\n[symbol.f]\nexport = \"F\"\nbytes = \"40 53\"\nmemory = \"code\"\n").empty());
+        // A slot whose pointer differs.
+        CHECK(parse_error("builds = [\"a\", \"b\"]\n[symbol.slot]\nmemory = \"read\"\n"
+                          "build.\"a\" = { rva = 0x2000, points_to = 0x1000 }\nbuild.\"b\" = { rva = 0x2008, points_to = 0x1010 }\n")
+                  .empty());
+    });
+
+    run("symbols: several builds, schema errors", [] {
+        const std::string head = "builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\n";
+        CHECK(contains(parse_error("build = \"a\"\nbuilds = [\"a\"]\n"), "either 'build' or 'builds'"));
+        CHECK(contains(parse_error("builds = []\n"), "builds must be a list of build ids"));
+        CHECK(contains(parse_error("builds = \"a\"\n"), "builds must be a list of build ids"));
+        CHECK(contains(parse_error("builds = [\"a\", 3]\n"), "builds[] must be a string"));
+        CHECK(contains(parse_error("builds = [\"a\", \"a\"]\n"), "builds lists a twice"));
+        CHECK(contains(parse_error("build = \"a\"\n[symbol.s]\nmemory = \"code\"\nbuild.\"a\" = { rva = 0x10, bytes = \"C3\" }\n"),
+                       "need the list of builds at the top"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10 }\nbuild.\"c\" = { rva = 0x10 }\n"),
+                       "symbol s: build.\"c\": builds does not list c"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10, memory = \"read\" }\n"),
+                       "build.\"a\": unknown key 'memory'"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10, bytes = \"C3\" }\n"),
+                       "build.\"a\": bytes is already given for every build"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild = 3\n"), "build must be a table"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild.\"a\" = 3\n"), "build.\"a\" must be a table"));
+        CHECK(contains(parse_error(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10 }\n"),
+                       "symbol s: in build b: needs exactly one of 'rva' and 'export'"));
+        CHECK(contains(parse_error(head + "values.x = { at = 2, size = 1 }\nbuild.\"a\" = { rva = 0x10, bytes = \"48 8B 05\" }\n"
+                                          "build.\"b\" = { rva = 0x10, bytes = \"48 8B\" }\n"),
+                       "in build b: values.x: bytes +0x2..0x3 lie outside the declared 2 bytes"));
+        CHECK(contains(parse_error("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"read\"\nrva = 0x10\n"
+                                   "build.\"a\" = { points_to = 0x20 }\nbuild.\"b\" = { bytes = \"00\" }\n"),
+                       "in build b: is a site here and a slot in a; give points_to for every build or for none"));
+        // Lines: the key of the build's table, or the value's.
+        auto line_of = [](const std::string& text) { return parse_symbols_text(text).line; };
+        CHECK(line_of(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10 }\nbuild.\"b\" = { rva = 0 }\n") == 6);
+        CHECK(line_of(head + "bytes = \"C3\"\nbuild.\"a\" = { rva = 0x10 }\n") == 2);
+        CHECK(line_of(head + "values.x = { at = 2, size = 1 }\nbuild.\"a\" = { rva = 0x10, bytes = \"48 8B 05\" }\n"
+                             "build.\"b\" = { rva = 0x10, bytes = \"48 8B\" }\n") == 4);
+        CHECK(line_of(head + "\n[symbol.s.build.\"a\"]\nrva = 0x10\nbytes = \"C3\"\n[symbol.s.build.\"b\"]\nbytes = \"C3\"\n") == 8);
+    });
+
     run("image: the file reader maps sections and zero-fills past raw data", [&] {
         uint8_t bytes[4] = {1, 1, 1, 1};
         CHECK(file_reader->read(0x3500, bytes, 4));
@@ -452,6 +525,20 @@ signature = "const char* ()"
         }
         const std::string reason = english(check_plugin_symbols(file, "test-build", patches, mapped.address()));
         CHECK(contains(reason, "symbol s (rva 0x1000): byte +0x0") && contains(reason, "and 1 more"));
+        // Several builds: the game's build is selected and verified.
+        {
+            std::ofstream out(file, std::ios::binary);
+            out << "builds = [\"build-a\", \"build-b\"]\n[symbol.s]\nmemory = \"code\"\nvalues.reg = { at = 2, size = 1 }\n"
+                   "build.\"build-a\" = { rva = 0x1000, bytes = \"48 8B 81\" }\n"
+                   "build.\"build-b\" = { rva = 0x1010, bytes = \"48 8B 05\" }\n";
+        }
+        SymbolFile declared;
+        CHECK(check_plugin_symbols(file, "build-b", patches, mapped.address(), &verified, &declared).empty());
+        CHECK(declared.build == "build-b" && verified.symbols[0].rva == 0x1010 && value_of(verified.symbols[0], "reg") == 0x05);
+        CHECK(check_plugin_symbols(file, "build-a", patches, mapped.address(), &verified).empty());
+        CHECK(verified.symbols[0].rva == 0x1000 && value_of(verified.symbols[0], "reg") == 0x81);
+        CHECK(contains(english(check_plugin_symbols(file, "build-c", patches, mapped.address())),
+                       "symbols.toml is for builds build-a, build-b, the game is build-c"));
         CHECK(contains(english(check_plugin_symbols(folder / "missing.toml", "test-build", patches, mapped.address())),
                        "cannot read missing.toml"));
         std::error_code ignored;

@@ -991,6 +991,8 @@ extern const Translation kFrench[] = {
      "suspendu dans cette partie"},
     {"symbols.toml is for build {0}, the game is {1}",
      "symbols.toml est pour la version {0}, le jeu est {1}"},
+    {"symbols.toml is for builds {0}, the game is {1}",
+     "symbols.toml est pour les versions {0}, le jeu est {1}"},
     {"the archive has more than {0} entries",
      "l'archive a plus de {0} entrées"},
     {"the archive unpacks to more than {0} MB",

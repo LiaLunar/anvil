@@ -63,7 +63,8 @@ struct CheckReport {
     i18n::Message skip_why;  // skip_reason by code, for the player's language (#158)
     std::vector<CodeRange> code_ranges;  // with an exe, in declaration order
     bool has_symbols = false;
-    std::string build;         // symbols.toml `build`
+    std::string build;         // the build checked: the exe's, if symbols.toml declares it, else its first
+    std::vector<std::string> builds;  // symbols.toml `build` or `builds`
     size_t symbols = 0;
     bool has_settings = false;  // plugin.toml names a settings.toml that could be read
     size_t settings = 0;        // declared settings, once settings.toml parsed
@@ -101,13 +102,22 @@ std::string json_string(std::string_view text);
 // GitHub workflow commands: data escapes %, CR and LF; properties also : and ,.
 std::string github_escape(std::string_view text, bool property);
 
-// symbols.lock (design §16), next to plugin.toml.
+// One anvil check --exe of symbols.lock.
+struct LockCheck {
+    std::string exe_sha256;    // of the eu4.exe it was checked against
+    std::string build;         // that eu4.exe's build id, or "unknown"
+    bool ok = false;           // result = "ok" | "problems"
+    uint32_t result_line = 0;  // of `result`, when parsed
+};
+
+// symbols.lock (design §16), next to plugin.toml. Format 1, for a symbols.toml
+// with `build`, holds one check at the top; format 2, for one with `builds`,
+// one [[check]] per build checked, in the order of `builds`.
 struct SymbolsLock {
+    int format = 1;
     std::string tool;            // "anvil <version>" that wrote it
     std::string symbols_sha256;  // symbols_digest() of symbols.toml
-    std::string exe_sha256;      // of the eu4.exe it was checked against
-    std::string build;           // that eu4.exe's build id, or "unknown"
-    bool ok = false;             // result = "ok" | "problems"
+    std::vector<LockCheck> checks;
 };
 
 inline constexpr const char* kLockFile = "symbols.lock";
@@ -122,7 +132,6 @@ struct LockResult {
     std::string error;
     uint32_t line = 0;
     uint32_t symbols_line = 0;  // of symbols_sha256
-    uint32_t result_line = 0;   // of result
 };
 LockResult parse_lock(std::string_view text);
 

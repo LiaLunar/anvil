@@ -34,6 +34,7 @@ const std::vector<Pattern> kPatterns = {
     {"cannot_read", "cannot read {0}"},
     {"build_unknown", "game build unknown (EU4 updated?)"},
     {"symbols_build", "symbols.toml is for build {0}, the game is {1}"},
+    {"symbols_builds", "symbols.toml is for builds {0}, the game is {1}"},
     {"image_unreadable", "cannot read the game image: {0}"},
     {"symbol_mismatch", "{0} (EU4 updated or eu4.exe modified?)"},
     {"symbol_mismatch_more", "{0} (EU4 updated or eu4.exe modified?) and {1} more"},
