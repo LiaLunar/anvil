@@ -43,6 +43,12 @@ extern "C" {
  * publishes no ENDED: frames stop first. */
 #define ANVIL_GAME_EVENT_SESSION "anvil-game.session"
 
+/* Since anvil-game 1.8.0: the game's main menu came up or went away (the
+ * player opened the nation selection or another front-end screen, or loaded
+ * a game). Payload NULL; ask the service (main_menu). Published after the
+ * frame that saw the change. */
+#define ANVIL_GAME_EVENT_MAIN_MENU "anvil-game.main_menu"
+
 typedef struct AnvilGameFrame {
     uint32_t size;   /* sizeof(AnvilGameFrame) as known by anvil-game */
     uint32_t reserved;
@@ -109,6 +115,15 @@ typedef struct AnvilGameService {
      * session() reports: while a save loads from a running game no frame
      * runs, so the old session and its last date stay until the load ends. */
     int (*date)(AnvilGameDate *out);
+
+    /* Since anvil-game 1.8.0; check with ANVIL_GAME_HAS(service, main_menu). */
+
+    /* Nonzero while the game shows its main menu: the game is ready, no
+     * session runs and the front end is in its main-menu state, as of the
+     * last frame of the main loop; 0 on the nation selection and the other
+     * front-end screens, in a game, and while a frame is drawn inside a game
+     * update or a save load (the loading screen). Callable from any thread. */
+    int (*main_menu)(void);
 } AnvilGameService;
 
 /* Nonzero when `service` provides `field`. */

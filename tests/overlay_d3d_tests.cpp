@@ -4,7 +4,8 @@
 // core's anvil.control reports a skipped plugin, and the test renders frames
 // on a window of its own. It checks the hooks, that a notice and the panel are
 // drawn on the back buffer, the panel key through the window procedure, a
-// settings change and a device reset. Without a Direct3D 9 device (some CI
+// settings change, a device reset, and the badge of the main menu against a
+// stand-in of anvil-game's service. Without a Direct3D 9 device (some CI
 // machines) it reports that and passes.
 // Usage: anvil_overlay_d3d_tests <folder with one folder per plugin>
 #include "core/changes.hpp"
@@ -15,6 +16,7 @@
 #include "core/settings.hpp"
 #include "test_support.hpp"
 
+#include <anvil/anvil_game.h>
 #include <anvil/anvil_plugin.h>
 #include <windows.h>
 #include <d3d9.h>
@@ -33,6 +35,29 @@ namespace fs = std::filesystem;
 
 constexpr D3DCOLOR kClear = D3DCOLOR_XRGB(0, 0, 0);
 constexpr UINT kWidth = 1280, kHeight = 720;
+
+// The stand-in of anvil-game's service: ready, no session, and the main menu
+// as the test sets it (a nested frame makes main_menu() 0, as anvil-game does).
+bool g_main_menu = false;
+bool g_nested_frame = false;
+int fake_ready() { return 1; }
+uint32_t fake_main_thread() { return GetCurrentThreadId(); }
+uint64_t fake_frame_number() { return 0; }
+AnvilResult fake_run_on_main_thread(AnvilGameWork, void*) { return ANVIL_ERROR_UNSUPPORTED; }
+int fake_session(AnvilGameSession*) { return 0; }
+int fake_date(AnvilGameDate*) { return 0; }
+int fake_main_menu() { return g_main_menu && !g_nested_frame ? 1 : 0; }
+const AnvilGameService kFakeGame = {sizeof(AnvilGameService), fake_ready,   fake_main_thread, fake_frame_number,
+                                    fake_run_on_main_thread,  fake_session, fake_date,        fake_main_menu};
+
+// The game's own window procedure: which button presses reached it.
+int g_game_button_downs = 0;
+LRESULT CALLBACK game_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == WM_LBUTTONDOWN) ++g_game_button_downs;
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
+LPARAM point(int x, int y) { return MAKELPARAM(x, y); }
 
 bool contains(const std::vector<std::string>& log, const std::string& part) {
     return std::any_of(log.begin(), log.end(), [&](const std::string& l) { return l.find(part) != std::string::npos; });
@@ -67,8 +92,12 @@ size_t frame(IDirect3DDevice9* device, RECT area) {
     device->EndScene();
     const size_t drawn = drawn_pixels(device, area);
     device->Present(nullptr, nullptr, nullptr, nullptr);
+    // The real cursor is elsewhere, so Windows answers the test's mouse moves
+    // with WM_MOUSELEAVE at once; dropped, as if the cursor stayed.
     MSG msg;
-    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
+    while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        if (msg.message != WM_MOUSELEAVE) DispatchMessageW(&msg);
+    }
     return drawn;
 }
 
@@ -144,6 +173,7 @@ int main(int argc, char** argv) {
     sources.skipped = &skipped;
     Control& control = *new Control(sources);
     bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION, control.service());
+    bus.register_service(ANVIL_GAME_ID, ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, &kFakeGame);
 
     AnvilPlugin& overlay = *plugins.front();
     run("overlay: loads early and hooks Direct3DCreate9(Ex)", [&] {
@@ -157,6 +187,7 @@ int main(int argc, char** argv) {
         overlay.state = outcome.result == ANVIL_OK ? "loaded" : "failed";
         CHECK(contains(log, "Direct3DCreate9(Ex) hooked; panel key Ctrl+Shift+F12"));
         control.loading_done();
+        bus.publish(ANVIL_GAME_EVENT_READY, nullptr);
     });
     if (overlay.state != "loaded") {
         std::printf("%d checks, %d failed\n", g_checks, g_failures);
@@ -164,7 +195,7 @@ int main(int argc, char** argv) {
     }
 
     WNDCLASSEXW wc{sizeof(wc)};
-    wc.lpfnWndProc = DefWindowProcW;
+    wc.lpfnWndProc = game_window_proc;
     wc.hInstance = self;
     wc.lpszClassName = L"anvil-overlay-test";
     RegisterClassExW(&wc);
@@ -223,6 +254,74 @@ int main(int argc, char** argv) {
         CHECK(control.service()->setting_set_text("anvil-overlay", 1, "false", &result) == ANVIL_OK);  // notifications off
         frame(device, top_right);
         CHECK(frame(device, top_right) == 0);
+    });
+
+    run("overlay: the badge in the main menu; a click on it opens the panel, one beside it reaches the game", [&] {
+        const RECT badge{0, static_cast<LONG>(kHeight) / 2 - 30, 160, static_cast<LONG>(kHeight) / 2 + 30};
+        CHECK(frame(device, badge) == 0);  // not in the menu yet
+        g_main_menu = true;
+        bus.publish(ANVIL_GAME_EVENT_MAIN_MENU, nullptr);
+        size_t drawn = 0;
+        for (int i = 0; i < 2; ++i) drawn = frame(device, badge);
+        CHECK(drawn > 200 && frame(device, middle) == 0 && frame(device, top_right) == 0);
+
+        // Over the badge: ImGui takes the press; the release still reaches the game.
+        // ImGui lays out in the window's client area, which the back buffer is
+        // stretched to.
+        RECT client{};
+        GetClientRect(window, &client);
+        const LPARAM on_badge = point(40, client.bottom / 2);
+        SendMessageW(window, WM_MOUSEMOVE, 0, on_badge);
+        frame(device, badge);
+        SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, on_badge);
+        frame(device, badge);
+        SendMessageW(window, WM_LBUTTONUP, 0, on_badge);
+        frame(device, badge);
+        CHECK(g_game_button_downs == 0);
+        for (int i = 0; i < 2; ++i) drawn = frame(device, middle);
+        CHECK(drawn > 1000);  // the panel
+
+        // Beside the badge and the panel: the game gets the press.
+        const LPARAM beside = point(client.right - 20, client.bottom - 20);
+        SendMessageW(window, WM_MOUSEMOVE, 0, beside);
+        frame(device, badge);
+        SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, beside);
+        frame(device, badge);
+        SendMessageW(window, WM_LBUTTONUP, 0, beside);
+        frame(device, badge);
+        CHECK(g_game_button_downs == 1);
+
+        // The badge again closes the panel. ImGui takes one input change per
+        // frame, so each event gets its frame.
+        SendMessageW(window, WM_MOUSEMOVE, 0, on_badge);
+        for (int i = 0; i < 2; ++i) frame(device, badge);
+        SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, on_badge);
+        frame(device, badge);
+        SendMessageW(window, WM_LBUTTONUP, 0, on_badge);
+        for (int i = 0; i < 2; ++i) frame(device, badge);
+        CHECK(frame(device, middle) == 0);
+        CHECK(g_game_button_downs == 1);
+        SendMessageW(window, WM_MOUSEMOVE, 0, beside);
+        frame(device, badge);
+
+        // A frame drawn inside a save load (the loading screen): no badge.
+        g_nested_frame = true;
+        CHECK(frame(device, badge) == 0);
+        g_nested_frame = false;
+        CHECK(frame(device, badge) > 200);
+
+        // The setting turns it off; on again; then the menu is left.
+        AnvilControlResult result{};
+        CHECK(control.service()->setting_set_text("anvil-overlay", 4, "false", &result) == ANVIL_OK && result.applied == 1);
+        frame(device, badge);
+        CHECK(frame(device, badge) == 0);
+        CHECK(control.service()->setting_reset("anvil-overlay", 4, &result) == ANVIL_OK);
+        frame(device, badge);
+        CHECK(frame(device, badge) > 200);
+        g_main_menu = false;
+        bus.publish(ANVIL_GAME_EVENT_MAIN_MENU, nullptr);
+        frame(device, badge);
+        CHECK(frame(device, badge) == 0);
     });
 
     device->Release();

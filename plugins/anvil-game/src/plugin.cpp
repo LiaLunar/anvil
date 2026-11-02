@@ -8,10 +8,14 @@
 //   2. the session: read from the game root, published when it changes (a
 //      hook of the root's session setter counts the sessions the game puts
 //      in, since a save loaded from the game menu brings the same object back);
-//   3. the work queued with run_on_main_thread;
-//   4. the frame event.
+//   3. the main menu: outside a session, whether the front end is in its
+//      main-menu state, published when it changes;
+//   4. the work queued with run_on_main_thread;
+//   5. the frame event.
 // Frames drawn inside a game update or a save load (outer = 0) and frames on
-// any other thread are passed on untouched.
+// any other thread are passed on untouched; anvil-game only counts the
+// nested ones that run, so the main menu is not reported over a loading
+// screen.
 //
 // In a start-up benchmark start it also quits the game when the core says so
 // (ANVIL_BENCHMARK_EVENT_QUIT): SDL_QUIT pushed on the main thread, which is
@@ -33,6 +37,7 @@
 #include <atomic>
 #include <mutex>
 #include <new>
+#include <string>
 
 namespace {
 
@@ -55,6 +60,8 @@ struct Layout {
     std::uint32_t ironman = 0;             // root+: byte, ironman
     std::uintptr_t session_vtable = 0;     // the game session's class
     sym::Types::is_multiplayer::Pointer is_multiplayer = nullptr;
+    std::uintptr_t frontend_vtable = 0;  // the front end's class (the root's session outside a game)
+    std::uint32_t frontend_state = 0;    // frontend+: uint32 state, 0 = the main menu
 };
 
 Layout g_layout;
@@ -66,6 +73,10 @@ std::atomic<std::uint64_t> g_installs{0};
 std::atomic<std::uint32_t> g_main_thread{0};
 std::atomic<bool> g_ready{false};
 std::atomic<std::uint64_t> g_frame_number{0};
+// The main menu as of the last frame of the main loop, and the frames drawn
+// inside a game update or a save load that are running now.
+std::atomic<bool> g_main_menu{false};
+std::atomic<int> g_nested_frames{0};
 WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
 
@@ -111,6 +122,25 @@ SessionView read_session() {
     return view;
 }
 
+// The front end's state, or -1 when the root's session is not the front end.
+// No objects with destructors: the body runs under __try.
+std::int64_t read_front_end_unguarded() {
+    const std::uintptr_t root = *g_layout.root;
+    if (root == 0) return -1;
+    const std::uintptr_t frontend = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
+    if (frontend == 0 || *reinterpret_cast<const std::uintptr_t*>(frontend) != g_layout.frontend_vtable) return -1;
+    return *reinterpret_cast<const std::uint32_t*>(frontend + g_layout.frontend_state);
+}
+
+std::int64_t read_front_end() {
+    __try {
+        return read_front_end_unguarded();
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return -1;
+    }
+}
+
 const char* mode_text(const AnvilGameSession& s) {
     if (s.ironman && s.multiplayer) return "ironman, multiplayer";
     if (s.ironman) return "ironman";
@@ -150,6 +180,20 @@ void after_frame(std::uint64_t number) {
                   mode_text(s));
         publish(ANVIL_GAME_EVENT_SESSION, &s);
     }
+    // In a session the root's session is the game's, so the front end is not
+    // read at all.
+    const std::int64_t front_end = g_ready.load(std::memory_order_relaxed) && !view.running ? read_front_end() : -1;
+    const bool main_menu = front_end == 0;
+    if (main_menu != g_main_menu.load(std::memory_order_relaxed)) {
+        g_main_menu.store(main_menu, std::memory_order_release);
+        if (main_menu) {
+            host.info("main menu shown");
+        } else {
+            host.info("main menu left ({})",
+                      front_end >= 0 ? "front end state " + std::to_string(front_end) : std::string("no front end"));
+        }
+        publish(ANVIL_GAME_EVENT_MAIN_MENU, nullptr);
+    }
     g_work.run();
     g_frame_number.store(number, std::memory_order_release);
     AnvilGameFrame frame{};
@@ -167,8 +211,13 @@ void on_set_session(void* root, void* session) noexcept {
 }
 
 std::uintptr_t on_frame(void* app, std::uint8_t outer) noexcept {
+    if (outer == 0) {
+        g_nested_frames.fetch_add(1, std::memory_order_acq_rel);
+        const std::uintptr_t result = g_frame.next(app, outer);
+        g_nested_frames.fetch_sub(1, std::memory_order_acq_rel);
+        return result;
+    }
     const std::uintptr_t result = g_frame.next(app, outer);
-    if (outer == 0) return result;
     // The first outer frame comes from the main loop; frames on any other
     // thread are not ours to run work on.
     const std::uint32_t thread = GetCurrentThreadId();
@@ -245,9 +294,13 @@ int service_date(AnvilGameDate* out) {
     return g_in_session ? 1 : 0;
 }
 
+int service_main_menu() {
+    return g_main_menu.load(std::memory_order_acquire) && g_nested_frames.load(std::memory_order_acquire) == 0 ? 1 : 0;
+}
+
 constexpr AnvilGameService kService = {
-    sizeof(AnvilGameService), service_ready,   service_main_thread_id, service_frame_number, service_run_on_main_thread,
-    service_session,          service_date,
+    sizeof(AnvilGameService), service_ready, service_main_thread_id, service_frame_number, service_run_on_main_thread,
+    service_session,          service_date,  service_main_menu,
 };
 
 struct AnvilGame : anvil::Plugin {
@@ -267,12 +320,16 @@ struct AnvilGame : anvil::Plugin {
         g_layout.session_vtable =
             reinterpret_cast<std::uintptr_t>(host.address(sym::session_speed_slot)) - sym::session_of_root.speed_slot;
         g_layout.is_multiplayer = host.function(sym::is_multiplayer);
+        g_layout.frontend_vtable = reinterpret_cast<std::uintptr_t>(host.address(sym::frontend_vtable));
+        // The front end is 0x10 bytes shorter before its state in the GOG build.
+        g_layout.frontend_state = static_cast<std::uint32_t>(host.value(sym::frontend_state, "state"));
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);
         host.hook(g_frame, sym::frame, on_frame);
         host.hook(g_set_session, sym::set_session, on_set_session);
-        host.info("frame hook staged; events {}, {}, {}; service {} v{}", ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME,
-                  ANVIL_GAME_EVENT_SESSION, ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
+        host.info("frame hook staged; events {}, {}, {}, {}; service {} v{}", ANVIL_GAME_EVENT_READY,
+                  ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION, ANVIL_GAME_EVENT_MAIN_MENU, ANVIL_GAME_SERVICE,
+                  ANVIL_GAME_SERVICE_VERSION);
         // The core decides when (every participant done, or the limit); the
         // quit itself needs the main thread.
         if (anvil::Benchmark(host).active()) {

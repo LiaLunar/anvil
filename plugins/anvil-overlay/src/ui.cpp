@@ -42,6 +42,10 @@ struct Ui {
     double font_scale = 0.0;  // the scale the font atlas was built for
     ImGuiStyle base_style;
 
+    // The badge in the main menu: the status it shows, read once a second.
+    AnvilControlStatus badge_status{};
+    ULONGLONG badge_refreshed = 0;
+
     // Notices
     bool start_built = false;
     std::vector<ShownNotice> start;
@@ -201,11 +205,24 @@ bool notice_alive(const ShownNotice& n, ULONGLONG now) {
     return seconds <= 0 || now - n.since < static_cast<ULONGLONG>(seconds) * 1000;
 }
 
-void update_visible(ULONGLONG now) {
-    Shared& s = shared();
-    Ui& u = ui();
+// The notices or the panel need a frame.
+bool content_visible(ULONGLONG now) {
+    const Shared& s = shared();
+    const Ui& u = ui();
     bool any = !u.session.empty() || s.panel_open.load() || s.recording_key.load();
     for (const ShownNotice& n : u.start) any = any || notice_alive(n, now);
+    return any;
+}
+
+// The main menu is up (anvil-game's last event) and the badge is on.
+bool badge_wanted() {
+    const Shared& s = shared();
+    return s.game != nullptr && s.menu_badge.load() && s.main_menu.load(std::memory_order_acquire);
+}
+
+void update_visible(ULONGLONG now) {
+    Shared& s = shared();
+    const bool any = content_visible(now) || badge_wanted();
     s.visible.store(any, std::memory_order_release);
     if (!any) {
         s.want_mouse.store(false);
@@ -383,6 +400,76 @@ void draw_notices(ULONGLONG now) {
     for (ShownNotice& n : u.start) {
         if (notice_alive(n, now)) draw_notice(n.notice, &n.closed, y, index++);
     }
+}
+
+// ---- the badge in the main menu ----------------------------------------------------------
+
+// The panel key as the settings show it ("Ctrl+Shift+F12"), "" without one.
+std::string panel_key_text() {
+    const ControlClient& control = shared().control;
+    const uint32_t count = control.setting_count("anvil-overlay");
+    for (AnvilSetting id = 0; id < count; ++id) {
+        const auto info = control.setting_info("anvil-overlay", id);
+        if (info && info->type == ANVIL_CONTROL_SETTING_KEY) {
+            return control.setting_value("anvil-overlay", id, ANVIL_CONTROL_VALUE_CURRENT);
+        }
+    }
+    return "";
+}
+
+// Anvil's version, with a dot that turns red when a plugin failed; a click
+// opens or closes the panel. Only the badge takes the mouse: clicks beside it
+// reach the game.
+void draw_badge(ULONGLONG now) {
+    Shared& s = shared();
+    Ui& u = ui();
+    if (u.badge_refreshed == 0 || now - u.badge_refreshed >= 1000) {
+        u.badge_status = s.control.status();
+        u.badge_refreshed = now;
+    }
+    const AnvilControlStatus& status = u.badge_status;
+    const std::string label = std::string("Anvil ") + (status.anvil_version != nullptr ? status.anvil_version : "?");
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const ImVec2 padding = style.WindowPadding;
+    const float dot = ImGui::GetFontSize() * 0.5f;
+    const ImVec2 text = ImGui::CalcTextSize(label.c_str());
+    const ImVec2 size(padding.x * 2.0f + dot + style.ItemInnerSpacing.x + text.x, padding.y * 2.0f + text.y);
+    const ImGuiViewport* viewport = ImGui::GetMainViewport();
+    const BadgeRect r = menu_badge_rect(viewport->WorkSize.y, size.x, size.y);
+    ImGui::SetNextWindowPos(ImVec2(viewport->WorkPos.x + r.x, viewport->WorkPos.y + r.y), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(size, ImGuiCond_Always);
+    ImGui::SetNextWindowBgAlpha(0.85f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoSavedSettings |
+                                   ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav |
+                                   ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoScrollWithMouse;
+    const bool open = ImGui::Begin("##anvil-menu-badge", nullptr, flags);
+    ImGui::PopStyleVar();
+    if (open) {
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const bool clicked = ImGui::InvisibleButton("badge", size);
+        const bool hovered = ImGui::IsItemHovered();
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        if (hovered) {
+            draw->AddRectFilled(at, ImVec2(at.x + size.x, at.y + size.y), ImGui::GetColorU32(ImGuiCol_ButtonHovered),
+                                style.WindowRounding);
+        }
+        const float middle = at.y + size.y * 0.5f;
+        draw->AddCircleFilled(ImVec2(at.x + padding.x + dot * 0.5f, middle), dot * 0.5f,
+                              ImGui::GetColorU32(status.failed > 0 ? kRed : kGreen));
+        draw->AddText(ImVec2(at.x + padding.x + dot + style.ItemInnerSpacing.x, at.y + padding.y),
+                      ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
+        if (hovered && ImGui::BeginTooltip()) {
+            ImGui::TextUnformatted(label.c_str());
+            for (const std::string& l : menu_badge_tooltip(status, s.panel_open.load(), panel_key_text())) line(l);
+            ImGui::EndTooltip();
+        }
+        if (clicked) {
+            s.panel_open.store(!s.panel_open.load());
+            s.mark_dirty();
+        }
+    }
+    ImGui::End();
 }
 
 // ---- the panel ---------------------------------------------------------------------------
@@ -891,8 +978,12 @@ void ui_frame(IDirect3DDevice9* device) {
         u.record_plugin.clear();
     }
     update_visible(now);
-    if (!s.visible.load()) {
+    // The badge is drawn over the menu itself, not over a loading screen that
+    // a frame drawn from inside a save load shows (anvil-game says which).
+    const bool badge = badge_wanted() && s.game->main_menu() != 0;
+    if (!s.visible.load() || (!badge && !content_visible(now))) {
         u.was_visible = false;
+        s.want_mouse.store(false);
         return;
     }
     if (!ensure_imgui(device) || !targets_back_buffer(device)) return;
@@ -906,6 +997,7 @@ void ui_frame(IDirect3DDevice9* device) {
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     draw_notices(now);
+    if (badge) draw_badge(now);
     if (s.panel_open.load()) draw_panel();
     ImGui::EndFrame();
     ImGui::Render();

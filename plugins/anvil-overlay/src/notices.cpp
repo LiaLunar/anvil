@@ -154,6 +154,31 @@ std::vector<Notice> session_notices(const SessionFacts& facts) {
     return notices;
 }
 
+BadgeRect menu_badge_rect(float screen_height, float badge_width, float badge_height) {
+    constexpr float kMargin = 12.0f;
+    BadgeRect r;
+    r.w = badge_width;
+    r.h = badge_height;
+    r.x = kMargin;
+    r.y = std::max(kMargin, (screen_height - badge_height) * 0.5f);
+    return r;
+}
+
+std::vector<std::string> menu_badge_tooltip(const AnvilControlStatus& status, bool panel_open,
+                                            const std::string& panel_key) {
+    std::vector<std::string> lines;
+    lines.push_back(trf("{0} loaded, {1} failed, {2} skipped",
+                        {std::to_string(status.loaded), std::to_string(status.failed), std::to_string(status.skipped)}));
+    if (panel_open) {
+        lines.push_back(tr("Click to close the Anvil panel."));
+    } else if (panel_key.empty()) {
+        lines.push_back(tr("Click to open the Anvil panel."));
+    } else {
+        lines.push_back(trf("Click to open the Anvil panel, or press {0}.", {panel_key}));
+    }
+    return lines;
+}
+
 namespace {
 bool is_modifier(unsigned vk) {
     switch (vk) {

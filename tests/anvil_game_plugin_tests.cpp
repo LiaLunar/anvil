@@ -41,6 +41,13 @@ constexpr const char* kBuild = "eu4-1.37.5-steam-win64";
 bool g_multiplayer = false;  // what the stand-in of the session's vtable slot 0x318 answers
 bool fake_is_multiplayer_slot(void*) { return g_multiplayer; }
 
+// Called by the stand-in of the frame function inside every frame, as the
+// game draws there; a test sets it to look at anvil-game from inside a frame.
+void (*g_inside_frame)() = nullptr;
+void fake_frame_body() {
+    if (g_inside_frame != nullptr) g_inside_frame();
+}
+
 // The types of the events the stand-in of SDL_PushEvent got, and its time stamp.
 std::vector<uint32_t> g_pushed;
 int fake_push_event_rest(const void* event) {
@@ -53,7 +60,7 @@ int fake_push_event_rest(const void* event) {
 // eu4.exe's size and sections, reserved; pages are committed only where the
 // symbols of anvil-game lie:
 //   .text  0x1000    code   the declared bytes; frame and is_multiplayer callable
-//   .rdata 0x1B66000 read   the game session's vtable 0x1CB8460
+//   .rdata 0x1B66000 read   the game session's vtable 0x1CB8460, the front end's 0x1D5A8C8
 //   .data  0x1FB0000 write  root global 0x233FE78, ready flag 0x233FF4E
 struct FakeEu4 {
     static constexpr uint32_t kSize = 0x25E0000;
@@ -63,18 +70,23 @@ struct FakeEu4 {
         base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSize, MEM_RESERVE, PAGE_NOACCESS));
         commit(0x0, PAGE_READWRITE);
         for (uint32_t page : {0x205000u, 0x6E9000u, 0x6EA000u, 0x756000u, 0x802000u, 0x848000u, 0x1432000u,
-                              0x14C2000u, 0x1732000u, 0x1746000u, 0x1761000u}) {
+                              0x10DB000u, 0x14C2000u, 0x1732000u, 0x1746000u, 0x1761000u}) {
             commit(page, PAGE_EXECUTE_READWRITE);
         }
         commit(0x1CB8000, PAGE_READWRITE);
+        commit(0x1D5A000, PAGE_READWRITE);
         commit(0x1FB0000, PAGE_READWRITE);
         commit(0x233F000, PAGE_READWRITE);
         write_headers();
 
-        // frame: the declared prologue, then inc qword [rcx+320h] and the epilogue.
+        // frame: the declared prologue, then inc qword [rcx+320h], a call of
+        // fake_frame_body (mov rax, imm64; call rax) and the epilogue.
         put(0x14C25A0, {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18,
                         0x48, 0x89, 0x7C, 0x24, 0x20, 0x41, 0x56, 0x48, 0x83, 0xEC, 0x70,
                         0x48, 0xFF, 0x81, 0x20, 0x03, 0x00, 0x00,              // inc qword [rcx+320h]
+                        0x48, 0xB8});
+        put_pointer(0x14C25A0 + 35, reinterpret_cast<uintptr_t>(&fake_frame_body));
+        put(0x14C25A0 + 43, {0xFF, 0xD0,                                       // call rax
                         0x48, 0x83, 0xC4, 0x70, 0x41, 0x5E,                     // add rsp,70h; pop r14
                         0x48, 0x8B, 0x5C, 0x24, 0x08, 0x48, 0x8B, 0x6C, 0x24, 0x10,
                         0x48, 0x8B, 0x74, 0x24, 0x18, 0x48, 0x8B, 0x7C, 0x24, 0x20,
@@ -111,11 +123,17 @@ struct FakeEu4 {
         put_pointer(0x1746BA6, reinterpret_cast<uintptr_t>(&fake_push_event_rest));
         put(0x1746BAE, {0xFF, 0xD0, 0x48, 0x83, 0xC4, 0x20, 0x5F, 0xC3});
         put(0x1761F20, {0xB8, 0xD2, 0x04, 0x00, 0x00, 0xC3});  // SDL_GetTicks: mov eax,1234; ret
+        // The front end's state change, which stores the state at frontend+0x900.
+        put(0x10DB037, {0x41, 0x8B, 0x8E, 0x00, 0x09, 0x00, 0x00, 0x49, 0x8B, 0x86, 0xE8, 0x08, 0x00, 0x00, 0x48, 0x8B,
+                        0x0C, 0xC8, 0x48, 0x8B, 0x01, 0xFF, 0x50, 0x18, 0x41, 0x89, 0xBE, 0x00, 0x09, 0x00, 0x00});
         // The game session's vtable: slot 0x100 = speed_object, slot 0x318 = the multiplayer answer.
         put_pointer(0x1CB8460 + 0x100, address(0x8024D0));
         put_pointer(0x1CB8460 + 0x318, reinterpret_cast<uintptr_t>(&fake_is_multiplayer_slot));
+        // The front end's vtable: slot 0 = its destructor.
+        put_pointer(0x1D5A8C8, address(0x10D2C00));
         DWORD old = 0;
         VirtualProtect(base + 0x1CB8000, 0x1000, PAGE_READONLY, &old);
+        VirtualProtect(base + 0x1D5A000, 0x1000, PAGE_READONLY, &old);
     }
     ~FakeEu4() { VirtualFree(base, 0, MEM_RELEASE); }
 
@@ -174,6 +192,7 @@ struct GameObjects {
     alignas(16) uint8_t root[0x2500] = {};
     alignas(16) uint8_t session[0x420] = {};
     alignas(16) uint8_t speed[0x60] = {};
+    alignas(16) uint8_t frontend[0x910] = {};
 
     uint64_t frame_counter() const {
         uint64_t v = 0;
@@ -185,11 +204,15 @@ struct GameObjects {
         const auto v = reinterpret_cast<uintptr_t>(p);
         std::memcpy(root + 0x1E00, &v, sizeof(v));
     }
+    void set_front_end_state(uint32_t state) { std::memcpy(frontend + 0x900, &state, sizeof(state)); }
 };
+
+const AnvilGameService* g_service = nullptr;
 
 // What a plugin hears from anvil-game, in order.
 struct Heard {
-    std::vector<std::string> events;  // "ready", "frame <n>", "session <started|ended> <n> im=<0|1> mp=<0|1>"
+    // "ready", "frame <n>", "session <started|ended> <n> im=<0|1> mp=<0|1>", "main menu <0|1>"
+    std::vector<std::string> events;
     std::vector<uint32_t> threads;
 };
 
@@ -207,6 +230,8 @@ void listen(const char* event, const void* payload, void* context) {
         h->events.push_back(std::string("session ") + (s->change == ANVIL_GAME_SESSION_STARTED ? "started " : "ended ") +
                             std::to_string(s->number) + " im=" + std::to_string(s->ironman) +
                             " mp=" + std::to_string(s->multiplayer));
+    } else if (name == ANVIL_GAME_EVENT_MAIN_MENU) {
+        h->events.push_back("main menu " + std::to_string(g_service->main_menu()));
     }
 }
 
@@ -325,7 +350,8 @@ int main(int argc, char** argv) {
     });
     bus.register_service("anvil", ANVIL_BENCHMARK_SERVICE, ANVIL_BENCHMARK_SERVICE_VERSION, bench.service());
     Heard& heard = *new Heard;
-    for (const char* event : {ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION}) {
+    for (const char* event : {ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION,
+                              ANVIL_GAME_EVENT_MAIN_MENU}) {
         bus.subscribe("listener", event, listen, &heard);
     }
     volatile uint8_t* const ready_flag = image.base + 0x233FF4E;
@@ -343,7 +369,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 14);
+        CHECK(reason.empty() && verified.symbols.size() == 16);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -362,9 +388,11 @@ int main(int argc, char** argv) {
         CHECK(changes.chain_at(image.address(0x756A30)) == std::vector<OwnerId>{p->owner});
         plugin = p;
         service = static_cast<const AnvilGameService*>(bus.get_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION));
-        CHECK(service != nullptr && service->size == sizeof(AnvilGameService) && ANVIL_GAME_HAS(service, date));
+        CHECK(service != nullptr && service->size == sizeof(AnvilGameService) && ANVIL_GAME_HAS(service, date) &&
+              ANVIL_GAME_HAS(service, main_menu));
         CHECK(contains(log, "anvil-game: frame hook staged; events anvil-game.ready, anvil-game.frame, "
-                            "anvil-game.session; service anvil-game.game v1"));
+                            "anvil-game.session, anvil-game.main_menu; service anvil-game.game v1"));
+        g_service = service;
     });
     if (plugin == nullptr || service == nullptr) {
         for (const auto& l : log) std::printf("    log: %s\n", l.c_str());
@@ -579,6 +607,56 @@ int main(int argc, char** argv) {
         CHECK(heard.events.size() == 3 && std::equal(heard.events.begin(), heard.events.begin() + 2,
                                                      session_events(s.number, 1, 0).begin()));
         CHECK(service->session(&s) == 1 && !changes.suspended(gp) && image.base[0x205000] == 0x90);
+    });
+
+    run("anvil-game: the main menu from the front end's state, not over a loading screen", [&] {
+        static const AnvilGameService* svc = service;
+        static std::vector<int>* inside = new std::vector<int>;
+        const uintptr_t vtable = image.address(0x1D5A8C8);
+        std::memcpy(game.frontend, &vtable, sizeof(vtable));
+        game.set_front_end_state(0);
+        // Leaving the game for the menu: the session ends, the front end is the root's session.
+        game.set_session(game.frontend);
+        heard.events.clear();
+        frame(game.app, 1);
+        CHECK(heard.events.size() == 3 && heard.events[0].starts_with("session ended") && heard.events[1] == "main menu 1");
+        CHECK(service->main_menu() == 1 && contains(log, "anvil-game: main menu shown"));
+        heard.events.clear();
+        frame(game.app, 1);
+        CHECK(heard.events.size() == 1);  // no change, no event
+
+        // What is drawn inside an outer frame is the menu; inside a nested one (a save
+        // loading, a game update) it is not, and afterwards it is again.
+        g_inside_frame = [] { inside->push_back(svc->main_menu()); };
+        frame(game.app, 1);
+        frame(game.app, 0);
+        g_inside_frame = nullptr;
+        CHECK((*inside == std::vector<int>{1, 0}) && service->main_menu() == 1);
+
+        // The nation selection (state 3), and back.
+        heard.events.clear();
+        game.set_front_end_state(3);
+        frame(game.app, 1);
+        CHECK(heard.events.size() == 2 && heard.events[0] == "main menu 0" && service->main_menu() == 0);
+        CHECK(contains(log, "anvil-game: main menu left (front end state 3)"));
+        game.set_front_end_state(0);
+        frame(game.app, 1);
+        CHECK(service->main_menu() == 1);
+
+        // A front end that cannot be read is not the menu.
+        game.set_session(image.base + 0x10000);
+        frame(game.app, 1);
+        CHECK(service->main_menu() == 0 && contains(log, "anvil-game: main menu left (no front end)"));
+
+        // A game: the front end is not read at all.
+        game.set_session(game.frontend);
+        frame(game.app, 1);
+        CHECK(service->main_menu() == 1);
+        heard.events.clear();
+        game.set_session(game.session);
+        frame(game.app, 1);
+        CHECK(heard.events.size() == 3 && heard.events[0].starts_with("session started") && heard.events[1] == "main menu 0");
+        CHECK(service->main_menu() == 0);
     });
 
     run("anvil-game: only anvil-game publishes its events", [&] {

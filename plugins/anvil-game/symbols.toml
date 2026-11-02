@@ -136,6 +136,30 @@ note = "multiplayer check through session vtable slot 0x318, as the console regi
 build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }        # CEU3Idler::IsMultiplayerWithPlayers
 
+# --- the main menu ---
+# Outside a game the root's session (root+0x1E00) is the front end, whose state
+# machine shows the main menu in state 0 (the nation selection is state 3).
+# Checked live on Steam (anvil#184).
+
+[symbol.frontend_vtable]
+memory = "read"
+note = "slot 0 of the front end's vtable: its scalar deleting destructor; the front end's Idle is slot 0x20"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D5A8C8, points_to = 0x10D2C00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }   # CFrontEnd::`vftable'
+
+[symbol.frontend_state]
+memory = "code"
+values.state = { at = 3, size = 4 }
+note = "front end state change: the old state's exit (slot 0x18) and the new state stored at frontend+0x900 (Steam) or +0x8F0 (GOG); 0 is the main menu"
+
+[symbol.frontend_state.build."eu4-1.37.5-steam-win64"]
+rva = 0x10DB037
+bytes = "41 8B 8E 00 09 00 00 49 8B 86 E8 08 00 00 48 8B 0C C8 48 8B 01 FF 50 18 41 89 BE 00 09 00 00"
+
+[symbol.frontend_state.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10D9677                                    # CFrontEnd::ChangeState
+bytes = "41 8B 8E F0 08 00 00 49 8B 86 D8 08 00 00 48 8B 0C C8 48 8B 01 FF 50 18 41 89 BE F0 08 00 00"
+
 # --- quitting a benchmark start (docs/spec/benchmark-v1.md §2) ---
 # SDL 2.0.4 is linked into eu4.exe with its dynamic API; SDL_QUIT pushed on the
 # main thread quits like the menu's Quit (anvil#134). Taken from Tongs' "Input".

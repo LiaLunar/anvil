@@ -1,5 +1,6 @@
 // anvil-overlay: the standard plugin of design §15. Dear ImGui on the game's
-// Direct3D 9 device, for notifications and the panel.
+// Direct3D 9 device, for notifications, the badge in the main menu and the
+// panel.
 //
 // Getting the device (no symbols, so it works on every build):
 //   1. at the entry point it hooks Direct3DCreate9 and Direct3DCreate9Ex in
@@ -11,7 +12,8 @@
 //      input.
 // On the OpenGL backend none of this is called and the overlay stays off.
 //
-// With no notice shown and the panel closed, the EndScene hook only passes on.
+// With no notice shown, the panel closed and the badge not shown (it is only
+// in the main menu), the EndScene hook only passes on.
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
 
@@ -344,10 +346,15 @@ struct AnvilOverlay : anvil::Plugin {
         s.control = overlay::ControlClient(control);
         anvil::i18n::set_language(s.control.language());
         s.panel_key.store(cfg::panel_key.get().code);
+        s.menu_badge.store(cfg::menu_badge.get());
         s.notifications.store(cfg::notifications.get());
         s.notification_seconds.store(cfg::notification_seconds.get());
         s.scale.store(cfg::scale.get());
         host.subscribe_setting(cfg::panel_key, [](anvil::Key key) { shared().panel_key.store(key.code); });
+        host.subscribe_setting(cfg::menu_badge, [](bool on) {
+            shared().menu_badge.store(on);
+            shared().mark_dirty();
+        });
         host.subscribe_setting(cfg::notifications, [](bool on) {
             shared().notifications.store(on);
             shared().mark_dirty();
@@ -373,16 +380,26 @@ struct AnvilOverlay : anvil::Plugin {
         host.replace_import(g_async_key_state, "USER32.dll", "GetAsyncKeyState", on_async_key_state);
         host.replace_import(g_key_state, "USER32.dll", "GetKeyState", on_key_state);
 
-        // Readiness and sessions from anvil-game; without it the notices start
-        // at the first frame and there are no session notices.
-        const bool game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION) != nullptr;
-        s.uses_game_plugin.store(game);
-        if (game) {
+        // Readiness, sessions and the main menu from anvil-game; without it the
+        // notices start at the first frame, and there are no session notices
+        // and no badge in the menu.
+        const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
+        s.uses_game_plugin.store(game != nullptr);
+        if (game != nullptr) {
             host.subscribe(ANVIL_GAME_EVENT_READY, [] { on_game_ready(); });
             host.subscribe(ANVIL_GAME_EVENT_SESSION, [] {
                 shared().session_changed.store(true, std::memory_order_release);
                 shared().mark_dirty();
             });
+            if (ANVIL_GAME_HAS(game, main_menu)) {
+                s.game = game;
+                host.subscribe(ANVIL_GAME_EVENT_MAIN_MENU, [] {
+                    shared().main_menu.store(shared().game->main_menu() != 0, std::memory_order_release);
+                    shared().mark_dirty();
+                });
+            } else {
+                host.info("this anvil-game does not report the main menu: no badge there");
+            }
         } else {
             host.info("anvil-game is not loaded: notices start with the first frame, without session notices");
             s.start_ready.store(true);

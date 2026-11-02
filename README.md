@@ -46,8 +46,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
 - Anvil also ships `anvil-overlay` (`anvil/plugins/anvil-overlay/`): in-game
   notices about plugins that were not loaded, the previous crash and safe
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next
-  start", the crash report, the log and every plugin's settings. It draws on
-  the game's Direct3D 9 renderer and stays off with OpenGL.
+  start", the crash report, the log and every plugin's settings. In the game's
+  main menu a small "Anvil x.y.z" badge on the left edge shows that
+  Anvil runs; a click on it opens the panel (the overlay's setting "Show Anvil
+  in the main menu" turns it off). It draws on the game's Direct3D 9 renderer
+  and stays off with OpenGL.
 - The overlay and the Manager speak the language EU4 is set to: English,
   French, German or Spanish (other languages show English). `anvil.log` and
   `anvil check` stay in English, for bug reports and plugin authors.

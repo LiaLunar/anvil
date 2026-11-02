@@ -34,3 +34,10 @@ step = 0.25
 label = "Scale"
 description = "The size of the panel and the notifications."
 restart = false
+
+[setting.menu_badge]
+type = "bool"
+default = true
+label = "Show Anvil in the main menu"
+description = "A small badge with Anvil's version on the left edge of the game's main menu; a click opens the panel. Never shown in a game."
+restart = false

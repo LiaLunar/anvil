@@ -12,6 +12,7 @@
 
 #include <windows.h>
 
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -180,6 +181,59 @@ int main() {
         CHECK(session_notices(facts)[0].lines[0].find("No plugin") == 0);
         facts.session = false;
         CHECK(session_notices(facts).empty());
+    });
+
+    run("menu badge: clear of the main menu's widgets at the usual resolutions and every scale", [] {
+        // The main menu of EU4 1.37.5 as Tongs' ui tree reads it at 1280x720 and
+        // game_ui_scale 1: the logos keep to the top corners and the bottom bar to
+        // the bottom centre (the 3440x1440 menu agrees), all of it grown by the
+        // game's interface scale s, which the game keeps at most height / 720
+        // (min_gui 1280x720). The Continue row is there when a save exists.
+        const auto widgets = [](float w, float h, float s) {
+            return std::vector<BadgeRect>{
+                {0, 19 * s, 640 * s, 180 * s},                       // mainmenu_panel_upperleft (the logo)
+                {w - 210 * s, 14 * s, 192 * s, 192 * s},             // mainmenu_panel_upperright
+                {w / 2 - 542 * s, h - 64 * s, 253 * s, 64 * s},      // version_background
+                {w / 2 - 339 * s, h - 140 * s, 683 * s, 140 * s},    // frontend_bottom_bg (Single Player ... Exit)
+                {w / 2 + 263 * s, h - 65 * s, 377 * s, 65 * s},      // PersistentSocialButtons
+                {w / 2 - 205 * s, h - 205 * s, 375 * s, 90 * s},     // the Continue row
+            };
+        };
+        const auto overlap = [](const BadgeRect& a, const BadgeRect& b) {
+            return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+        };
+        const float sizes[][2] = {{1280, 720}, {1366, 768}, {1600, 900}, {1920, 1080},
+                                  {2560, 1080}, {2560, 1440}, {3440, 1440}};
+        int clear = 0, cases = 0;
+        for (const auto& size : sizes) {
+            for (float s = 1.0f; s <= size[1] / 720.0f + 0.001f; s += 0.25f) {
+                for (float k = 0.75f; k <= 2.5f; k += 0.25f) {
+                    // At most "Anvil 10.10.10" in Segoe UI 17 px, a dot and the window's padding.
+                    const BadgeRect r = menu_badge_rect(size[1], 150.0f * k, 40.0f * k);
+                    bool ok = r.x >= 0 && r.y >= 0 && r.x + r.w <= size[0] && r.y + r.h <= size[1];
+                    for (const BadgeRect& w : widgets(size[0], size[1], s)) ok = ok && !overlap(r, w);
+                    if (!ok) std::printf("  covers the menu at %gx%g, game scale %g, overlay scale %g\n", size[0], size[1], s, k);
+                    clear += ok ? 1 : 0;
+                    ++cases;
+                }
+            }
+        }
+        CHECK(clear == cases && cases > 7 * 8);
+        // 12 px from the left edge, halfway down.
+        const BadgeRect r = menu_badge_rect(1440, 100, 30);
+        CHECK(r.x == 12 && r.y == 705 && r.w == 100 && r.h == 30);
+        CHECK(menu_badge_rect(20, 100, 30).y == 12);  // never above the top
+    });
+
+    run("menu badge: the tooltip", [] {
+        AnvilControlStatus status{};
+        status.loaded = 4;
+        status.skipped = 1;
+        auto lines = menu_badge_tooltip(status, false, "Ctrl+Shift+F12");
+        CHECK(lines.size() == 2 && lines[0] == "4 loaded, 0 failed, 1 skipped" &&
+              lines[1] == "Click to open the Anvil panel, or press Ctrl+Shift+F12.");
+        CHECK(menu_badge_tooltip(status, false, "")[1] == "Click to open the Anvil panel.");
+        CHECK(menu_badge_tooltip(status, true, "F11")[1] == "Click to close the Anvil panel.");
     });
 
     run("panel key: exact match with modifiers", [] {

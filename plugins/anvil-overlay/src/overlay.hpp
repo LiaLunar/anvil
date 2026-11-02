@@ -4,6 +4,7 @@
 
 #include "control_client.hpp"
 
+#include <anvil/anvil_game.h>
 #include <windows.h>
 #include <d3d9.h>
 
@@ -27,9 +28,14 @@ struct Shared {
     std::atomic<bool> start_ready{false};      // the game is ready: show the start notices
     std::atomic<bool> session_changed{false};  // rebuild the session notices
     std::atomic<bool> uses_game_plugin{false};
+    // anvil-game's service when it reports the main menu (1.8.0 and later),
+    // and the menu as its last event said.
+    const AnvilGameService* game = nullptr;
+    std::atomic<bool> main_menu{false};
 
     // Settings (settings.toml), updated by their callbacks.
     std::atomic<int64_t> panel_key{0};
+    std::atomic<bool> menu_badge{true};
     std::atomic<bool> notifications{true};
     std::atomic<int64_t> notification_seconds{30};
     std::atomic<double> scale{1.0};
