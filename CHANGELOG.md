@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.8.0](https://github.com/happy-dwarf-team/anvil/compare/v1.7.0...v1.8.0) (2026-11-02)
+
+
+### Features
+
+* show Anvil's version in the game's main menu and open the panel with a click ([#184](https://github.com/happy-dwarf-team/anvil/issues/184)) ([4d757a2](https://github.com/happy-dwarf-team/anvil/commit/4d757a2ae2734edad417573be86836d74bb8a43b))
+
 ## [1.7.0](https://github.com/happy-dwarf-team/anvil/compare/v1.6.1...v1.7.0) (2026-11-02)
 
 
