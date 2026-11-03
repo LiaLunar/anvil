@@ -96,7 +96,8 @@ add_executable(anvil_manager WIN32
     app/manager_app.cpp
     app/platform.cpp
     app/AnvilManager.manifest
-    ${CMAKE_CURRENT_BINARY_DIR}/manager.rc)
+    ${CMAKE_CURRENT_BINARY_DIR}/manager.rc
+    ${ANVIL_CJK_FONTS_RC})
 add_dependencies(anvil_manager anvil_manager_package)
 target_link_libraries(anvil_manager PRIVATE anvil_manager_core anvil_manager_imgui d3d11 dxgi winhttp shell32 ole32)
 set_target_properties(anvil_manager PROPERTIES OUTPUT_NAME AnvilManager)

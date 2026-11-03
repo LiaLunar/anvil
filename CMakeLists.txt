@@ -39,8 +39,12 @@ FetchContent_MakeAvailable(tomlplusplus safetyhook)
 add_library(anvil_messages STATIC src/i18n/message.cpp)
 target_include_directories(anvil_messages PUBLIC src)
 target_compile_definitions(anvil_messages PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
-add_library(anvil_i18n STATIC src/i18n/translate.cpp src/i18n/catalog_fr.cpp src/i18n/catalog_de.cpp
-    src/i18n/catalog_es.cpp)
+add_library(anvil_i18n STATIC src/i18n/translate.cpp src/i18n/cjk_font.cpp src/i18n/catalog_fr.cpp
+    src/i18n/catalog_de.cpp src/i18n/catalog_es.cpp src/i18n/catalog_zh_hans.cpp src/i18n/catalog_zh_hant.cpp
+    src/i18n/catalog_ja.cpp src/i18n/catalog_ko.cpp)
+# The CJK fonts are resources of each binary that draws text (cjk_font.hpp):
+# target_sources(<target> PRIVATE ${ANVIL_CJK_FONTS_RC}).
+set(ANVIL_CJK_FONTS_RC ${CMAKE_CURRENT_SOURCE_DIR}/src/i18n/fonts/fonts.rc CACHE INTERNAL "")
 target_link_libraries(anvil_i18n PUBLIC anvil_messages)
 if(MSVC)
     target_compile_options(anvil_messages PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
@@ -199,6 +203,10 @@ endforeach()
 
 # AnvilManager.exe, the player's installer and management tool (design §15).
 add_subdirectory(tools/manager)
+# The resource compiler does not track the files fonts.rc names.
+file(GLOB ANVIL_CJK_FONT_FILES CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/src/i18n/fonts/*.otf)
+set_source_files_properties(${ANVIL_CJK_FONTS_RC} DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} plugins/anvil-overlay tools/manager
+    PROPERTIES OBJECT_DEPENDS "${ANVIL_CJK_FONT_FILES}")
 
 # anvil_bench: microbenchmarks per kind of change and of the start-up parsers
 # (design §17). CI runs it as its own step against bench/baseline-ci.json; the
@@ -338,9 +346,12 @@ if(ANVIL_BUILD_TESTS)
     # The player's language (issue #158): messages by code, the language from
     # EU4's settings, and catalogs that translate every marked text of the
     # overlay's and the Manager's sources (tests/i18n_tests.cpp).
-    add_executable(anvil_i18n_tests tests/i18n_tests.cpp)
+    add_executable(anvil_i18n_tests tests/i18n_tests.cpp ${ANVIL_CJK_FONTS_RC})
     target_link_libraries(anvil_i18n_tests PRIVATE anvil_core anvil_i18n)
     target_compile_definitions(anvil_i18n_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    # ImGui's stb_truetype reads the CJK fonts as the atlas does.
+    FetchContent_GetProperties(imgui)
+    target_include_directories(anvil_i18n_tests PRIVATE ${imgui_SOURCE_DIR})
     add_test(NAME anvil_i18n_tests COMMAND anvil_i18n_tests ${CMAKE_CURRENT_SOURCE_DIR})
     # The same on a real Direct3D 9 device with this test as the game image;
     # passes with a note where no device can be created.
@@ -421,6 +432,8 @@ install(FILES ${zydis_SOURCE_DIR}/dependencies/zycore/LICENSE DESTINATION anvil/
 install(FILES ${ANVIL_OVERLAY_IMGUI_LICENSE} DESTINATION anvil/docs/third-party RENAME imgui-LICENSE.txt COMPONENT anvil)
 # miniz is compiled into AnvilManager.exe, which ships next to version.dll.
 install(FILES ${ANVIL_MINIZ_LICENSE} DESTINATION anvil/docs/third-party RENAME miniz-LICENSE.txt COMPONENT anvil)
+# The CJK fonts are resources of anvil_overlay.dll and AnvilManager.exe (src/i18n/fonts).
+install(FILES src/i18n/fonts/OFL.txt DESTINATION anvil/docs/third-party RENAME SourceHanSans-OFL.txt COMPONENT anvil)
 
 # AnvilManager.exe (cmake --install ... --component manager): next to eu4.exe in
 # the release zip, and a release asset of its own. Not in component anvil: the

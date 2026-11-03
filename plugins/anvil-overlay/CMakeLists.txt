@@ -38,4 +38,5 @@ set(ANVIL_OVERLAY_IMGUI_LICENSE ${imgui_SOURCE_DIR}/LICENSE.txt CACHE INTERNAL "
 anvil_add_plugin(anvil_overlay SOURCES src/plugin.cpp src/ui.cpp src/notices.cpp src/control_client.cpp)
 target_include_directories(anvil_overlay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control)
 target_link_libraries(anvil_overlay PRIVATE anvil_overlay_imgui anvil_i18n)
+target_sources(anvil_overlay PRIVATE ${ANVIL_CJK_FONTS_RC})
 target_compile_definitions(anvil_overlay PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

@@ -61,23 +61,58 @@ Message crash_message(std::string_view level, const std::vector<std::string>& pl
 
 // ---- the player's language -------------------------------------------------
 
-enum class Language { English, French, German, Spanish };
-inline constexpr Language kLanguages[] = {Language::English, Language::French, Language::German, Language::Spanish};
+enum class Language { English, French, German, Spanish, SimplifiedChinese, TraditionalChinese, Japanese, Korean };
+inline constexpr Language kLanguages[] = {Language::English,           Language::French,
+                                          Language::German,            Language::Spanish,
+                                          Language::SimplifiedChinese, Language::TraditionalChinese,
+                                          Language::Japanese,          Language::Korean};
 
-const char* language_code(Language language);  // "en", "fr", "de", "es"
-// "fr", "de", "es", "en" or EU4's names ("l_french"); nullopt for others.
+// Chinese, Japanese or Korean: drawn with a CJK font (i18n/cjk_font.hpp).
+bool is_cjk(Language language);
+
+const char* language_code(Language language);  // "en", "fr", "de", "es", "zh-Hans", "zh-Hant", "ja", "ko"
+// A code (any case, "_" for "-": the overlay's setting writes "zh_hans") or
+// EU4's names ("l_french"); nullopt for others.
 std::optional<Language> language_named(std::string_view name);
 
 // The `language` of EU4's settings.txt ("l_german"); nullopt when the text has
 // none or names a language Anvil does not speak (Anvil then speaks English).
 std::optional<Language> language_of_settings(std::string_view settings_txt);
 
+// Steam's own language (HKCU\Software\Valve\Steam\Language: "schinese",
+// "tchinese", "japanese", "koreana"), when it is Chinese, Japanese or Korean.
+std::optional<Language> cjk_language_of_steam(std::string_view steam_language);
+// Windows' display language as a locale name ("zh-CN", "zh-TW", "ja-JP",
+// "ko-KR"), when it is Chinese, Japanese or Korean.
+std::optional<Language> cjk_language_of_locale(std::string_view locale_name);
+
+// ANVIL_LANGUAGE, when it names a language Anvil speaks.
+std::optional<Language> forced_language();
+
+// What the system says, for choose_language; read_system_languages() asks
+// Steam's registry key and Windows.
+struct SystemLanguages {
+    std::string steam;    // "schinese", "" when Steam has none
+    std::string windows;  // "zh-CN"
+};
+SystemLanguages read_system_languages();
+
 struct LanguageChoice {
     Language language = Language::English;
-    std::string source;  // "ANVIL_LANGUAGE", "settings.txt" or "default"
+    std::string source;  // "ANVIL_LANGUAGE", "settings.txt", "Steam", "Windows" or "default"
 };
-// The player's language: ANVIL_LANGUAGE (en, fr, de, es) when set, otherwise
-// settings.txt in EU4's user folder (only read), otherwise English.
-LanguageChoice choose_language(const std::filesystem::path& user_dir);
+// The player's language (design §15):
+// 1. ANVIL_LANGUAGE when set;
+// 2. French, German or Spanish from settings.txt in EU4's user folder (only read);
+// 3. with `cjk_text` (Mei, which shows a translation mod's Chinese, Japanese or
+//    Korean text, loads): Steam's language, then Windows', when it is one of those;
+// 4. English.
+// EU4 has no Chinese, Japanese or Korean of its own: a translation mod replaces
+// its English text, so settings.txt says English for those players.
+LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text = false);
+LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text, const SystemLanguages& system);
+
+// The plugin whose loading means the game shows Chinese, Japanese or Korean text.
+inline constexpr std::string_view kCjkTextPlugin = "mei";
 
 }  // namespace anvil::i18n

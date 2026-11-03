@@ -52,8 +52,12 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   in the main menu" turns it off). It draws on the game's Direct3D 9 renderer
   and stays off with OpenGL.
 - The overlay and the Manager speak the language EU4 is set to: English,
-  French, German or Spanish (other languages show English). `anvil.log` and
-  `anvil check` stay in English, for bug reports and plugin authors.
+  French, German or Spanish (other languages show English). With
+  [Mei](https://github.com/happy-dwarf-team/mei), which shows a translation
+  mod's Chinese, Japanese or Korean, they speak Simplified or Traditional
+  Chinese, Japanese or Korean when Steam or Windows is set to it. The overlay's
+  setting "Language" chooses one for both. `anvil.log` and `anvil check` stay
+  in English, for bug reports and plugin authors.
 - And `anvil-log-throttle` (`anvil/plugins/anvil-log-throttle/`): a line that
   repeats in the game's `error.log` is written 10 times, then only counted,
   with a line that gives the count every minute and when the game closes the

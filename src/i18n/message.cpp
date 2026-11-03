@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cctype>
 #include <fstream>
 #include <iterator>
 
@@ -189,22 +190,39 @@ Message crash_message(std::string_view level, const std::vector<std::string>& pl
     return m;
 }
 
+bool is_cjk(Language language) {
+    return language == Language::SimplifiedChinese || language == Language::TraditionalChinese ||
+           language == Language::Japanese || language == Language::Korean;
+}
+
 const char* language_code(Language language) {
     switch (language) {
     case Language::English: return "en";
     case Language::French: return "fr";
     case Language::German: return "de";
     case Language::Spanish: return "es";
+    case Language::SimplifiedChinese: return "zh-Hans";
+    case Language::TraditionalChinese: return "zh-Hant";
+    case Language::Japanese: return "ja";
+    case Language::Korean: return "ko";
     }
     return "en";
 }
 
 std::optional<Language> language_named(std::string_view name) {
     name = trimmed(name);
-    if (name == "en" || name == "l_english") return Language::English;
-    if (name == "fr" || name == "l_french") return Language::French;
-    if (name == "de" || name == "l_german") return Language::German;
-    if (name == "es" || name == "l_spanish") return Language::Spanish;
+    std::string code(name);
+    for (char& c : code) {
+        c = c == '_' ? '-' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    if (code == "en" || code == "l-english") return Language::English;
+    if (code == "fr" || code == "l-french") return Language::French;
+    if (code == "de" || code == "l-german") return Language::German;
+    if (code == "es" || code == "l-spanish") return Language::Spanish;
+    if (code == "zh-hans") return Language::SimplifiedChinese;
+    if (code == "zh-hant") return Language::TraditionalChinese;
+    if (code == "ja") return Language::Japanese;
+    if (code == "ko") return Language::Korean;
     return std::nullopt;
 }
 
@@ -226,21 +244,73 @@ std::optional<Language> language_of_settings(std::string_view text) {
     return std::nullopt;
 }
 
-LanguageChoice choose_language(const std::filesystem::path& user_dir) {
+std::optional<Language> cjk_language_of_steam(std::string_view steam_language) {
+    steam_language = trimmed(steam_language);
+    if (steam_language == "schinese") return Language::SimplifiedChinese;
+    if (steam_language == "tchinese") return Language::TraditionalChinese;
+    if (steam_language == "japanese") return Language::Japanese;
+    if (steam_language == "koreana" || steam_language == "korean") return Language::Korean;
+    return std::nullopt;
+}
+
+std::optional<Language> cjk_language_of_locale(std::string_view locale_name) {
+    std::string name(trimmed(locale_name));
+    for (char& c : name) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    const auto is = [&](std::string_view language) {
+        return name == language || (name.starts_with(language) && name.size() > language.size() && name[language.size()] == '-');
+    };
+    if (is("ja")) return Language::Japanese;
+    if (is("ko")) return Language::Korean;
+    if (!is("zh")) return std::nullopt;
+    // zh-Hant, or the regions that write it: Taiwan, Hong Kong, Macao.
+    if (is("zh-hant") || is("zh-tw") || is("zh-hk") || is("zh-mo")) return Language::TraditionalChinese;
+    return Language::SimplifiedChinese;
+}
+
+std::optional<Language> forced_language() {
     char forced[16] = {};
     const DWORD n = GetEnvironmentVariableA("ANVIL_LANGUAGE", forced, sizeof(forced));
-    if (n > 0 && n < sizeof(forced)) {
-        if (const auto language = language_named(forced)) return {*language, "ANVIL_LANGUAGE"};
+    if (n == 0 || n >= sizeof(forced)) return std::nullopt;
+    return language_named(forced);
+}
+
+SystemLanguages read_system_languages() {
+    SystemLanguages out;
+    char steam[64] = {};
+    DWORD size = sizeof(steam);
+    if (RegGetValueA(HKEY_CURRENT_USER, "Software\\Valve\\Steam", "Language", RRF_RT_REG_SZ, nullptr, steam, &size) ==
+        ERROR_SUCCESS) {
+        out.steam = steam;
     }
+    wchar_t locale[LOCALE_NAME_MAX_LENGTH] = {};
+    if (LCIDToLocaleName(MAKELCID(GetUserDefaultUILanguage(), SORT_DEFAULT), locale, LOCALE_NAME_MAX_LENGTH, 0) > 0) {
+        for (const wchar_t* c = locale; *c != 0; ++c) out.windows += static_cast<char>(*c < 0x80 ? *c : '?');
+    }
+    return out;
+}
+
+LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text, const SystemLanguages& system) {
+    if (const auto language = forced_language()) return {*language, "ANVIL_LANGUAGE"};
+    bool says_english = false;  // settings.txt names English
     if (!user_dir.empty()) {
         std::ifstream file(user_dir / "settings.txt", std::ios::binary);
         if (file) {
             std::string text;
             text.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
-            if (const auto language = language_of_settings(text.substr(0, 1 << 16))) return {*language, "settings.txt"};
+            const auto language = language_of_settings(text.substr(0, 1 << 16));
+            if (language && *language != Language::English) return {*language, "settings.txt"};
+            says_english = language.has_value();
         }
     }
-    return {Language::English, "default"};
+    if (cjk_text) {
+        if (const auto language = cjk_language_of_steam(system.steam)) return {*language, "Steam"};
+        if (const auto language = cjk_language_of_locale(system.windows)) return {*language, "Windows"};
+    }
+    return {Language::English, says_english ? "settings.txt" : "default"};
+}
+
+LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text) {
+    return choose_language(user_dir, cjk_text, cjk_text ? read_system_languages() : SystemLanguages{});
 }
 
 }  // namespace anvil::i18n

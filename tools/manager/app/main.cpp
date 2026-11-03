@@ -7,6 +7,7 @@
 //   AnvilManager.exe --remove-after-exit <exe> <pid>   (internal: the uninstall's last step)
 #include "core/log.hpp"
 #include "core/playset.hpp"
+#include "i18n/cjk_font.hpp"
 #include "i18n/translate.hpp"
 #include "manager_app.hpp"
 #include "platform.hpp"
@@ -88,6 +89,8 @@ Graphics* g_graphics = nullptr;
 ManagerApp* g_app = nullptr;
 float g_scale = 1.0f;
 bool g_fonts_dirty = true;
+anvil::i18n::Language g_fonts_language = anvil::i18n::Language::English;  // the atlas's
+ImVector<ImWchar> g_cjk_ranges;  // the CJK font's glyphs, read when the atlas builds
 
 void load_fonts(float scale) {
     ImGuiIO& io = ImGui::GetIO();
@@ -108,6 +111,28 @@ void load_fonts(float scale) {
         ImFontConfig fallback;
         fallback.SizePixels = 13.0f * scale;
         io.Fonts->AddFontDefault(&fallback);
+    }
+    // Chinese, Japanese and Korean: the glyphs of the catalog's characters
+    // from the language's font, merged into the Latin one (i18n/cjk_font.hpp).
+    g_fonts_language = anvil::i18n::language();
+    g_cjk_ranges.clear();
+    const anvil::i18n::FontData cjk = anvil::i18n::cjk_font(g_fonts_language);
+    if (cjk.size > 0) {
+        ImFontGlyphRangesBuilder builder;
+        for (const uint32_t c : anvil::i18n::catalog_characters(g_fonts_language)) {
+            if (c <= 0xFFFF) builder.AddChar(static_cast<ImWchar>(c));
+        }
+        builder.BuildRanges(&g_cjk_ranges);
+        ImFontConfig merge;
+        merge.MergeMode = true;
+        merge.FontDataOwnedByAtlas = false;  // the exe's resource
+        merge.OversampleH = 1;
+        merge.PixelSnapH = true;
+        // Source Han Sans fills more of its height with its ascent and
+        // descent than Segoe UI, so the same size draws smaller ideographs.
+        merge.GlyphOffset.y = 1.0f * scale;
+        io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), 17.0f * 1.12f * scale,
+                                       &merge, g_cjk_ranges.Data);
     }
     ImGui::GetStyle() = ImGuiStyle();
     ImGui::StyleColorsDark();
@@ -336,7 +361,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             graphics.resize_width = graphics.resize_height = 0;
             graphics.create_target();
         }
-        if (g_fonts_dirty) {
+        if (g_fonts_dirty || g_fonts_language != anvil::i18n::language()) {
             load_fonts(g_scale);
             ImGui_ImplDX11_InvalidateDeviceObjects();
             g_fonts_dirty = false;

@@ -17,6 +17,7 @@
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
 
+#include "i18n/cjk_font.hpp"
 #include "notices.hpp"
 #include "overlay.hpp"
 #include "settings.gen.hpp"
@@ -335,6 +336,23 @@ void on_game_ready() {
     }
 }
 
+// The player's language: ANVIL_LANGUAGE, else the `language` setting, else
+// the core's choice (EU4's settings.txt, or with Mei Steam's or Windows').
+void apply_language() {
+    overlay::Shared& s = shared();
+    anvil::i18n::Language language = s.control.language();
+    if (!anvil::i18n::forced_language()) {
+        const auto option = static_cast<size_t>(cfg::language.get());
+        if (option < std::size(anvil::i18n::kLanguageSettingOptions)) {
+            if (const auto chosen = anvil::i18n::language_of_setting(anvil::i18n::kLanguageSettingOptions[option])) {
+                language = *chosen;
+            }
+        }
+    }
+    anvil::i18n::set_language(language);
+    s.mark_dirty();
+}
+
 struct AnvilOverlay : anvil::Plugin {
     void load(anvil::Host& host) override {
         overlay::Shared& s = shared();
@@ -344,7 +362,7 @@ struct AnvilOverlay : anvil::Plugin {
                                "needs the core service " ANVIL_CONTROL_SERVICE " v1, which this Anvil does not offer");
         }
         s.control = overlay::ControlClient(control);
-        anvil::i18n::set_language(s.control.language());
+        apply_language();
         s.panel_key.store(cfg::panel_key.get().code);
         s.menu_badge.store(cfg::menu_badge.get());
         s.notifications.store(cfg::notifications.get());
@@ -363,6 +381,7 @@ struct AnvilOverlay : anvil::Plugin {
             shared().notification_seconds.store(seconds);
             shared().mark_dirty();
         });
+        host.subscribe_setting(cfg::language, [](cfg::Types::language_value) { apply_language(); });
         host.subscribe_setting(cfg::scale, [](double scale) {
             shared().scale.store(scale);
             shared().mark_dirty();

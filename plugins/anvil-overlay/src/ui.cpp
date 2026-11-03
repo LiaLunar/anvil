@@ -1,6 +1,7 @@
 // The ImGui side of anvil-overlay: the notices and the panel (design §15).
 // Everything here runs under Shared::mutex, in the EndScene hook or, for
 // input, in the window procedure.
+#include "i18n/cjk_font.hpp"
 #include "notices.hpp"
 #include "overlay.hpp"
 
@@ -12,6 +13,7 @@
 #include <cfloat>
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include <map>
 #include <optional>
 #include <string>
@@ -40,6 +42,9 @@ struct Ui {
     HWND win32_window = nullptr;             // the Win32 backend's window
     bool was_visible = false;
     double font_scale = 0.0;  // the scale the font atlas was built for
+    anvil::i18n::Language font_language = anvil::i18n::Language::English;  // and the language
+    bool atlas_uploaded = false;  // its pixels are in the texture: the CPU copy can go
+    ImVector<ImWchar> cjk_ranges;  // the CJK font's glyphs, which the atlas reads when it builds
     ImGuiStyle base_style;
 
     // The badge in the main menu: the status it shows, read once a second.
@@ -236,13 +241,15 @@ void update_visible(ULONGLONG now) {
 void set_clipboard(ImGuiContext*, const char* text) { copy_to_clipboard(text != nullptr ? text : ""); }
 const char* get_clipboard(ImGuiContext*) { return ui().paste.c_str(); }
 
-void build_fonts(double font_scale) {
+void build_fonts(double font_scale, anvil::i18n::Language language) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
+    const auto started = std::chrono::steady_clock::now();
     // Latin with Latin Extended-A and general punctuation (the log's dashes).
     static const ImWchar ranges[] = {0x0020, 0x00FF, 0x0100, 0x017F, 0x2000, 0x206F, 0};
     wchar_t windows[MAX_PATH] = {};
     ImFont* font = nullptr;
+    float size = static_cast<float>(17.0 * font_scale);
     if (GetWindowsDirectoryW(windows, MAX_PATH) != 0) {
         char path[MAX_PATH * 3] = {};
         const std::wstring file = std::wstring(windows) + L"\\Fonts\\segoeui.ttf";
@@ -250,15 +257,43 @@ void build_fonts(double font_scale) {
             GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES) {
             ImFontConfig config;
             config.OversampleH = 2;
-            font = io.Fonts->AddFontFromFileTTF(path, static_cast<float>(17.0 * font_scale), &config, ranges);
+            font = io.Fonts->AddFontFromFileTTF(path, size, &config, ranges);
         }
     }
     if (font == nullptr) {
         ImFontConfig config;
-        config.SizePixels = static_cast<float>(13.0 * font_scale);
+        size = static_cast<float>(13.0 * font_scale);
+        config.SizePixels = size;
         io.Fonts->AddFontDefault(&config);
     }
+    // Chinese, Japanese and Korean: the glyphs of the catalog's characters
+    // from the language's font, merged into the Latin one (i18n/cjk_font.hpp).
+    Ui& u = ui();
+    u.cjk_ranges.clear();
+    const anvil::i18n::FontData cjk = anvil::i18n::cjk_font(language);
+    if (cjk.size > 0) {
+        ImFontGlyphRangesBuilder builder;
+        for (const uint32_t c : anvil::i18n::catalog_characters(language)) {
+            if (c <= 0xFFFF) builder.AddChar(static_cast<ImWchar>(c));
+        }
+        builder.BuildRanges(&u.cjk_ranges);
+        ImFontConfig config;
+        config.MergeMode = true;
+        config.FontDataOwnedByAtlas = false;  // the binary's resource
+        config.OversampleH = 1;               // ImGui's advice for CJK: a quarter of the atlas
+        config.PixelSnapH = true;
+        // Source Han Sans fills more of its height with its ascent and
+        // descent than Segoe UI, so the same size draws smaller ideographs.
+        config.GlyphOffset.y = static_cast<float>(1.0 * font_scale);
+        io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), size * 1.12f, &config,
+                                       u.cjk_ranges.Data);
+    }
     io.Fonts->Build();
+    const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    char line[160];
+    std::snprintf(line, sizeof(line), "font atlas for %s at scale %.2f: %dx%d, built in %.1f ms",
+                  anvil::i18n::language_code(language), font_scale, io.Fonts->TexWidth, io.Fonts->TexHeight, ms);
+    log_info(line);
 }
 
 bool ensure_imgui(IDirect3DDevice9* device) {
@@ -292,12 +327,15 @@ bool ensure_imgui(IDirect3DDevice9* device) {
         u.win32_window = window;
     }
     const double wanted = s.scale.load();
-    if (u.font_scale != wanted) {
+    const anvil::i18n::Language language = anvil::i18n::language();
+    if (u.font_scale != wanted || u.font_language != language) {
         if (u.dx9_device != nullptr) ImGui_ImplDX9_InvalidateDeviceObjects();
-        build_fonts(wanted);
+        build_fonts(wanted, language);
         ImGui::GetStyle() = u.base_style;
         ImGui::GetStyle().ScaleAllSizes(static_cast<float>(wanted));
         u.font_scale = wanted;
+        u.font_language = language;
+        u.atlas_uploaded = false;
     }
     if (u.dx9_device != device) {
         if (u.dx9_device != nullptr) ImGui_ImplDX9_Shutdown();
@@ -994,6 +1032,12 @@ void ui_frame(IDirect3DDevice9* device) {
         u.was_visible = true;
     }
     ImGui_ImplDX9_NewFrame();
+    // The texture now holds the atlas; its CPU copies (8 bits and 32 bits a
+    // pixel) go, and a device reset builds them again from the fonts.
+    if (!u.atlas_uploaded) {
+        ImGui::GetIO().Fonts->ClearTexData();
+        u.atlas_uploaded = true;
+    }
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     draw_notices(now);
@@ -1011,7 +1055,10 @@ void ui_frame(IDirect3DDevice9* device) {
 
 void ui_invalidate(IDirect3DDevice9* device) {
     Ui& u = ui();
-    if (u.dx9_device == device) ImGui_ImplDX9_InvalidateDeviceObjects();
+    if (u.dx9_device == device) {
+        ImGui_ImplDX9_InvalidateDeviceObjects();
+        u.atlas_uploaded = false;
+    }
 }
 
 bool ui_message(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {

@@ -159,6 +159,8 @@ extern const Translation kSpanish[] = {
      "Revísalo antes de publicarlo. Si un plugin se omite o aparece en un fallo, infórmalo al autor de ese plugin en su lugar."},
     {"Check now",
      "Comprobar ahora"},
+    {"Chinese, Japanese and Korean text uses subsets of Source Han Sans by Adobe (SIL Open Font License 1.1, Reserved Font Name 'Source'). The license is in anvil/docs/third-party after installing.",
+     "El texto en chino, japonés y coreano usa subconjuntos de Source Han Sans de Adobe (SIL Open Font License 1.1, nombre de fuente reservado 'Source'). La licencia está en anvil/docs/third-party tras la instalación."},
     {"Choose a plugin",
      "Elige un plugin"},
     {"Choose a report.",

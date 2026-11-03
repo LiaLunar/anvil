@@ -169,7 +169,10 @@ code: add the code and its English words to `src/i18n/message.cpp` and build
 it with `i18n::Message("code", {args})`.
 
 Every new or changed English text needs its entry in each catalog,
-`src/i18n/catalog_fr.cpp`, `catalog_de.cpp` and `catalog_es.cpp`.
+`src/i18n/catalog_fr.cpp`, `catalog_de.cpp`, `catalog_es.cpp`,
+`catalog_zh_hans.cpp`, `catalog_zh_hant.cpp`, `catalog_ja.cpp` and
+`catalog_ko.cpp`. A Chinese, Japanese or Korean character that is new to its
+catalog also needs the fonts written again (`src/i18n/fonts/README.md`).
 `anvil_i18n_tests` (in `ctest`) names what is missing or unused, a translation
 whose placeholders differ, and a character the fonts do not have;
 `build/Release/anvil_i18n_tests.exe --keys` prints every text a catalog needs.

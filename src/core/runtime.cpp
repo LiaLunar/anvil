@@ -641,13 +641,8 @@ void startup_impl(const std::filesystem::path& game_dir) {
     // load, always from their approved copy, whose hash is checked again
     // right before LoadLibrary (load_plugin).
     std::map<std::wstring, std::string> approved_hashes;  // by the copy's folder
-    std::string player_language;
+    const std::filesystem::path user_dir = eu4_user_dir(game_dir);
     {
-        const std::filesystem::path user_dir = eu4_user_dir(game_dir);
-        // The overlay speaks the language of EU4's settings (#158).
-        const i18n::LanguageChoice language = i18n::choose_language(user_dir);
-        player_language = i18n::language_code(language.language);
-        log_info("the player's language: " + player_language + " (" + language.source + ")");
         g_runtime->mods = discover_mod_plugins(g_runtime->anvil_dir, user_dir, local_ids);
         ModDiscovery& mods = g_runtime->mods;
         for (const auto& w : mods.warnings) log_warning(w);
@@ -713,6 +708,14 @@ void startup_impl(const std::filesystem::path& game_dir) {
     g_runtime->skipped.insert(g_runtime->skipped.end(), resolved.skipped.begin(), resolved.skipped.end());
     for (const auto& s : g_runtime->skipped) log_warning(s.id + ": skipped — " + s.reason);
     log_info("resolved " + std::to_string(resolved.order.size()) + " plugin(s) to load at " + fmt_ms(elapsed_ms()));
+    // The overlay speaks the language of EU4's settings, or with Mei, which
+    // shows a translation mod's Chinese, Japanese or Korean, Steam's or
+    // Windows' (#158).
+    const bool cjk_text = std::any_of(resolved.order.begin(), resolved.order.end(),
+                                      [](const Manifest& m) { return m.id == i18n::kCjkTextPlugin; });
+    const i18n::LanguageChoice language = i18n::choose_language(user_dir, cjk_text);
+    const std::string player_language = i18n::language_code(language.language);
+    log_info("the player's language: " + player_language + " (" + language.source + ")");
     // No reallocation later: the crash writer may read the list from another thread.
     g_runtime->plugins.reserve(resolved.order.size());
     for (auto& m : resolved.order) {

@@ -1,12 +1,23 @@
 // The player's language (issue #158): messages by code, their English words,
-// the language chosen from EU4's settings, and the catalogs, which must
-// translate every text the overlay and the Manager mark (tr, trf, N_) with
-// the same placeholders and only characters their fonts have.
+// the language chosen from EU4's settings (and with Mei from Steam or Windows),
+// and the catalogs, which must translate every text the overlay and the
+// Manager mark (tr, trf, N_) with the same placeholders and only characters
+// their fonts have: the Latin font's, or for Chinese, Japanese and Korean
+// those of the language's font in src/i18n/fonts, read with ImGui's own
+// stb_truetype.
+#include "core/settings.hpp"
+#include "i18n/cjk_font.hpp"
 #include "i18n/message.hpp"
 #include "i18n/translate.hpp"
 #include "test_support.hpp"
 
 #include <windows.h>
+
+#pragma warning(push, 0)
+#define STB_TRUETYPE_IMPLEMENTATION
+#define STBTT_STATIC
+#include <imstb_truetype.h>
+#pragma warning(pop)
 
 #include <cctype>
 #include <filesystem>
@@ -123,6 +134,26 @@ std::set<std::string> catalog_keys(const fs::path& root) {
 
 const char* name_of(Language l) { return language_code(l); }
 
+// A font that stb_truetype, which ImGui uses, can read.
+struct TrueType {
+    stbtt_fontinfo info{};
+    bool ok = false;
+    explicit TrueType(const FontData& font) {
+        const auto* data = static_cast<const unsigned char*>(font.data);
+        ok = font.size > 0 && stbtt_InitFont(&info, data, stbtt_GetFontOffsetForIndex(data, 0)) != 0;
+    }
+    bool has(uint32_t cp) const { return ok && stbtt_FindGlyphIndex(&info, static_cast<int>(cp)) != 0; }
+    // A name of the font (name table, Windows platform, English) as ASCII.
+    std::string name(int id) const {
+        int length = 0;
+        const char* raw = stbtt_GetFontNameString(&info, &length, STBTT_PLATFORM_ID_MICROSOFT,
+                                                  STBTT_MS_EID_UNICODE_BMP, STBTT_MS_LANG_ENGLISH, id);
+        std::string out;
+        for (int i = 1; raw != nullptr && i < length; i += 2) out += raw[i];  // UTF-16BE
+        return out;
+    }
+};
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -186,7 +217,49 @@ int main(int argc, char** argv) {
         CHECK(!language_of_settings("languages=\"l_french\"\nother=1"));
         CHECK(!language_of_settings(""));
         CHECK(language_named("de") == Language::German && language_named(" fr ") == Language::French && !language_named("pl"));
+        CHECK(language_named("zh-Hans") == Language::SimplifiedChinese && language_named("ZH_HANT") == Language::TraditionalChinese);
+        CHECK(language_named("ja") == Language::Japanese && language_named("ko") == Language::Korean && !language_named("zh"));
         for (const Language l : kLanguages) CHECK(language_named(language_code(l)) == l);
+        CHECK(!is_cjk(Language::English) && !is_cjk(Language::Spanish) && is_cjk(Language::Japanese) &&
+              is_cjk(Language::TraditionalChinese));
+    });
+
+    run("language: Steam's and Windows' Chinese, Japanese and Korean", [] {
+        CHECK(cjk_language_of_steam("schinese") == Language::SimplifiedChinese);
+        CHECK(cjk_language_of_steam("tchinese") == Language::TraditionalChinese);
+        CHECK(cjk_language_of_steam("japanese") == Language::Japanese);
+        CHECK(cjk_language_of_steam("koreana") == Language::Korean);
+        CHECK(!cjk_language_of_steam("english") && !cjk_language_of_steam("polish") && !cjk_language_of_steam(""));
+        CHECK(cjk_language_of_locale("zh-CN") == Language::SimplifiedChinese);
+        CHECK(cjk_language_of_locale("zh-SG") == Language::SimplifiedChinese);
+        CHECK(cjk_language_of_locale("zh-Hans-HK") == Language::SimplifiedChinese);
+        CHECK(cjk_language_of_locale("zh-TW") == Language::TraditionalChinese);
+        CHECK(cjk_language_of_locale("zh-HK") == Language::TraditionalChinese);
+        CHECK(cjk_language_of_locale("zh-MO") == Language::TraditionalChinese);
+        CHECK(cjk_language_of_locale("zh-Hant-TW") == Language::TraditionalChinese);
+        CHECK(cjk_language_of_locale("ja-JP") == Language::Japanese && cjk_language_of_locale("ko-KR") == Language::Korean);
+        CHECK(!cjk_language_of_locale("pl-PL") && !cjk_language_of_locale("en-US") && !cjk_language_of_locale("jav") &&
+              !cjk_language_of_locale(""));
+    });
+
+    run("language: the options of the overlay's setting", [&] {
+        const anvil::SettingsFileResult overlay = anvil::load_settings(root / "plugins" / "anvil-overlay" / "settings.toml");
+        CHECK(overlay.file.has_value());
+        if (overlay.file) {
+            const anvil::Setting* setting = nullptr;
+            for (const anvil::Setting& s : overlay.file->settings) if (s.name == "language") setting = &s;
+            CHECK(setting != nullptr && setting->options.size() == std::size(kLanguageSettingOptions));
+            for (size_t i = 0; setting != nullptr && i < setting->options.size() && i < std::size(kLanguageSettingOptions); ++i) {
+                CHECK(setting->options[i].name == kLanguageSettingOptions[i]);
+            }
+        }
+        CHECK(!language_of_setting("game") && !language_of_setting("klingon") && !language_of_setting("zh-Hans"));
+        CHECK(language_of_setting("zh_hans") == Language::SimplifiedChinese && language_of_setting("ko") == Language::Korean);
+        for (const Language l : kLanguages) {
+            bool offered = false;
+            for (const std::string_view option : kLanguageSettingOptions) offered = offered || language_of_setting(option) == l;
+            CHECK(offered);
+        }
     });
 
     run("choose_language: ANVIL_LANGUAGE, then settings.txt, then English", [] {
@@ -200,6 +273,29 @@ int main(int argc, char** argv) {
         CHECK(choose_language(dir).language == Language::German && choose_language(dir).source == "ANVIL_LANGUAGE");
         SetEnvironmentVariableA("ANVIL_LANGUAGE", "klingon");
         CHECK(choose_language(dir).language == Language::Spanish);
+        SetEnvironmentVariableA("ANVIL_LANGUAGE", "ja");
+        CHECK(choose_language(dir).language == Language::Japanese && choose_language(dir).source == "ANVIL_LANGUAGE");
+        SetEnvironmentVariableA("ANVIL_LANGUAGE", nullptr);
+
+        // Chinese, Japanese and Korean only with Mei: a translation mod
+        // replaces EU4's English, so settings.txt says English.
+        const SystemLanguages chinese_steam{"schinese", "en-US"};
+        const SystemLanguages korean_windows{"english", "ko-KR"};
+        CHECK(choose_language(dir, true, chinese_steam).language == Language::Spanish);  // EU4's own language first
+        std::ofstream(dir / "settings.txt") << "language=\"l_english\"\n";
+        CHECK(choose_language(dir, false, chinese_steam).language == Language::English);
+        CHECK(choose_language(dir, false, chinese_steam).source == "settings.txt");
+        CHECK(choose_language(dir, true, chinese_steam).language == Language::SimplifiedChinese);
+        CHECK(choose_language(dir, true, chinese_steam).source == "Steam");
+        CHECK(choose_language(dir, true, korean_windows).language == Language::Korean);
+        CHECK(choose_language(dir, true, korean_windows).source == "Windows");
+        CHECK(choose_language(dir, true, {"tchinese", "ja-JP"}).language == Language::TraditionalChinese);
+        CHECK(choose_language(dir, true, {"english", "pl-PL"}).language == Language::English);
+        CHECK(choose_language(dir, true, {"english", "pl-PL"}).source == "settings.txt");
+        fs::remove(dir / "settings.txt");
+        CHECK(choose_language(dir, true, {"", "ja-JP"}).language == Language::Japanese);
+        SetEnvironmentVariableA("ANVIL_LANGUAGE", "de");
+        CHECK(choose_language(dir, true, chinese_steam).language == Language::German);
         SetEnvironmentVariableA("ANVIL_LANGUAGE", nullptr);
         std::error_code ignored;
         fs::remove_all(dir, ignored);
@@ -209,7 +305,8 @@ int main(int argc, char** argv) {
         set_language(Language::English);
         CHECK(std::string(tr("Cancel")) == "Cancel");
         CHECK(text(Message("disabled", {})) == "disabled in anvil.toml");
-        for (const Language l : {Language::French, Language::German, Language::Spanish}) {
+        for (const Language l : kLanguages) {
+            if (l == Language::English) continue;
             set_language(l);
             CHECK(std::string(tr("Cancel")) != "Cancel");
             CHECK(std::string(tr("a text no catalog has")) == "a text no catalog has");
@@ -230,8 +327,31 @@ int main(int argc, char** argv) {
               keys.contains("{0} plugins were not loaded"));
     });
 
-    for (const Language l : {Language::French, Language::German, Language::Spanish}) {
+    run("CJK fonts: in the resources, readable, without the Reserved Font Name", [] {
+        for (const Language l : kLanguages) {
+            const FontData font = cjk_font(l);
+            CHECK(is_cjk(l) == (font.size > 0));
+            if (!is_cjk(l)) continue;
+            const TrueType ttf(font);
+            CHECK(ttf.ok);
+            // OFL: a Modified Version of Source Han Sans may not be called "Source".
+            for (const int id : {1, 4, 6}) {
+                const std::string name = ttf.name(id);
+                if (name.empty() || name.find("Source") != std::string::npos) {
+                    std::printf("  %s: font name %d is '%s'\n", name_of(l), id, name.c_str());
+                    CHECK(false);
+                }
+            }
+            CHECK(!catalog_characters(l).empty());
+            for (const uint32_t c : catalog_characters(l)) CHECK(c > 0x17F && c <= 0xFFFF);
+        }
+        CHECK(catalog_characters(Language::English).empty());
+    });
+
+    for (const Language l : kLanguages) {
+        if (l == Language::English) continue;
         run((std::string("catalog ") + name_of(l) + ": complete, same placeholders, characters the fonts have").c_str(), [&] {
+            const TrueType cjk(cjk_font(l));
             const Catalog c = catalog(l);
             std::map<std::string, std::string> entries;
             for (size_t i = 0; i < c.size; ++i) {
@@ -254,7 +374,7 @@ int main(int argc, char** argv) {
                     CHECK(false);
                 }
                 for (const uint32_t cp : code_points(translated)) {
-                    if (!in_fonts(cp)) {
+                    if (!in_fonts(cp) && !cjk.has(cp)) {
                         std::printf("  %s: U+%04X is not in the fonts: %s\n", name_of(l), cp, translated.c_str());
                         CHECK(false);
                         break;

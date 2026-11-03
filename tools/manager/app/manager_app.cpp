@@ -5,6 +5,7 @@
 #include "core/log.hpp"
 #include "core/playset.hpp"
 #include "core/semver.hpp"
+#include "i18n/cjk_font.hpp"
 #include "i18n/translate.hpp"
 #include "mods.hpp"
 #include "problem_report.hpp"
@@ -25,8 +26,35 @@ using i18n::N_;
 using i18n::tr;
 using i18n::trf;
 
-// The player's language follows EU4's settings in the game's user folder (#158).
-void follow_language(const fs::path& game) { i18n::set_language(i18n::choose_language(eu4_user_dir(game)).language); }
+// The `language` setting of the overlay in that game folder, when it names one.
+std::optional<i18n::Language> overlay_language(const fs::path& game) {
+    const SettingsFileResult schema = load_settings(game / "anvil" / "plugins" / "anvil-overlay" / "settings.toml");
+    if (!schema.file) return std::nullopt;
+    const PlayerSettings player = load_player_settings(*schema.file, game / "anvil" / "data" / "anvil-overlay" / "settings.toml");
+    for (const Setting& setting : schema.file->settings) {
+        if (setting.name != "language" || setting.type != SettingType::Enum) continue;
+        const SettingValue value = player.values[setting.id].value_or(setting.default_value);
+        if (value.integer < 0 || static_cast<size_t>(value.integer) >= setting.options.size()) return std::nullopt;
+        return i18n::language_of_setting(setting.options[static_cast<size_t>(value.integer)].name);
+    }
+    return std::nullopt;
+}
+
+// The player's language as the overlay chooses it (#158): ANVIL_LANGUAGE, the
+// overlay's `language` setting, EU4's settings in the game's user folder, or,
+// when Mei is in the load order of `report`, Steam's or Windows' Chinese,
+// Japanese or Korean.
+void follow_language(const fs::path& game, const cli::GameReport* report = nullptr) {
+    if (!i18n::forced_language() && !game.empty()) {
+        if (const auto language = overlay_language(game)) {
+            i18n::set_language(*language);
+            return;
+        }
+    }
+    const bool cjk_text = report != nullptr && std::any_of(report->load_order.begin(), report->load_order.end(),
+                                                           [](const auto& p) { return p.id == i18n::kCjkTextPlugin; });
+    i18n::set_language(i18n::choose_language(eu4_user_dir(game), cjk_text).language);
+}
 
 bool is_standard(const Package& package, const std::string& id) {
     return std::find(package.standard_plugins.begin(), package.standard_plugins.end(), id) != package.standard_plugins.end();
@@ -119,7 +147,10 @@ void ManagerApp::refresh() {
 
 void ManagerApp::poll() {
     using namespace std::chrono;
-    if (pending_.valid() && pending_.wait_for(0s) == std::future_status::ready) snapshot_ = pending_.get();
+    if (pending_.valid() && pending_.wait_for(0s) == std::future_status::ready) {
+        snapshot_ = pending_.get();
+        follow_language(game_, snapshot_->report ? &*snapshot_->report : nullptr);
+    }
     if (release_pending_.valid() && release_pending_.wait_for(0s) == std::future_status::ready) {
         release_ = release_pending_.get();
     }
@@ -1082,6 +1113,8 @@ void ManagerApp::draw_about_tab() {
     ImGui::SeparatorText(tr("Third-party code"));
     weak_wrapped(tr("Dear ImGui, miniz, toml++ and Zydis (MIT License). Their license texts are in anvil/docs/third-party "
             "after installing."));
+    weak_wrapped(tr("Chinese, Japanese and Korean text uses subsets of Source Han Sans by Adobe (SIL Open Font License "
+                    "1.1, Reserved Font Name 'Source'). The license is in anvil/docs/third-party after installing."));
 }
 
 void ManagerApp::start_plan(bool uninstall) {

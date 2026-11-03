@@ -1,0 +1,6 @@
+// The CJK fonts (README.md), linked into the overlay, the Manager and the
+// i18n tests; i18n::cjk_font() finds them by name.
+ANVIL_FONT_ZH_HANS RCDATA "anvil-cjk-sc.otf"
+ANVIL_FONT_ZH_HANT RCDATA "anvil-cjk-tc.otf"
+ANVIL_FONT_JA RCDATA "anvil-cjk-jp.otf"
+ANVIL_FONT_KO RCDATA "anvil-cjk-kr.otf"
