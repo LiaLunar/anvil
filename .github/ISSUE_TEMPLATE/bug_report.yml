@@ -19,7 +19,7 @@ body:
     attributes:
       label: Steps to reproduce
       placeholder: |
-        1. Install Anvil 0.2.0 and plugin X
+        1. Install Anvil with the Manager, and plugin X from its zip
         2. Start the game through Steam
         3. ...
     validations:
@@ -28,14 +28,14 @@ body:
     id: anvil-version
     attributes:
       label: Anvil version
-      description: First line of `anvil/anvil.log`, e.g. `Anvil 0.2.0 (plugin API 1)`.
+      description: First line of `anvil/anvil.log`, e.g. `Anvil 1.8.0 (plugin API 2)`.
     validations:
       required: true
   - type: input
     id: game-build
     attributes:
       label: Game build
-      description: The `game build:` line of `anvil/anvil.log`, and the game version shown in the launcher.
+      description: The `game build:` line of `anvil/anvil.log` (it names Steam or GOG), and the game version shown in the launcher.
     validations:
       required: true
   - type: dropdown
@@ -44,7 +44,9 @@ body:
       label: How the game was started
       options:
         - Steam
+        - GOG Galaxy
         - Paradox launcher
+        - Play EU4 in Anvil Manager
         - eu4.exe directly
         - Other (describe above)
     validations:
@@ -66,6 +68,12 @@ body:
         - Not tested
     validations:
       required: true
+  - type: textarea
+    id: crash
+    attributes:
+      label: Crash report
+      description: After a crash, the `.txt` report from `anvil/crashes/` (the Manager's **Crashes** tab copies it). Leave empty if the game did not crash.
+      render: text
   - type: textarea
     id: log
     attributes:

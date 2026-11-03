@@ -5,7 +5,16 @@ contact_links:
     about: Report privately; see SECURITY.md.
   - name: Bellows issues
     url: https://github.com/happy-dwarf-team/bellows/issues/new/choose
-    about: Problems or ideas for the Bellows plugin (faster start-up).
+    about: Problems or ideas for the Bellows plugin (faster start-up and simulation).
+  - name: Tongs issues
+    url: https://github.com/happy-dwarf-team/tongs/issues/new/choose
+    about: Problems or ideas for the Tongs plugin (control a running game from scripts and agents).
+  - name: Hamweard issues
+    url: https://github.com/happy-dwarf-team/hamweard/issues/new/choose
+    about: Problems or ideas for the Hamweard plugin (back to the main menu without restarting).
+  - name: Mei issues
+    url: https://github.com/happy-dwarf-team/mei/issues/new/choose
+    about: Problems or ideas for the Mei plugin (Chinese, Japanese and Korean text).
   - name: Install guide and documentation
     url: https://anvil.happydwarf.dev
     about: How to install Anvil and plugins.
