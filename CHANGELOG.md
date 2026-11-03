@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.9.0](https://github.com/happy-dwarf-team/anvil/compare/v1.8.0...v1.9.0) (2026-11-03)
+
+
+### Features
+
+* let a symbol be absent on one of several builds ([#194](https://github.com/happy-dwarf-team/anvil/issues/194)) ([bbe3f0d](https://github.com/happy-dwarf-team/anvil/commit/bbe3f0de47c747023a36acfa14c21eec6a8b5924))
+* **manager:** copy a problem report for an issue from the Log tab ([#190](https://github.com/happy-dwarf-team/anvil/issues/190)) ([88fba77](https://github.com/happy-dwarf-team/anvil/commit/88fba7719ba812effd34f576e8f5aa9b113ee07a))
+* **manager:** install the team's plugins from a catalog tab ([#189](https://github.com/happy-dwarf-team/anvil/issues/189)) ([bd8f12e](https://github.com/happy-dwarf-team/anvil/commit/bd8f12e3a07685a174fde72f2ddab71ff2d6d91b))
+* show the overlay and the Manager in Chinese, Japanese and Korean ([#192](https://github.com/happy-dwarf-team/anvil/issues/192)) ([71baccb](https://github.com/happy-dwarf-team/anvil/commit/71baccbcfd5398af41d0deefe1d35c876421d828))
+
 ## [1.8.0](https://github.com/happy-dwarf-team/anvil/compare/v1.7.0...v1.8.0) (2026-11-02)
 
 
