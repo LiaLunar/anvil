@@ -186,6 +186,22 @@ bytes = "48 8B 81 08 04 00 00 C3"
 
 - **Rules:** each of `rva`, `bytes` and `points_to` is given for every build or per build, not both; a `build` table may hold only these three and only for a build `builds` lists. Every build must satisfy the schema above on its own (an error names the build), and a symbol has the same kind in every build. A symbol whose keys are all shared, such as an export with the same prologue, needs no tables.
 - **Ids and values:** a symbol keeps one id in every build, so plugin code does not change with the build. The loader selects the running game's build (§7); `anvil check --exe` the exe's (§16). `anvil gen` writes a value as a constant only when every build has the same one; a value that differs is read when the game loads (`symbol_value`, `Host::value`), as for an export's RVA.
+- **Absent symbols.** Decided on 2026-11-03 ([#193](https://github.com/happy-dwarf-team/anvil/issues/193)): code that one store's build lacks, such as the Steam lobby the GOG build 1.37.5.2 does not have, is declared absent there rather than left out of the file or the build:
+
+  ```toml
+  [symbol.lobby_close]
+  memory = "code"
+  signature = "void (void* lobby)"
+  rva = 0x1658D50
+  bytes = "40 53 48 83 EC 20"
+  absent = ["eu4-1.37.5.2-gog-win64"]
+  ```
+
+  - `absent` lists builds of `builds`; a file with one `build` has none, a symbol absent on every build is an error (remove it), and an absent build gets no `build."<id>"` table. The shared keys and the rules above apply to the builds the symbol is in.
+  - On an absent build the symbol is not verified and has no address: `address_of` returns NULL, `symbol_value` and every change on it give `ANVIL_ERROR_NOT_DECLARED`, and the log names the symbol as absent. A plugin checks before it uses one: `host->address_of(self, SYM_X) != NULL` in C, `host.present(sym::x)` in C++. A `resume` must name a symbol that is in every build its block is in.
+  - `anvil check --exe` lists the symbols absent on the exe's build; `anvil gen` names the absent builds in each symbol's comment, and a value is a constant when the builds the symbol is in agree.
+  - Nothing is skipped silently: a symbol the file declares for a build must verify there, or the plugin is skipped as before. Only `absent` exempts it, and only on the builds it names.
+  - Within API 2 ([ADR 0001](adr/0001-plugin-api-2-compatibility.md)): a new key, no new host field, and `address_of` already returned NULL for a symbol it cannot give. An older Anvil reads `absent` as an unknown key and skips the plugin, so a plugin that uses it declares `anvil = ">=1.9.0"`.
 - **Why one file:** the issue weighed one file per build against this. Here the shared part, which is most of a declaration, is written once and cannot drift between builds, and `anvil check` still names the build of every problem. A build is added by adding it to `builds` and a table to each symbol whose address or bytes differ; the second GOG build (1.37.5.0) comes this way once a copy is checked. If several plugins come to need the same per-build tables, the shared address library declined in §21 is the next question.
 
 ### 5.3 `settings.toml`

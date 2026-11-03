@@ -33,6 +33,7 @@ struct SymbolValue {
 struct SymbolPlacement {
     std::string build;
     uint32_t line = 0;  // of its `build."<id>"` table; 0 when every key is shared
+    bool absent = false;  // `absent` lists this build: the symbol is not in it (#193)
     std::optional<uint32_t> rva;
     std::vector<uint8_t> bytes;
     std::vector<uint8_t> mask;
@@ -44,6 +45,9 @@ struct Symbol {
     std::string name;
     uint32_t line = 0;  // of its [symbol.<name>] table in symbols.toml
     uint32_t placement_line = 0;  // of its table for the selected build; 0 when it has none
+    // Not in the selected build (`absent`): no address, nothing to verify, and
+    // rva, bytes and points_to are empty.
+    bool absent = false;
     SymbolKind kind = SymbolKind::Site;
     // rva, bytes, mask and points_to are those of the selected build (SymbolFile::build).
     std::optional<uint32_t> rva;  // exactly one of rva and export_name
@@ -93,6 +97,7 @@ bool select_build(SymbolFile& file, std::string_view build_id);
 struct VerifiedSymbol {
     uint32_t rva = 0;  // resolved (exports) or declared
     std::vector<std::pair<std::string, uint64_t>> values;  // in declaration order
+    bool absent = false;  // not in the selected build: rva 0, no values
 };
 
 struct SymbolVerification {
@@ -103,7 +108,8 @@ struct SymbolVerification {
     bool ok() const { return problems.empty(); }
 };
 
-// Compares every symbol with the image (design §7): resolves exports, checks
+// Compares every symbol with the image (design §7), except those absent on
+// the selected build: resolves exports, checks
 // (actual & mask) == (expected & mask), the memory kind against the section
 // flags and `points_to` against the stored pointer, and computes `values`.
 // Does not compare `file.build` with the image's build; the caller does.

@@ -16,7 +16,7 @@ constexpr size_t kMaxSymbolBytes = 65536;
 
 const std::set<std::string_view> kTopKeys = {"build", "builds", "symbol"};
 const std::set<std::string_view> kSymbolKeys = {"rva",  "export",    "bytes",  "memory", "points_to", "type",
-                                                "signature", "resume", "values", "note",   "build"};
+                                                "signature", "resume", "values", "note",   "build", "absent"};
 // The keys a symbol may give per build (`build."<id>"`) in a file with `builds`.
 const std::set<std::string_view> kPlacementKeys = {"rva", "bytes", "points_to"};
 const std::set<std::string_view> kValueKeys = {"at", "size", "rip_relative", "type"};
@@ -209,6 +209,8 @@ struct SymbolTables {
     const toml::table* values = nullptr;
     const toml::table* builds = nullptr;  // the build."<id>" tables
     uint32_t builds_line = 0;
+    std::vector<std::string> absent;  // the builds the symbol is not in
+    uint32_t absent_line = 0;
 };
 
 // One key of a [symbol.<name>] table.
@@ -242,6 +244,15 @@ void parse_symbol_key(Symbol& s, SymbolTables& t, const std::string& key, const 
         if (t.values == nullptr) throw Fail{"values must be a table"};
     } else if (key == "note") {
         s.note = get_string(item, key, true);
+    } else if (key == "absent") {
+        t.absent_line = line;
+        const auto* list = item.as_array();
+        if (list == nullptr || list->empty()) throw Fail{"absent must be a list of build ids such as [\"eu4-…\"]"};
+        for (const auto& id : *list) {
+            const std::string build = get_string(id, "absent[]");
+            if (std::find(t.absent.begin(), t.absent.end(), build) != t.absent.end()) throw Fail{"absent lists " + build + " twice"};
+            t.absent.push_back(build);
+        }
     }
 }
 
@@ -270,7 +281,8 @@ SymbolPlacement placement_for(const std::string& id, const SymbolTables& t) {
 }
 
 // The rules of design §5.2 that one build's placement must meet before its values are read.
-void check_placement(Symbol& s, const SymbolPlacement& p) {
+// `first` is the placement of an earlier build the symbol is in, if any.
+void check_placement(Symbol& s, const SymbolPlacement& p, const SymbolPlacement* first) {
     if (p.rva.has_value() == !s.export_name.empty()) throw Fail{"needs exactly one of 'rva' and 'export'"};
     const int kinds = !s.signature.empty() + p.points_to.has_value() + !s.type.empty();
     if (kinds > 1) throw Fail{"declares more than one of 'signature' (function), 'points_to' (slot) and 'type' (data)"};
@@ -278,11 +290,11 @@ void check_placement(Symbol& s, const SymbolPlacement& p) {
                             : p.points_to        ? SymbolKind::Slot
                             : !s.type.empty()    ? SymbolKind::Data
                                                  : SymbolKind::Site;
-    if (s.placements.empty()) {
+    if (first == nullptr) {
         s.kind = kind;
     } else if (kind != s.kind) {
         throw Fail{"is a " + std::string(symbol_kind_name(kind)) + " here and a " + symbol_kind_name(s.kind) + " in " +
-                   s.placements.front().build + "; give points_to for every build or for none"};
+                   first->build + "; give points_to for every build or for none"};
     }
     if (p.rva) {
         if (!s.memory) throw Fail{"a symbol at an rva needs 'memory' (code, read or write)"};
@@ -304,21 +316,41 @@ Symbol parse_symbol(const std::string& name, const toml::node& node, const std::
     for (const auto& [key, item, line] : in_file_order(*table)) {
         at_line(line, [&] { parse_symbol_key(s, t, key, *item, line); });
     }
+    const auto absent = [&](const std::string& id) { return std::find(t.absent.begin(), t.absent.end(), id) != t.absent.end(); };
+    if (!t.absent.empty()) {
+        if (!per_build) throw Fail{"absent needs the list of builds at the top: builds = [...]", t.absent_line};
+        for (const auto& id : t.absent) {
+            if (std::find(builds.begin(), builds.end(), id) == builds.end()) {
+                throw Fail{"absent: builds does not list " + id, t.absent_line};
+            }
+        }
+        if (t.absent.size() == builds.size()) throw Fail{"absent lists every build; remove the symbol instead", t.absent_line};
+    }
     if (t.builds != nullptr) {
         if (!per_build) throw Fail{"build.\"<id>\" tables need the list of builds at the top: builds = [...]", t.builds_line};
         for (const auto& [id, item, line] : in_file_order(*t.builds)) {
             if (std::find(builds.begin(), builds.end(), id) == builds.end()) {
                 throw Fail{"build.\"" + id + "\": builds does not list " + id, line};
             }
+            if (absent(id)) throw Fail{"build.\"" + id + "\": absent lists " + id, line};
         }
     }
     std::vector<uint32_t> value_lines;
+    const SymbolPlacement* first = nullptr;  // of the first build the symbol is in
+    s.placements.reserve(builds.size());
     for (const auto& id : builds) {
+        if (absent(id)) {
+            SymbolPlacement p;
+            p.build = id;
+            p.absent = true;
+            s.placements.push_back(std::move(p));
+            continue;
+        }
         try {
             const SymbolPlacement p = placement_for(id, t);
-            at_line(p.line, [&] { check_placement(s, p); });
+            at_line(p.line, [&] { check_placement(s, p, first); });
             // Parsed once, after the first build's checks, as when files had one build.
-            if (t.values != nullptr && s.placements.empty()) {
+            if (t.values != nullptr && first == nullptr) {
                 for (const auto& [value_name, item, line] : in_file_order(*t.values)) {
                     at_line(line, [&] { s.values.push_back(parse_value(value_name, *item)); });
                     value_lines.push_back(line);
@@ -327,17 +359,19 @@ Symbol parse_symbol(const std::string& name, const toml::node& node, const std::
             for (size_t i = 0; i < s.values.size(); ++i) at_line(value_lines[i], [&] { check_value(s.values[i], p); });
             if (!s.resume.empty() && p.bytes.empty()) at_line(p.line, [] { throw Fail{"resume needs 'bytes': the block it ends"}; });
             s.placements.push_back(p);
+            if (first == nullptr) first = &s.placements.back();
         } catch (Fail& f) {
             if (per_build) f.message = "in build " + id + ": " + f.message;
             throw;
         }
     }
-    const SymbolPlacement& first = s.placements.front();
-    s.rva = first.rva;
-    s.bytes = first.bytes;
-    s.mask = first.mask;
-    s.points_to = first.points_to;
-    s.placement_line = first.line;
+    const SymbolPlacement& selected = s.placements.front();
+    s.absent = selected.absent;
+    s.rva = selected.rva;
+    s.bytes = selected.bytes;
+    s.mask = selected.mask;
+    s.points_to = selected.points_to;
+    s.placement_line = selected.line;
     return s;
 }
 
@@ -379,6 +413,7 @@ bool select_build(SymbolFile& file, std::string_view build_id) {
     for (auto& s : file.symbols) {
         if (index >= s.placements.size()) continue;  // a symbol not from the parser keeps its own fields
         const SymbolPlacement& p = s.placements[index];
+        s.absent = p.absent;
         s.rva = p.rva;
         s.bytes = p.bytes;
         s.mask = p.mask;
@@ -450,7 +485,14 @@ SymbolFileResult parse_symbols_text(std::string_view text) {
             where = "symbol " + s.name + ": ";
             if (s.resume.empty()) continue;
             if (s.resume == s.name) throw Fail{"resume names the symbol itself", s.line};
-            if (file.find(s.resume) == nullptr) throw Fail{"resume names '" + s.resume + "', which is not declared", s.line};
+            const Symbol* target = file.find(s.resume);
+            if (target == nullptr) throw Fail{"resume names '" + s.resume + "', which is not declared", s.line};
+            // The block resumes there on every build it is in.
+            for (size_t i = 0; i < s.placements.size() && i < target->placements.size(); ++i) {
+                if (!s.placements[i].absent && target->placements[i].absent) {
+                    throw Fail{"resume names '" + s.resume + "', which is absent in build " + s.placements[i].build, s.line};
+                }
+            }
         }
     } catch (const Fail& f) {
         result.error = "symbols.toml: " + where + f.message;
@@ -490,6 +532,10 @@ SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image) 
     const ImageReader& reader = image.reader();
     for (const auto& s : file.symbols) {
         out.symbols.emplace_back();
+        if (s.absent) {
+            out.symbols.back().absent = true;
+            continue;
+        }
         std::string where = "symbol " + s.name;
         auto fail = [&](std::string problem) {
             out.problems.push_back(std::move(problem));

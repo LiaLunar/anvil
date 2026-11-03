@@ -121,9 +121,12 @@ void check_against_exe(const CheckOptions& options, SymbolFile file, const std::
         report.code_ranges.push_back(
             {s.name, line_in_build(s), verification.symbols[s.id].rva, static_cast<uint32_t>(s.bytes.size())});
     }
+    for (const auto& s : file.symbols) {
+        if (s.absent) report.absent.push_back(s.name);
+    }
     // Instruction boundaries (design §16) of the symbols that verified.
     for (const auto& s : file.symbols) {
-        if (failed.contains(s.id)) continue;
+        if (failed.contains(s.id) || s.absent) continue;
         const uint32_t rva = verification.symbols[s.id].rva;
         const Section* section = image->section_of(rva, 1);
         if (section == nullptr) continue;
@@ -496,6 +499,11 @@ std::string report_json(const CheckReport& report, const std::string& pad, const
         for (size_t i = 0; i < report.builds.size(); ++i) out += (i == 0 ? "" : ", ") + json_string(report.builds[i]);
         out += "],\n";
         out += in + "\"symbols\": " + std::to_string(report.symbols) + ",\n";
+        if (report.with_exe) {
+            out += in + "\"absent\": [";
+            for (size_t i = 0; i < report.absent.size(); ++i) out += (i == 0 ? "" : ", ") + json_string(report.absent[i]);
+            out += "],\n";
+        }
     }
     if (report.has_settings) out += in + "\"settings\": " + std::to_string(report.settings) + ",\n";
     if (report.with_exe && !report.exe_sha256.empty()) {
@@ -538,6 +546,11 @@ std::string report_summary(const CheckReport& report) {
         if (report.with_exe) {
             summary += ", checked against " + report.exe_name + " (" +
                        (report.exe_build.empty() ? std::string("unknown build") : report.exe_build) + ")";
+            if (!report.absent.empty()) {
+                std::string names;
+                for (const auto& n : report.absent) names += (names.empty() ? "" : ", ") + n;
+                summary += "; absent on " + report.build + ": " + names;
+            }
         }
         if (!report.lock.empty()) summary += "; " + std::string(kLockFile) + " " + report.lock;
     }

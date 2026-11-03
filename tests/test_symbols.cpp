@@ -359,6 +359,58 @@ signature = "const char* ()"
         CHECK(line_of(head + "\n[symbol.s.build.\"a\"]\nrva = 0x10\nbytes = \"C3\"\n[symbol.s.build.\"b\"]\nbytes = \"C3\"\n") == 8);
     });
 
+    run("symbols: a symbol absent on a build (#193)", [] {
+        const std::string text = "builds = [\"build-a\", \"build-b\"]\n"
+                                 "[symbol.lobby]\n"
+                                 "memory = \"code\"\n"
+                                 "signature = \"void (void* lobby)\"\n"
+                                 "rva = 0x1000\n"
+                                 "bytes = \"48 8B\"\n"
+                                 "values.op = { at = 0, size = 1 }\n"
+                                 "absent = [\"build-a\"]\n"
+                                 "[symbol.frame]\n"
+                                 "memory = \"code\"\n"
+                                 "bytes = \"48 8B\"\n"
+                                 "build.\"build-a\" = { rva = 0x1000 }\n"
+                                 "build.\"build-b\" = { rva = 0x1010 }\n";
+        auto file = symbols(text);
+        CHECK(file.symbols.size() == 2 && file.symbols[0].placements.size() == 2);
+        const Symbol& lobby = file.symbols[0];
+        CHECK(lobby.absent && !lobby.rva && lobby.bytes.empty() && lobby.kind == SymbolKind::Function);
+        CHECK(lobby.placements[0].absent && !lobby.placements[1].absent && lobby.values.size() == 1);
+        CHECK(!file.symbols[1].absent && file.symbols[1].rva == 0x1000u);
+        CHECK(select_build(file, "build-b") && !file.symbols[0].absent && file.symbols[0].rva == 0x1000u &&
+              file.symbols[0].bytes.size() == 2);
+        CHECK(select_build(file, "build-a") && file.symbols[0].absent && !file.symbols[0].rva);
+
+        const std::string head = "builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\nrva = 0x10\nbytes = \"C3\"\n";
+        CHECK(contains(parse_error("build = \"a\"\n[symbol.s]\nmemory = \"code\"\nrva = 0x10\nbytes = \"C3\"\nabsent = [\"a\"]\n"),
+                       "absent needs the list of builds at the top"));
+        CHECK(contains(parse_error(head + "absent = [\"c\"]\n"), "absent: builds does not list c"));
+        CHECK(contains(parse_error(head + "absent = [\"a\", \"b\"]\n"), "absent lists every build; remove the symbol"));
+        CHECK(contains(parse_error(head + "absent = [\"a\", \"a\"]\n"), "absent lists a twice"));
+        CHECK(contains(parse_error(head + "absent = []\n"), "absent must be a list of build ids"));
+        CHECK(contains(parse_error(head + "absent = \"a\"\n"), "absent must be a list of build ids"));
+        CHECK(contains(parse_error("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\nbytes = \"C3\"\nabsent = [\"b\"]\n"
+                                   "build.\"a\" = { rva = 0x10 }\nbuild.\"b\" = { rva = 0x20 }\n"),
+                       "build.\"b\": absent lists b"));
+        // The builds the symbol is in still follow every rule: here a needs an rva.
+        CHECK(contains(parse_error("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\nbytes = \"C3\"\nabsent = [\"b\"]\n"),
+                       "symbol s: in build a: needs exactly one of 'rva' and 'export'"));
+        // An absent build needs nothing: only b gives an rva.
+        CHECK(parse_error("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\nbytes = \"C3\"\nabsent = [\"a\"]\n"
+                          "build.\"b\" = { rva = 0x10 }\n")
+                  .empty());
+        // A block resumes at a symbol that is in every build the block is in.
+        const std::string block = "builds = [\"a\", \"b\"]\n[symbol.block]\nrva = 0x10\nbytes = \"90 90\"\nmemory = \"code\"\n"
+                                  "resume = \"after\"\n";
+        CHECK(contains(parse_error(block + "[symbol.after]\nrva = 0x20\nbytes = \"C3\"\nmemory = \"code\"\nabsent = [\"b\"]\n"),
+                       "resume names 'after', which is absent in build b"));
+        CHECK(parse_error(block + "absent = [\"b\"]\n[symbol.after]\nrva = 0x20\nbytes = \"C3\"\nmemory = \"code\"\n"
+                                  "absent = [\"b\"]\n")
+                  .empty());
+    });
+
     run("image: the file reader maps sections and zero-fills past raw data", [&] {
         uint8_t bytes[4] = {1, 1, 1, 1};
         CHECK(file_reader->read(0x3500, bytes, 4));
@@ -609,6 +661,42 @@ signature = "const char* ()"
         CHECK(reinterpret_cast<Speed>(next)(&session) == &session);  // the original through the chain
         CHECK(reinterpret_cast<Speed>(mapped.base + 0x1000)(&session) == nullptr);
         CHECK(changes.rollback(owner) == 2 && mapped.base[0x1000] == 0x48 && mapped.base[0x1010] == 0x48);
+    });
+
+    run("loader: a symbol absent on the running build is not verified and has no address", [&] {
+        MappedImage mapped(test_image);
+        DWORD old = 0;
+        CHECK(VirtualProtect(mapped.base + 0x1000, 0x1000, PAGE_EXECUTE_READWRITE, &old));
+        ChangeRegistry changes(mapped.address(), TestImage::kSize);
+        const OwnerId owner = changes.add_owner("p");
+        // lobby's bytes are not in the image: it verifies nowhere, so only `absent` keeps the plugin.
+        SymbolFile file = symbols("builds = [\"steam\", \"gog\"]\n"
+                                  "[symbol.speed_object]\nrva = 0x1000\nbytes = \"48 8B ?? 18 04 00 00 C3\"\nmemory = \"code\"\n"
+                                  "signature = \"void* (void* session)\"\n"
+                                  "[symbol.lobby]\nrva = 0x1000\nbytes = \"FF FF FF FF FF\"\nmemory = \"code\"\n"
+                                  "signature = \"void (void* lobby)\"\nvalues.op = { at = 0, size = 1 }\nabsent = [\"gog\"]\n");
+        const OriginalImageReader reader(changes, mapped.address());
+        std::string error;
+        const auto image = PeImage::parse(reader, error);
+        CHECK(image.has_value());
+        if (!image) return;
+        // Declared for steam: it must verify there, and does not.
+        const SymbolVerification steam = verify_symbols(file, *image);
+        CHECK(steam.problems.size() == 1 && steam.failed == std::vector<uint32_t>{1});
+        CHECK(select_build(file, "gog"));
+        const SymbolVerification gog = verify_symbols(file, *image);
+        CHECK(gog.ok() && gog.symbols.size() == 2 && gog.symbols[1].absent && !gog.symbols[0].absent);
+        const PluginSymbols syms(file, gog, mapped.address());
+        CHECK(syms.get(1) != nullptr && syms.get(1)->absent && syms.present(1) == nullptr && syms.present(0) != nullptr);
+        CHECK(syms.address_of(1) == nullptr && syms.address_of(0) == mapped.base + 0x1000);
+        CHECK(!syms.value(1, "op"));
+        void* next = nullptr;
+        auto* detour = reinterpret_cast<void*>(+[](void*) {});
+        CHECK(hook_function(changes, owner, syms, 1, detour, &next) == ChangeStatus::NotDeclared);
+        CHECK(mid_hook(changes, owner, syms, 1, [](AnvilCpuContext*, void*) {}, nullptr) == ChangeStatus::NotDeclared);
+        const uint8_t nop = 0x90;
+        CHECK(patch_bytes(changes, owner, syms, 1, &nop, 1) == ChangeStatus::NotDeclared);
+        CHECK(mapped.base[0x1000] == 0x48);
     });
 
     run("loader: mid hooks and block replacements on symbols", [&] {

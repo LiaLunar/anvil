@@ -19,6 +19,7 @@ struct Probe : anvil::Plugin {
     int adjusted = 0;
 
     void load(anvil::Host& host) override {
+        if (!host.present(sym::twice)) throw anvil::Error(ANVIL_ERROR_NOT_DECLARED, "twice is not present");
         host.info("twice(21) = {}", host.call(sym::twice, 21));
         *host.data(sym::counter) = 7;
         host.info("counter {} through {}", host.call(sym::load_counter),

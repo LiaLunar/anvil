@@ -65,6 +65,7 @@ struct CheckReport {
     bool has_symbols = false;
     std::string build;         // the build checked: the exe's, if symbols.toml declares it, else its first
     std::vector<std::string> builds;  // symbols.toml `build` or `builds`
+    std::vector<std::string> absent;  // with an exe: the symbols `absent` on the build checked
     size_t symbols = 0;
     bool has_settings = false;  // plugin.toml names a settings.toml that could be read
     size_t settings = 0;        // declared settings, once settings.toml parsed

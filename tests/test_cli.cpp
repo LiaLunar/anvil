@@ -585,6 +585,39 @@ int main(int argc, char** argv) {
         CHECK(has_problem(fx.check(dir, false), 1, "format 3 is not supported"));
     });
 
+    run("check --exe: a symbol absent on the exe's build is listed, not verified", [&] {
+        const fs::path second_exe = fx.root / "game" / "second-absent.exe";
+        TestImage image = boundary_image();
+        image.put(0x10F8, {0xCC});
+        const auto image_bytes = image.file();
+        write(second_exe, std::string(image_bytes.begin(), image_bytes.end()));
+        const std::string first_sha = fx.exe_sha256, second_sha = sha256_file(second_exe);
+        auto check = [&](const fs::path& dir, const fs::path& exe) {
+            CheckOptions options;
+            options.plugin_dir = dir;
+            options.exe = exe;
+            options.build_of = [=](std::string_view sha) -> const char* {
+                return sha == first_sha ? "test-build" : sha == second_sha ? "second-build" : nullptr;
+            };
+            return check_plugin(options);
+        };
+        // lobby's bytes are in neither exe: only `absent` exempts it, and only on second-build.
+        const fs::path dir = fx.plugin("absent", "builds = [\"test-build\", \"second-build\"]\n"
+                                                 "[symbol.speed_object]\nrva = 0x1000\nmemory = \"code\"\n"
+                                                 "bytes = \"48 8B 81 18 04 00 00 C3\"\n"
+                                                 "[symbol.lobby]\nrva = 0x1000\nmemory = \"code\"\nbytes = \"FF FF FF FF FF\"\n"
+                                                 "absent = [\"second-build\"]\n");
+        const auto second = check(dir, second_exe);
+        print_problems(second);
+        CHECK(second.exit_code == kExitOk && second.absent == std::vector<std::string>{"lobby"});
+        CHECK(contains(format_report(second, Format::Text), "checked against second-absent.exe (second-build); absent on second-build: lobby; symbols.lock written"));
+        CHECK(contains(report_json(second), "\"absent\": [\"lobby\"]"));
+        const auto first = check(dir, fx.exe);
+        CHECK(first.exit_code == kExitProblems && first.absent.empty() &&
+              has_problem(first, 6, "in build test-build: symbol lobby (rva 0x1000): byte +0x0"));
+        CHECK(contains(report_json(first), "\"absent\": []"));
+    });
+
     run("gen with several builds: a value is a constant only when every build has it", [] {
         const auto file = parse_symbols_text("builds = [\"a\", \"b\"]\n[symbol.s]\nmemory = \"code\"\n"
                                              "values.same = { at = 0, size = 1 }\nvalues.differs = { at = 3, size = 4 }\n"
@@ -603,6 +636,21 @@ int main(int argc, char** argv) {
         CHECK(contains(h.cpp, "static constexpr ::std::uint64_t same = 0x48;"));
         CHECK(contains(h.cpp, "// differs: differs between the game builds") && !contains(h.cpp, "differs = "));
         CHECK(contains(h.rust, "// S_DIFFERS: differs between the game builds"));
+    });
+
+    run("gen: an absent symbol says where it is missing; values come from the builds it is in", [] {
+        const auto file = parse_symbols_text("builds = [\"a\", \"b\", \"c\"]\n[symbol.lobby]\nmemory = \"code\"\n"
+                                             "signature = \"void (void* lobby)\"\nbytes = \"48 8B\"\n"
+                                             "values.op = { at = 0, size = 1 }\nabsent = [\"b\"]\n"
+                                             "build.\"a\" = { rva = 0x1000 }\nbuild.\"c\" = { rva = 0x1010 }\n");
+        CHECK(file.file.has_value());
+        if (!file.file) return;
+        const GeneratedHeaders h = generate_headers(*file.file, "symbols.toml", true, true, true);
+        CHECK(h.error.empty());
+        CHECK(contains(h.c, "/* function, rva 0x1000 in a, 0x1010 in c; absent in b: check that it is present before using it */"));
+        CHECK(contains(h.c, "#define SYMVAL_LOBBY_OP UINT64_C(0x48)"));
+        CHECK(contains(h.cpp, "// function, rva 0x1000 in a, 0x1010 in c; absent in b"));
+        CHECK(contains(h.cpp, "static constexpr ::std::uint64_t op = 0x48;"));
     });
 
     run("instruction boundaries: whole instructions, no JRCXZ/JECXZ/LOOP* in the stolen bytes", [&] {

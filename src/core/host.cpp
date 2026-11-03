@@ -33,7 +33,9 @@ bool process_exiting() {
 }
 
 std::string symbol_label(const AnvilPlugin* self, AnvilSymbol symbol) {
-    if (const PluginSymbol* s = self->symbols.get(symbol)) return s->declaration.name;
+    if (const PluginSymbol* s = self->symbols.get(symbol)) {
+        return s->absent ? s->declaration.name + " (absent on this game build)" : s->declaration.name;
+    }
     return "symbol " + std::to_string(symbol) + " (not declared)";
 }
 

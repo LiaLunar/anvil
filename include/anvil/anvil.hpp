@@ -610,9 +610,16 @@ public:
     // The verified address of any symbol.
     template <class S> void* address(const S& symbol) const {
         void* p = c_api().address_of(self(), symbol.id);
-        if (p == nullptr) throw Error(ANVIL_ERROR_NOT_DECLARED, std::format("address_of {}: not declared", detail::name_of<S>()));
+        if (p == nullptr) {
+            throw Error(ANVIL_ERROR_NOT_DECLARED,
+                        std::format("address_of {}: not declared, or absent on this game build", detail::name_of<S>()));
+        }
         return p;
     }
+
+    // False for a symbol symbols.toml declares `absent` on the running game
+    // build (design §5.2): check it before calling, hooking or reading one.
+    template <class S> bool present(const S& symbol) const { return c_api().address_of(self(), symbol.id) != nullptr; }
 
     // Typed data: a `type` symbol, or a typed rip_relative value (sym::root).
     template <class T> T* data(const Data<T>& d) const {

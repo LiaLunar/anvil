@@ -171,7 +171,9 @@ typedef struct AnvilHost {
     void (*abort_group)(AnvilPlugin *self);
 
     /* The verified address of a symbol, to call (function) or read (data);
-     * NULL for an unknown symbol. */
+     * NULL for an unknown symbol, or one symbols.toml declares `absent` on the
+     * running game build (Anvil 1.9 and later): check it before using such a
+     * symbol. Changes on an absent symbol give ANVIL_ERROR_NOT_DECLARED. */
     void *(*address_of)(AnvilPlugin *self, AnvilSymbol symbol);
     /* A value named in symbols.toml `values`, e.g. for a C plugin or for an
      * `export` symbol whose rip_relative values gen cannot know. A

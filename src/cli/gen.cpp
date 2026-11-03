@@ -106,6 +106,7 @@ std::optional<uint64_t> constant_of(const Symbol& s, const SymbolValue& v) {
     if (s.placements.empty()) return constant_in(s, s.rva, s.bytes, v);
     std::optional<uint64_t> out;
     for (const auto& p : s.placements) {
+        if (p.absent) continue;
         const auto c = constant_in(s, p.rva, p.bytes, v);
         if (!c || (out && *out != *c)) return std::nullopt;
         out = c;
@@ -120,13 +121,24 @@ std::string unknown_why(const Symbol& s, const SymbolValue& v) {
 
 std::string where_of(const Symbol& s) {
     std::string out = std::string(symbol_kind_name(s.kind)) + ", ";
-    if (!s.export_name.empty() || s.placements.size() <= 1) {
-        return out + (s.rva ? "rva " + hex(*s.rva) : "export " + s.export_name);
+    std::string absent;  // the builds the symbol is not in
+    for (const auto& p : s.placements) {
+        if (p.absent) absent += (absent.empty() ? "" : ", ") + p.build;
     }
-    out += "rva";
-    for (size_t i = 0; i < s.placements.size(); ++i) {
-        out += std::string(i == 0 ? " " : ", ") + hex(*s.placements[i].rva) + " in " + s.placements[i].build;
+    if (!s.export_name.empty()) {
+        out += "export " + s.export_name;
+    } else if (s.placements.size() <= 1) {
+        out += "rva " + hex(*s.rva);
+    } else {
+        out += "rva";
+        bool listed = false;
+        for (const auto& p : s.placements) {
+            if (p.absent) continue;
+            out += std::string(listed ? ", " : " ") + hex(*p.rva) + " in " + p.build;
+            listed = true;
+        }
     }
+    if (!absent.empty()) out += "; absent in " + absent + ": check that it is present before using it";
     return out;
 }
 

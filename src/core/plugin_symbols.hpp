@@ -14,6 +14,7 @@ namespace anvil {
 // running game.
 struct PluginSymbol {
     Symbol declaration;
+    bool absent = false;  // not in the running build (`absent`): no address
     uint32_t rva = 0;
     uintptr_t address = 0;
     std::vector<std::pair<std::string, uint64_t>> values;  // in declaration order
@@ -29,11 +30,17 @@ public:
     PluginSymbols(const SymbolFile& file, const SymbolVerification& verified, uintptr_t image_base);
 
     const PluginSymbol* get(uint32_t id) const { return id < symbols_.size() ? &symbols_[id] : nullptr; }
+    // get(), but nullptr for a symbol absent on the running build too: what
+    // address_of, symbol_value and the changes may use (design §5.2).
+    const PluginSymbol* present(uint32_t id) const {
+        const PluginSymbol* s = get(id);
+        return s != nullptr && !s->absent ? s : nullptr;
+    }
     const PluginSymbol* find(std::string_view name) const;
     size_t size() const { return symbols_.size(); }
 
     // address_of / symbol_value of the host table: nullptr / nullopt
-    // for an unknown id or name.
+    // for an unknown id or name, or a symbol absent on the running build.
     void* address_of(uint32_t id) const;
     std::optional<uint64_t> value(uint32_t id, std::string_view name) const;
 
@@ -43,7 +50,8 @@ private:
 
 // Change requests on declared symbols (design §8.1): the expected bytes come
 // from the declaration and are compared with the original bytes again, the
-// symbol's kind must fit the change. Unknown ids are NotDeclared. These are the
+// symbol's kind must fit the change. Unknown ids, and symbols absent on the
+// running build, are NotDeclared. These are the
 // calls the host table (host.cpp) forwards to.
 // Hooks need at least the 5 declared bytes of the jump (UnsafeSite): `anvil
 // check` proves those are whole instructions (design §16).
