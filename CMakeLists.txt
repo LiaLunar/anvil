@@ -261,7 +261,7 @@ if(ANVIL_BUILD_TESTS)
 
     # The Manager's core: zips, Steam's files, install plans, plugin zips, the
     # start-up benchmark (anvil_loader: the core's own start record writer).
-    add_executable(anvil_manager_tests tests/manager_tests.cpp tests/manager_benchmark_tests.cpp)
+    add_executable(anvil_manager_tests tests/manager_tests.cpp tests/manager_benchmark_tests.cpp tests/manager_report_tests.cpp)
     target_link_libraries(anvil_manager_tests PRIVATE anvil_manager_core anvil_loader)
     target_compile_definitions(anvil_manager_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(anvil_manager_tests version_dll)

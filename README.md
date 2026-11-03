@@ -105,7 +105,12 @@ into that folder; from then on, start the Manager there.
   sent to the maintainers only when you click "Send" after seeing it, or
   copied; see [docs/benchmark-privacy.md](docs/benchmark-privacy.md) and the
   [specification](docs/spec/benchmark-v1.md).
-- It shows crash reports and the log, and starts the game through Steam.
+- It shows crash reports and the log, and starts the game through Steam. On
+  its Log tab, "Copy a problem report" puts what an issue needs on the
+  clipboard: the versions, the game build, the plugins and why one is
+  skipped, the newest crash report and the end of `anvil.log`, with the game
+  folder, your user folder and Windows user name left out. Nothing is
+  uploaded.
 - "Repair" puts back Anvil's own files.
 - "Uninstall Anvil" removes `version.dll`, the standard plugins and the
   Manager, and keeps your plugins, their settings and `anvil/anvil.toml`.

@@ -2,9 +2,9 @@
 # issue #59). anvil_manager_core holds what it does without a window: finding
 # the game, the install, repair and uninstall plans for the package it
 # carries, plugin zips (checked with anvil check's own code, anvil_tool), the
-# release check and the start-up benchmark (its series, result, report, and
-# the runner that starts the game) and the plugin catalog. The tests link it
-# directly.
+# release check, the problem report and the start-up benchmark (its series,
+# result, report, and the runner that starts the game) and the plugin
+# catalog. The tests link it directly.
 
 # miniz, pinned to a release tag and compiled here from its sources (its own
 # CMakeLists.txt is not used): reads and, for the tests, writes zip archives.
@@ -39,6 +39,7 @@ add_library(anvil_manager_core STATIC
     src/json.cpp
     src/mods.cpp
     src/plugin_zip.cpp
+    src/problem_report.cpp
     src/release_check.cpp
     src/zip.cpp)
 target_include_directories(anvil_manager_core PUBLIC src)

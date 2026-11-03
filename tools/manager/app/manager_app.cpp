@@ -7,6 +7,7 @@
 #include "core/semver.hpp"
 #include "i18n/translate.hpp"
 #include "mods.hpp"
+#include "problem_report.hpp"
 #include "ui.hpp"
 
 #include <imgui.h>
@@ -975,12 +976,12 @@ void ManagerApp::draw_log_tab() {
     bool& previous = log_previous_;
     const fs::path file = game_ / "anvil" / (previous ? "anvil.prev.log" : "anvil.log");
     bool reload = log_text_.empty();
-    if (ImGui::RadioButton(tr("Last start"), !previous)) {
+    if (ImGui::RadioButton(tr("Last start"), !previous && !log_report_)) {
         previous = false;
         reload = true;
     }
     ImGui::SameLine();
-    if (ImGui::RadioButton(tr("The start before"), previous)) {
+    if (ImGui::RadioButton(tr("The start before"), previous && !log_report_)) {
         previous = true;
         reload = true;
     }
@@ -991,10 +992,55 @@ void ManagerApp::draw_log_tab() {
     ImGui::SameLine();
     if (ImGui::Button(tr("Open the folder"))) open_folder(game_ / "anvil");
     if (reload) {
+        log_report_ = false;
         log_text_ = read_text_tail(file, 2000, 512 << 10);
         if (log_text_.empty()) log_text_ = trf("({0} is empty or missing: Anvil writes it when the game starts)", {u8(file.filename())});
     }
+
+    // The problem report (issue #186): what the bug forms ask for, with private paths shortened, shown where the
+    // log was so the player sees what the clipboard holds.
+    if (ImGui::Button(tr("Copy a problem report"))) {
+        log_text_ = make_problem_report();
+        log_report_ = true;
+        report_copied_ = copy_to_clipboard(window_, log_text_);
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Open an Anvil issue"))) open_url("https://github.com/happy-dwarf-team/anvil/issues/new/choose");
+    if (log_report_) {
+        weak_wrapped(report_copied_ ? tr("The report is in the clipboard. Nothing is uploaded.")
+                                    : tr("The clipboard could not be opened."));
+        weak_wrapped(tr("Check it before you post it. If a plugin is skipped or named in a crash, report it to that "
+                        "plugin's author instead."));
+    } else {
+        weak_wrapped(tr("For an issue: versions, the game build, the plugins and why one is skipped, and the end of "
+                        "anvil.log, with your folders and Windows user name left out."));
+    }
     ImGui::InputTextMultiline("##log", &log_text_, ImVec2(-1, -1), ImGuiInputTextFlags_ReadOnly);
+}
+
+std::string ManagerApp::make_problem_report() const {
+    ProblemReportInput input;
+    input.manager_version = ANVIL_VERSION;
+    input.installation = snapshot_->installation;
+    input.exe_sha256 = snapshot_->folder.exe_sha256;
+    input.build = snapshot_->folder.build;
+    if (snapshot_->report) input.game = &*snapshot_->report;
+    if (!snapshot_->crashes.empty()) input.newest_crash = load_crash_summary(game_ / "anvil" / "crashes", snapshot_->crashes.front());
+    input.log_name = "anvil.log";
+    input.log_tail = read_text_tail(game_ / "anvil" / "anvil.log", kProblemReportLogLines, kProblemReportLogBytes);
+
+    const auto environment = [](const wchar_t* name) {
+        wchar_t value[512];
+        const DWORD n = GetEnvironmentVariableW(name, value, static_cast<DWORD>(std::size(value)));
+        return n > 0 && n < std::size(value) ? std::wstring(value, n) : std::wstring();
+    };
+    input.folders.push_back({game_, "<game>"});
+    if (snapshot_->report && !snapshot_->report->user_dir.empty()) {
+        input.folders.push_back({fs::path(widen(snapshot_->report->user_dir)), "<eu4 user folder>"});
+    }
+    if (const std::wstring profile = environment(L"USERPROFILE"); !profile.empty()) input.folders.push_back({profile, "<user folder>"});
+    input.user_name = u8(environment(L"USERNAME"));
+    return problem_report(input);
 }
 
 void ManagerApp::draw_about_tab() {

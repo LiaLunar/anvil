@@ -92,6 +92,7 @@ private:
     void save_settings();
     void show_message(std::string title, std::string text);
     void failed(const std::string& what, const std::string& error, bool access_denied);
+    std::string make_problem_report() const;
 
     HWND window_;
     std::optional<Package> package_;
@@ -145,6 +146,8 @@ private:
     bool close_after_message_ = false;
     bool show_settings_tab_ = false;
     bool log_previous_ = false;
+    bool log_report_ = false;   // the Log tab shows the problem report, which is in the clipboard
+    bool report_copied_ = false;
     bool close_ = false;
 };
 

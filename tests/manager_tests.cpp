@@ -668,6 +668,7 @@ int main(int argc, char** argv) {
 
     manager_benchmark_tests();
     manager_runner_tests();
+    manager_report_tests();
 
     std::printf("%d checks, %d failed\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

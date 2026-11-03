@@ -48,3 +48,4 @@ void benchmark_tests(); // benchmark_tests.cpp
 void manager_benchmark_tests();  // manager_benchmark_tests.cpp, in anvil_manager_tests
 void manager_runner_tests();     // the same file: the series runner, with
 int fake_benchmark_game();       // anvil_manager_tests --bench-game as the game
+void manager_report_tests();     // manager_report_tests.cpp, in anvil_manager_tests
