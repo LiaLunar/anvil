@@ -24,6 +24,18 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      # The plugin catalog (ADR 0002): every pinned zip has the size and SHA-256
+      # of its entry, the build provenance of its plugin's repository and the
+      # manifest the entry describes. The Manager trusts only these pins.
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+
+      - name: Catalog
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python -I catalog/update.py --check
+
       # Rust (design §9): the bindings match the header, anvil gen's Rust output
       # compiles, and the Rust hello builds and loads in the tests below.
       - name: Rust toolchain

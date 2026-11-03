@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "plugins": [
+    {
+      "id": "bellows",
+      "name": "Bellows",
+      "summary": "Makes the game start faster, without changing game files or how it plays.",
+      "repo": "https://github.com/happy-dwarf-team/bellows",
+      "page": "https://anvil.happydwarf.dev/plugins/bellows/",
+      "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
+      "version": "0.19.0",
+      "anvil": ">=1.7.0",
+      "affects_gameplay": false,
+      "builds": [
+        "eu4-1.37.5-steam-win64",
+        "eu4-1.37.5.2-gog-win64"
+      ],
+      "zip": {
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v0.19.0/bellows-windows-x64.zip",
+        "size": 1115323,
+        "sha256": "35bb6715b6f1d859e037b0176aa28fde65632933fe806dafe8f373e013b4a65b"
+      }
+    },
+    {
+      "id": "tongs",
+      "name": "Tongs",
+      "summary": "Lets scripts and agents control a running game: read its state, take screenshots, use keyboard and mouse.",
+      "repo": "https://github.com/happy-dwarf-team/tongs",
+      "page": "https://anvil.happydwarf.dev/plugins/tongs/",
+      "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093",
+      "version": "0.26.0",
+      "anvil": ">=1.7.0",
+      "affects_gameplay": true,
+      "builds": [
+        "eu4-1.37.5-steam-win64",
+        "eu4-1.37.5.2-gog-win64"
+      ],
+      "zip": {
+        "url": "https://github.com/happy-dwarf-team/tongs/releases/download/v0.26.0/tongs-windows-x64.zip",
+        "size": 625631,
+        "sha256": "3367bba28c09b6cf7530a877f032c8b15a57ad24369b17a5c68d444eca3b6258"
+      }
+    },
+    {
+      "id": "hamweard",
+      "name": "Hamweard",
+      "summary": "Takes you from a campaign back to the main menu in seconds, without restarting the game.",
+      "repo": "https://github.com/happy-dwarf-team/hamweard",
+      "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
+      "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
+      "version": "1.0.0",
+      "anvil": ">=1.5.0",
+      "affects_gameplay": true,
+      "builds": [
+        "eu4-1.37.5-steam-win64"
+      ],
+      "zip": {
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.0.0/hamweard-windows-x64.zip",
+        "size": 190007,
+        "sha256": "84efda54e03d8865769adb3f4efaeecc4042992ee571ca47209da1aa9ad4c5d4"
+      }
+    },
+    {
+      "id": "mei",
+      "name": "Mei",
+      "summary": "Shows, wraps, searches and types the text of a Chinese, Japanese or Korean translation mod.",
+      "repo": "https://github.com/happy-dwarf-team/mei",
+      "page": "https://anvil.happydwarf.dev/plugins/mei/",
+      "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
+      "note": "The zip holds the plugin; Mei's fonts come with its Workshop item, which carries both. Without them the game's own fonts stay.",
+      "version": "0.1.0",
+      "anvil": ">=1.8.0",
+      "affects_gameplay": false,
+      "builds": [
+        "eu4-1.37.5-steam-win64"
+      ],
+      "zip": {
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.1.0/mei-windows-x64.zip",
+        "size": 1035116,
+        "sha256": "13502635d23f76139fadde71a90b777450189bc07399e1762d8bfaef3a7d3596"
+      }
+    }
+  ]
+}

@@ -64,6 +64,7 @@ private:
 
     void draw_game_bar();
     void draw_anvil_tab();
+    void draw_catalog_tab();
     void draw_plugins_tab();
     void draw_mods_tab();
     void draw_settings_tab();
@@ -75,11 +76,16 @@ private:
     void draw_modals();
     void draw_plan_modal();
     void draw_zip_modal();
+    void draw_download_modal();
     void draw_approve_modal();
 
     void start_plan(bool uninstall);
     void run_plan();
     void open_zip(const std::filesystem::path& file);
+    // A zip from the picker, a drop or the catalog; `pin` is the catalog
+    // entry it was downloaded for, whose id and version it must hold.
+    void check_zip(ZipArchive zip, std::string name, const CatalogPlugin* pin);
+    void downloaded(ZipDownload download);
     void install_zip();
     void edit_list(const std::string& key, const std::string& id, bool listed);
     void open_settings(const cli::GamePlugin& plugin);
@@ -115,6 +121,15 @@ private:
     std::string crash_selected_;
     std::string crash_text_;
     std::string log_text_;
+
+    // The catalog (ADR 0002): the Manager's own list until the player fetches main's.
+    std::optional<Catalog> catalog_;
+    std::string catalog_error_;  // why the built-in list or the last fetch was refused
+    bool catalog_fetched_ = false;
+    std::future<CatalogFetch> catalog_pending_;
+    std::optional<CatalogPlugin> download_;  // asked about, then downloading
+    std::future<ZipDownload> download_pending_;
+    bool open_download_ = false;
 
     std::future<ReleaseCheck> release_pending_;
     std::optional<ReleaseCheck> release_;

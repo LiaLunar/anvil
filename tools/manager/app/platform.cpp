@@ -65,6 +65,58 @@ struct Internet {
     }
 };
 
+// One HTTPS GET of `host` + `path`, redirects followed as WinHTTP does
+// (never from https to http). The body when the answer is 200 and at most
+// `limit` bytes; nullopt with `error` (naming `name`) otherwise.
+std::optional<std::string> https_get(const wchar_t* host, const wchar_t* path, const wchar_t* headers, size_t limit,
+                                     const std::string& name, std::string& error) {
+    const std::wstring agent = L"AnvilManager/" + widen(ANVIL_VERSION);
+    Internet session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+                                 WINHTTP_NO_PROXY_BYPASS, 0)};
+    Internet connection{session.handle != nullptr ? WinHttpConnect(session.handle, host, INTERNET_DEFAULT_HTTPS_PORT, 0) : nullptr};
+    Internet request{connection.handle != nullptr
+                         ? WinHttpOpenRequest(connection.handle, L"GET", path, nullptr, WINHTTP_NO_REFERER,
+                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
+                         : nullptr};
+    if (request.handle == nullptr ||
+        !WinHttpSendRequest(request.handle, headers, headers != nullptr ? static_cast<DWORD>(-1L) : 0, WINHTTP_NO_REQUEST_DATA,
+                            0, 0, 0) ||
+        !WinHttpReceiveResponse(request.handle, nullptr)) {
+        error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
+        return std::nullopt;
+    }
+    DWORD status = 0;
+    DWORD size = sizeof(status);
+    WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                        &status, &size, WINHTTP_NO_HEADER_INDEX);
+    if (status != 200) {
+        error = i18n::trf("{0} answered {1}", {name, std::to_string(status)});
+        return std::nullopt;
+    }
+    std::string body;
+    for (;;) {
+        DWORD available = 0;
+        if (!WinHttpQueryDataAvailable(request.handle, &available)) {
+            error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
+            return std::nullopt;
+        }
+        if (available == 0) break;
+        const size_t at = body.size();
+        if (at + available > limit) {
+            error = i18n::trf("{0} sent more than expected", {name});
+            return std::nullopt;
+        }
+        body.resize(at + available);
+        DWORD read = 0;
+        if (!WinHttpReadData(request.handle, body.data() + at, available, &read)) {
+            error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
+            return std::nullopt;
+        }
+        body.resize(at + read);
+    }
+    return body;
+}
+
 }  // namespace
 
 fs::path own_exe_path() {
@@ -255,47 +307,46 @@ void remove_stale_copies() {
 
 ReleaseCheck fetch_latest_release() {
     ReleaseCheck out;
-    const std::wstring agent = L"AnvilManager/" + widen(ANVIL_VERSION);
-    Internet session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-                                 WINHTTP_NO_PROXY_BYPASS, 0)};
-    Internet connection{session.handle != nullptr
-                            ? WinHttpConnect(session.handle, kReleaseApiHost, INTERNET_DEFAULT_HTTPS_PORT, 0)
-                            : nullptr};
-    Internet request{connection.handle != nullptr
-                         ? WinHttpOpenRequest(connection.handle, L"GET", kReleaseApiPath, nullptr, WINHTTP_NO_REFERER,
-                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
-                         : nullptr};
-    const wchar_t* headers = L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n";
-    if (request.handle == nullptr ||
-        !WinHttpSendRequest(request.handle, headers, static_cast<DWORD>(-1L), WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
-        !WinHttpReceiveResponse(request.handle, nullptr)) {
-        out.error = i18n::trf("cannot reach GitHub (error {0})", {std::to_string(GetLastError())});
-        return out;
-    }
-    DWORD status = 0;
-    DWORD size = sizeof(status);
-    WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
-                        &status, &size, WINHTTP_NO_HEADER_INDEX);
-    if (status != 200) {
-        out.error = i18n::trf("GitHub answered {0}", {std::to_string(status)});
-        return out;
-    }
-    std::string body;
-    for (;;) {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request.handle, &available) || available == 0) break;
-        const size_t at = body.size();
-        if (at + available > (1u << 20)) {
-            out.error = i18n::tr("GitHub's reply is too long");
-            return out;
-        }
-        body.resize(at + available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request.handle, body.data() + at, available, &read)) break;
-        body.resize(at + read);
-    }
-    out.release = parse_release(body);
+    const auto body = https_get(kReleaseApiHost, kReleaseApiPath,
+                                L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n", 1u << 20,
+                                "GitHub", out.error);
+    if (!body) return out;
+    out.release = parse_release(*body);
     if (!out.release) out.error = i18n::tr("GitHub's reply is not a release of Anvil");
+    return out;
+}
+
+std::optional<Catalog> load_embedded_catalog(std::string& error) {
+    const HRSRC resource = FindResourceW(nullptr, L"ANVIL_CATALOG", MAKEINTRESOURCEW(10));  // RT_RCDATA
+    const HGLOBAL loaded = resource != nullptr ? LoadResource(nullptr, resource) : nullptr;
+    const auto* data = static_cast<const char*>(loaded != nullptr ? LockResource(loaded) : nullptr);
+    if (data == nullptr) {
+        error = "AnvilManager.exe carries no plugin catalog";
+        return std::nullopt;
+    }
+    return parse_catalog(std::string_view(data, SizeofResource(nullptr, resource)), error);
+}
+
+CatalogFetch fetch_catalog() {
+    CatalogFetch out;
+    const auto body = https_get(kCatalogHost, kCatalogPath, nullptr, kMaxCatalogBytes, "GitHub", out.error);
+    if (!body) return out;
+    out.catalog = parse_catalog(*body, out.error);
+    return out;
+}
+
+ZipDownload download_pinned_zip(const CatalogPlugin& plugin) {
+    ZipDownload out;
+    const auto [host, path] = split_https_url(plugin.zip.url);
+    if (host.empty()) {
+        out.error = "not an https link";
+        return out;
+    }
+    const auto body = https_get(host.c_str(), path.c_str(), nullptr, plugin.zip.size, "GitHub", out.error);
+    if (!body) return out;
+    std::vector<uint8_t> bytes(body->begin(), body->end());
+    out.error = check_pinned_zip(plugin, bytes);
+    if (out.error.empty()) out.bytes = std::move(bytes);
     return out;
 }
 

@@ -13,6 +13,7 @@
 #include <misc/cpp/imgui_stdlib.h>
 
 #include <algorithm>
+#include <cstdio>
 
 namespace anvil::manager {
 namespace {
@@ -46,6 +47,20 @@ const char* step_text(Step::Kind kind) {
     return "";
 }
 
+std::string megabytes(uint64_t bytes) {
+    char text[32];
+    std::snprintf(text, sizeof(text), "%.1f", static_cast<double>(bytes) / (1 << 20));
+    return text;
+}
+
+// The file name of a pinned zip's URL, and where it comes from
+// ("github.com/happy-dwarf-team/<repo>").
+std::string zip_file_name(const CatalogPlugin& plugin) { return plugin.zip.url.substr(plugin.zip.url.rfind('/') + 1); }
+std::string zip_source(const CatalogPlugin& plugin) {
+    constexpr size_t scheme = std::string_view("https://").size();
+    return plugin.zip.url.substr(scheme, plugin.zip.url.find("/releases/") - scheme);
+}
+
 }  // namespace
 
 ManagerApp::ManagerApp(HWND window, std::optional<Package> package, std::string package_error, fs::path game)
@@ -61,6 +76,7 @@ ManagerApp::ManagerApp(HWND window, std::optional<Package> package, std::string 
     follow_language(game);
     if (!game.empty() && package_) choose_game(game);
     if (settings_.check_releases) release_pending_ = std::async(std::launch::async, fetch_latest_release);
+    catalog_ = load_embedded_catalog(catalog_error_);
 }
 
 void ManagerApp::choose_game(const fs::path& dir) {
@@ -105,6 +121,17 @@ void ManagerApp::poll() {
     if (pending_.valid() && pending_.wait_for(0s) == std::future_status::ready) snapshot_ = pending_.get();
     if (release_pending_.valid() && release_pending_.wait_for(0s) == std::future_status::ready) {
         release_ = release_pending_.get();
+    }
+    if (catalog_pending_.valid() && catalog_pending_.wait_for(0s) == std::future_status::ready) {
+        CatalogFetch fetch = catalog_pending_.get();
+        catalog_error_ = fetch.error;
+        if (fetch.catalog) {
+            catalog_ = std::move(fetch.catalog);
+            catalog_fetched_ = true;
+        }
+    }
+    if (download_pending_.valid() && download_pending_.wait_for(0s) == std::future_status::ready) {
+        downloaded(download_pending_.get());
     }
     const auto now = steady_clock::now();
     if (!game_.empty() && now - running_checked_ > 1500ms) {
@@ -154,6 +181,7 @@ void ManagerApp::draw() {
             ImGui::EndTabItem();
         };
         tab(N_("Anvil"), 0, &ManagerApp::draw_anvil_tab);
+        tab(N_("Catalog"), 0, &ManagerApp::draw_catalog_tab);
         tab(N_("Plugins"), 0, &ManagerApp::draw_plugins_tab);
         tab(N_("Mods"), 0, &ManagerApp::draw_mods_tab);
         tab(N_("Settings"), show_settings_tab_ ? ImGuiTabItemFlags_SetSelected : 0, &ManagerApp::draw_settings_tab);
@@ -333,6 +361,88 @@ void ManagerApp::draw_anvil_tab() {
         colored_wrapped(kGood, trf("Anvil {0} is available.", {release_->release->tag}));
         ImGui::SameLine();
         if (ImGui::SmallButton(tr("Open its page"))) open_url(release_->release->url);
+    }
+}
+
+void ManagerApp::draw_catalog_tab() {
+    const auto& report = snapshot_->report;
+    ImGui::Spacing();
+    wrapped(tr("Plugins of the Anvil team. Install puts one in anvil/plugins; a plugin from the Steam Workshop comes with "
+               "its mod instead."));
+    ImGui::BeginDisabled(catalog_pending_.valid());
+    if (ImGui::Button(tr("Get the current list"))) catalog_pending_ = std::async(std::launch::async, fetch_catalog);
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (catalog_pending_.valid()) weak(tr("asking GitHub..."));
+    else weak(catalog_fetched_ ? std::string(tr("The list from GitHub.")) : trf("The list of Manager {0}.", {ANVIL_VERSION}));
+    weak_wrapped(tr("Nothing is downloaded until you click: the list from the anvil repository on GitHub, and a plugin's "
+                    "zip from its GitHub release, installed only if its SHA-256 equals the list's."));
+    if (!catalog_error_.empty()) colored_wrapped(kWarn, trf("The list was refused: {0}", {catalog_error_}));
+    if (!catalog_) return;
+    if (!report) colored_wrapped(kWarn, tr("Install Anvil first, then its plugins."));
+    if (download_pending_.valid() && download_) weak(trf("Downloading {0}...", {zip_file_name(*download_)}));
+
+    std::vector<std::pair<std::string, std::string>> local;
+    std::vector<std::string> mods;
+    if (report) {
+        for (const cli::GamePlugin& plugin : report->plugins) {
+            if (plugin.report.manifest) local.emplace_back(plugin.report.manifest->id, plugin.report.manifest->version.to_string());
+        }
+        for (const cli::GameModPlugin& plugin : report->mod_plugins) mods.push_back(plugin.id);
+    }
+    const auto& installation = snapshot_->installation;
+    const std::string anvil_version = installation && installation->installed() ? installation->dll_version : "";
+    const std::string& build = snapshot_->folder.build;
+    const bool steam = build.empty() || build.find("-steam-") != std::string::npos;
+
+    for (const CatalogPlugin& plugin : catalog_->plugins) {
+        const CatalogStatus status = catalog_status(plugin, build, anvil_version, local, mods);
+        ImGui::PushID(plugin.id.c_str());
+        ImGui::Separator();
+        ImGui::Text("%s %s", plugin.name.c_str(), plugin.version.c_str());
+        if (!plugin.summary.empty()) wrapped(plugin.summary);
+        if (!plugin.note.empty()) weak_wrapped(plugin.note);
+        if (plugin.affects_gameplay) {
+            weak_wrapped(tr("It changes the game. Anvil keeps it out of ironman and multiplayer games unless you allow it there."));
+        }
+
+        bool can_install = report && report->cannot_check.empty();
+        if (!status.for_build) {
+            colored_wrapped(kWarn, trf("Not made for this game's build; it runs on {0}.", {join(plugin.builds)}));
+            can_install = false;
+        } else if (!status.anvil_ok) {
+            colored_wrapped(kWarn, trf("It needs Anvil {0}: run the Manager of a newer Anvil first.", {plugin.anvil}));
+            can_install = false;
+        }
+        const auto installed = Version::parse(status.installed);
+        const auto pinned = Version::parse(plugin.version);
+        const bool newer_installed = installed && pinned && *pinned < *installed;
+        if (status.current(plugin)) {
+            colored_wrapped(kGood, tr("Installed."));
+        } else if (!status.installed.empty()) {
+            weak_wrapped(trf("Version {0} is installed.", {status.installed}));
+        }
+        if (status.from_mod) {
+            weak_wrapped(status.installed.empty()
+                             ? tr("An enabled mod carries it (see the Mods tab). A copy installed here would load instead.")
+                             : tr("An enabled mod carries it too; the copy in anvil/plugins loads."));
+        }
+
+        if (!status.current(plugin) && !newer_installed) {
+            ImGui::BeginDisabled(!can_install || read_only() || download_pending_.valid());
+            if (ImGui::Button(status.installed.empty() ? tr("Install") : tr("Update"))) {
+                download_ = plugin;
+                open_download_ = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+        }
+        if (ImGui::Button(tr("Open its page"))) open_url(plugin.page);
+        if (!plugin.workshop.empty() && steam) {
+            ImGui::SameLine();
+            if (ImGui::Button(tr("Subscribe on Steam Workshop"))) open_url(plugin.workshop);
+        }
+        ImGui::PopID();
     }
 }
 
@@ -981,13 +1091,39 @@ void ManagerApp::open_zip(const fs::path& file) {
         show_message(tr("Not a plugin zip"), u8(file.filename()) + ": " + error);
         return;
     }
+    check_zip(std::move(*zip), u8(file.filename()), nullptr);
+}
+
+void ManagerApp::check_zip(ZipArchive zip, std::string name, const CatalogPlugin* pin) {
     wchar_t temp[MAX_PATH + 1] = {};
     GetTempPathW(MAX_PATH + 1, temp);
-    zip_check_ = check_plugin_zip(*zip, game_, temp, package_->standard_plugins);
+    zip_check_ = check_plugin_zip(zip, game_, temp, package_->standard_plugins);
+    if (pin != nullptr && zip_check_->error.empty()) zip_check_->error = check_pinned_manifest(*pin, zip_check_->id, zip_check_->version);
     zip_ = std::move(zip);
-    zip_name_ = u8(file.filename());
+    zip_name_ = std::move(name);
     zip_anyway_ = false;
     open_zip_ = true;
+}
+
+void ManagerApp::downloaded(ZipDownload download) {
+    const std::optional<CatalogPlugin> plugin = std::move(download_);
+    download_.reset();
+    if (!plugin) return;
+    if (!download.error.empty()) {
+        show_message(tr("The plugin was not installed"), zip_file_name(*plugin) + ": " + download.error);
+        return;
+    }
+    if (read_only() || !snapshot_ || !snapshot_->report) {
+        show_message(tr("Not now"), running_ ? tr("Close the game first.") : tr("Install Anvil first, then its plugins."));
+        return;
+    }
+    std::string error;
+    auto zip = ZipArchive::open(std::move(download.bytes), error);
+    if (!zip) {
+        show_message(tr("Not a plugin zip"), zip_file_name(*plugin) + ": " + error);
+        return;
+    }
+    check_zip(std::move(*zip), zip_file_name(*plugin), &*plugin);
 }
 
 void ManagerApp::install_zip() {
@@ -1043,10 +1179,12 @@ void ManagerApp::draw_modals() {
     if (open_plan_) ImGui::OpenPopup("###plan");
     if (open_zip_) ImGui::OpenPopup("###zip");
     if (open_approve_) ImGui::OpenPopup("###approve");
+    if (open_download_) ImGui::OpenPopup("###download");
     if (open_message_) ImGui::OpenPopup("###message");
-    open_plan_ = open_zip_ = open_message_ = open_approve_ = false;
+    open_plan_ = open_zip_ = open_message_ = open_approve_ = open_download_ = false;
     draw_plan_modal();
     draw_zip_modal();
+    draw_download_modal();
     draw_approve_modal();
 
     next_modal(36);
@@ -1099,6 +1237,33 @@ void ManagerApp::draw_plan_modal() {
     ImGui::SameLine();
     if (ImGui::Button(tr("Cancel"))) {
         plan_.reset();
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::EndPopup();
+}
+
+void ManagerApp::draw_download_modal() {
+    next_modal(40);
+    const std::string title = download_ ? trf("Install {0}", {download_->name}) : std::string();
+    if (!ImGui::BeginPopupModal((title + "###download").c_str(), nullptr, ImGuiWindowFlags_NoSavedSettings)) return;
+    if (!download_ || download_pending_.valid()) {
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
+    }
+    const CatalogPlugin& plugin = *download_;
+    wrapped(trf("Download {0} ({1} MB) from {2}?", {zip_file_name(plugin), megabytes(plugin.zip.size), zip_source(plugin)}));
+    weak_wrapped(trf("It is installed only if its SHA-256 is {0}, the one in the list. Before that you see what it holds and "
+                     "what anvil check finds.",
+                     {plugin.zip.sha256}));
+    ImGui::Spacing();
+    if (ImGui::Button(tr("Download"))) {
+        download_pending_ = std::async(std::launch::async, download_pinned_zip, plugin);
+        ImGui::CloseCurrentPopup();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button(tr("Cancel"))) {
+        download_.reset();
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();

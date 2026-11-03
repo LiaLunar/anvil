@@ -3,7 +3,8 @@
 # the game, the install, repair and uninstall plans for the package it
 # carries, plugin zips (checked with anvil check's own code, anvil_tool), the
 # release check and the start-up benchmark (its series, result, report, and
-# the runner that starts the game). The tests link it directly.
+# the runner that starts the game) and the plugin catalog. The tests link it
+# directly.
 
 # miniz, pinned to a release tag and compiled here from its sources (its own
 # CMakeLists.txt is not used): reads and, for the tests, writes zip archives.
@@ -32,6 +33,7 @@ add_library(anvil_manager_core STATIC
     src/benchmark_send.cpp
     src/benchmark_series.cpp
     src/benchmark_setup.cpp
+    src/catalog.cpp
     src/game.cpp
     src/install.cpp
     src/json.cpp
@@ -82,8 +84,11 @@ target_include_directories(anvil_manager_imgui PUBLIC ${imgui_SOURCE_DIR} ${imgu
 target_compile_definitions(anvil_manager_imgui PUBLIC IMGUI_DISABLE_OBSOLETE_FUNCTIONS IMGUI_IMPL_WIN32_DISABLE_GAMEPAD)
 set_target_properties(anvil_manager_imgui PROPERTIES COMPILE_WARNING_AS_ERROR OFF)
 
+# The plugin catalog of this build (ADR 0002), linked in as ANVIL_CATALOG.
+set(ANVIL_MANAGER_CATALOG ${PROJECT_SOURCE_DIR}/catalog/plugins.json)
 configure_file(app/manager.rc.in ${CMAKE_CURRENT_BINARY_DIR}/manager.rc @ONLY)
-set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/manager.rc PROPERTIES OBJECT_DEPENDS ${ANVIL_MANAGER_PACKAGE})
+set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/manager.rc PROPERTIES
+    OBJECT_DEPENDS "${ANVIL_MANAGER_PACKAGE};${ANVIL_MANAGER_CATALOG}")
 add_executable(anvil_manager WIN32
     app/benchmark_tab.cpp
     app/main.cpp

@@ -30,6 +30,14 @@ _Avoid_: service API version, interface version
 A plugin that declares it can change the simulation's state or results. Anvil takes its changes out of ironman and multiplayer games unless both the plugin's author and the player allow it there.
 _Avoid_: cheat plugin, unsafe plugin
 
+**Plugin catalog**:
+The list of the team's plugins that the Manager offers to install, each pinned to one release zip by its size and SHA-256 (`catalog/plugins.json`).
+_Avoid_: store, marketplace, plugin registry
+
+**Pin**:
+The release a catalog entry names, with the zip's URL, size and SHA-256; the Manager installs a downloaded zip only when it matches the pin.
+_Avoid_: lock (taken by `symbols.lock`)
+
 **Game session**:
 One loaded save or new game while it runs, from the moment it is playable until the player leaves it or loads another; it is ironman, multiplayer, both or neither.
 _Avoid_: game (for this), campaign, match

@@ -1,8 +1,10 @@
 // Unit tests for the Manager's core (tools/manager, design §15, issue #59):
 // zips, Steam's files, the install, repair and uninstall plans, plugin zips
-// and the release check, on made-up game folders in the temporary folder.
+// the release check and the plugin catalog, on made-up game folders in the
+// temporary folder.
 // Nothing here needs, or touches, a real game.
 // Usage: anvil_manager_tests <path of version.dll>
+#include "catalog.hpp"
 #include "core/game_build.hpp"
 #include "files.hpp"
 #include "game.hpp"
@@ -513,6 +515,118 @@ int main(int argc, char** argv) {
         CHECK(newer_release("v1.2.0", "1.1.0") && newer_release("1.1.1", "1.1.0"));
         CHECK(!newer_release("v1.1.0", "1.1.0") && !newer_release("v1.0.9", "1.1.0") && !newer_release("latest", "1.1.0"));
         CHECK(!newer_release("v1.2.0-rc.1", "1.2.0"));
+    });
+
+    run("catalog: the list in the repository validates and pins every plugin", [] {
+        const auto text = read(fs::path(ANVIL_SOURCE_DIR) / "catalog" / "plugins.json");
+        std::string error;
+        const auto catalog = parse_catalog(text, error);
+        CHECK(catalog && error.empty());
+        if (!catalog) {
+            std::printf("    %s\n", error.c_str());
+            return;
+        }
+        CHECK(!catalog->plugins.empty());
+        for (const CatalogPlugin& plugin : catalog->plugins) {
+            CHECK(!plugin.name.empty() && !plugin.summary.empty() && plugin.zip.size > 0);
+            CHECK(plugin.zip.url.starts_with("https://github.com/happy-dwarf-team/" + plugin.id + "/releases/download/v" +
+                                             plugin.version + "/"));
+            for (const std::string& build : plugin.builds) CHECK(build.starts_with("eu4-1.37.5"));
+        }
+    });
+
+    run("catalog: only the team's release zips, links and pins", [] {
+        const auto entry = [](const std::string& fields) {
+            return "{\"schema\":1,\"plugins\":[{\"id\":\"bellows\",\"name\":\"Bellows\",\"version\":\"0.19.0\","
+                   "\"page\":\"https://anvil.happydwarf.dev/plugins/bellows/\"," +
+                   fields + "}]}";
+        };
+        const std::string zip = "\"zip\":{\"url\":\"https://github.com/happy-dwarf-team/bellows/releases/download/v0.19.0/"
+                                "bellows-windows-x64.zip\",\"size\":1115323,\"sha256\":\"" +
+                                std::string(64, 'a') + "\"}";
+        std::string error;
+        const auto good = parse_catalog(entry(zip + ",\"new_key\":[1,2],\"builds\":[\"eu4-1.37.5-steam-win64\"],"
+                                                    "\"workshop\":\"https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170\""),
+                                        error);
+        CHECK(good && good->plugins.size() == 1 && good->plugins[0].zip.size == 1115323 &&
+              good->plugins[0].builds.size() == 1 && good->plugins[0].workshop.ends_with("=3823747170"));
+
+        const auto refused = [&](const std::string& json, const std::string& why) {
+            std::string e;
+            const bool ok = !parse_catalog(json, e) && contains(e, why);
+            if (!ok) std::printf("    expected '%s', got '%s'\n", why.c_str(), e.c_str());
+            return ok;
+        };
+        const auto with_zip = [&](const std::string& url, const std::string& size, const std::string& sha) {
+            return entry("\"zip\":{\"url\":\"" + url + "\",\"size\":" + size + ",\"sha256\":\"" + sha + "\"}");
+        };
+        const std::string url = "https://github.com/happy-dwarf-team/bellows/releases/download/v0.19.0/bellows-windows-x64.zip";
+        const std::string sha(64, 'a');
+        CHECK(refused(with_zip("https://github.com/someone/bellows/releases/download/v1/b.zip", "1", sha), "zip.url"));
+        CHECK(refused(with_zip("http://github.com/happy-dwarf-team/bellows/releases/download/v1/b.zip", "1", sha), "zip.url"));
+        CHECK(refused(with_zip("https://github.com/happy-dwarf-team/bellows/archive/v1.zip", "1", sha), "release asset"));
+        CHECK(refused(with_zip("https://github.com/happy-dwarf-team/bellows/releases/download/v1/b.exe", "1", sha), "release asset"));
+        CHECK(refused(with_zip("https://github.com/happy-dwarf-team/bellows/releases/download/../../x/b.zip", "1", sha), "release asset"));
+        CHECK(refused(with_zip("https://github.com/happy-dwarf-team/bellows/releases/download/v1/b c.zip", "1", sha), "zip.url"));
+        CHECK(refused(with_zip(url, "0", sha), "zip.size"));
+        CHECK(refused(with_zip(url, "1.5", sha), "zip.size"));
+        CHECK(refused(with_zip(url, "268435457", sha), "zip.size"));
+        CHECK(refused(with_zip(url, "1", std::string(64, 'A')), "zip.sha256"));
+        CHECK(refused(with_zip(url, "1", std::string(63, 'a')), "zip.sha256"));
+        CHECK(refused(entry(zip + ",\"workshop\":\"https://steamcommunity.com/sharedfiles/filedetails/?id=1&x=2\""), "workshop"));
+        CHECK(refused(entry(zip + ",\"workshop\":\"https://evil.example/?id=1\""), "workshop"));
+        CHECK(refused(entry(zip + ",\"anvil\":\"soon\""), "anvil"));
+        CHECK(refused(entry(zip + ",\"builds\":\"eu4\""), "builds"));
+        CHECK(refused(entry(zip + ",\"affects_gameplay\":1"), "affects_gameplay"));
+        CHECK(refused(entry("\"zip\":null"), "zip is not an object"));
+        CHECK(refused(entry("\"note\":1," + zip), "summary or note"));
+        CHECK(refused("{\"schema\":1,\"plugins\":[{\"id\":\"Bad Id\"}]}", "id is not a plugin id"));
+        CHECK(refused("{\"schema\":1,\"plugins\":[{\"id\":\"a\",\"name\":\"A\",\"version\":\"1\",\"page\":\"https://anvil.happydwarf.dev/a/\"," + zip + "}]}",
+                      "version"));
+        CHECK(refused("{\"schema\":1,\"plugins\":[{\"id\":\"a\",\"name\":\"A\",\"version\":\"1.0.0\",\"page\":\"https://example.com/\"," + zip + "}]}",
+                      "page"));
+        const std::string one = entry(zip).substr(std::string_view("{\"schema\":1,\"plugins\":[").size());
+        CHECK(refused("{\"schema\":1,\"plugins\":[" + one.substr(0, one.size() - 2) + "," + one, "listed twice"));
+        CHECK(refused("{\"schema\":2,\"plugins\":[]}", "needs a newer Manager"));
+        CHECK(refused("{\"schema\":0,\"plugins\":[]}", "not a plugin catalog"));
+        CHECK(refused("{\"plugins\":[]}", "not a plugin catalog"));
+        CHECK(refused("{\"schema\":1}", "plugins is not a list"));
+        CHECK(refused(std::string(kMaxCatalogBytes + 1, ' '), "too long"));
+    });
+
+    run("catalog: what the game folder has of a plugin, and the pin of a download", [] {
+        CatalogPlugin plugin;
+        plugin.id = "bellows";
+        plugin.version = "0.19.0";
+        plugin.anvil = ">=1.7.0";
+        plugin.builds = {"eu4-1.37.5-steam-win64"};
+        const std::vector<std::pair<std::string, std::string>> none;
+        CatalogStatus status = catalog_status(plugin, "eu4-1.37.5-steam-win64", "1.8.0", none, {});
+        CHECK(status.for_build && status.anvil_ok && status.installed.empty() && !status.from_mod && !status.current(plugin));
+        CHECK(!catalog_status(plugin, "eu4-1.37.5.2-gog-win64", "1.8.0", none, {}).for_build);
+        CHECK(!catalog_status(plugin, "", "1.8.0", none, {}).for_build);
+        CHECK(!catalog_status(plugin, "eu4-1.37.5-steam-win64", "1.6.1", none, {}).anvil_ok);
+        CHECK(catalog_status(plugin, "eu4-1.37.5-steam-win64", "", none, {}).anvil_ok);  // unknown: not refused here
+        status = catalog_status(plugin, "eu4-1.37.5-steam-win64", "1.8.0", {{"tongs", "0.26.0"}, {"bellows", "0.19.0"}}, {"bellows"});
+        CHECK(status.current(plugin) && status.from_mod);
+        status = catalog_status(plugin, "eu4-1.37.5-steam-win64", "1.8.0", {{"bellows", "0.18.0"}}, {});
+        CHECK(status.installed == "0.18.0" && !status.current(plugin));
+        plugin.builds.clear();
+        CHECK(catalog_status(plugin, "", "1.8.0", none, {}).for_build);  // no symbols: every build
+
+        const std::vector<uint8_t> bytes = {'a', 'b', 'c'};
+        plugin.zip.size = 3;
+        plugin.zip.sha256 = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";  // SHA-256 of "abc"
+        CHECK(check_pinned_zip(plugin, bytes).empty());
+        CHECK(contains(check_pinned_zip(plugin, {'a', 'b', 'd'}), "SHA-256"));
+        CHECK(contains(check_pinned_zip(plugin, {'a', 'b'}), "2 bytes"));
+        CHECK(check_pinned_manifest(plugin, "bellows", "0.19.0").empty());
+        CHECK(contains(check_pinned_manifest(plugin, "tongs", "0.19.0"), "'tongs'"));
+        CHECK(contains(check_pinned_manifest(plugin, "bellows", "0.18.0"), "version 0.18.0"));
+
+        const auto [host, path] = split_https_url("https://github.com/happy-dwarf-team/bellows/releases/download/v1/b.zip");
+        CHECK(host == L"github.com" && path == L"/happy-dwarf-team/bellows/releases/download/v1/b.zip");
+        CHECK(split_https_url("http://github.com/x").first.empty() && split_https_url("https://github.com").first.empty());
     });
 
     run("plugins from mods: approved and revoked as the Manager showed them", [] {

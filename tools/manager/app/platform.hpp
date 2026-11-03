@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark_send.hpp"
+#include "catalog.hpp"
 #include "install.hpp"
 #include "release_check.hpp"
 
@@ -10,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace anvil::manager {
 
@@ -62,6 +64,25 @@ struct ReleaseCheck {
     std::string error;
 };
 ReleaseCheck fetch_latest_release();
+
+// The catalog of this build (resource ANVIL_CATALOG, ADR 0002).
+std::optional<Catalog> load_embedded_catalog(std::string& error);
+
+// "Get the current list": GET catalog/plugins.json of main from
+// raw.githubusercontent.com, on the player's click. Runs on a worker thread.
+struct CatalogFetch {
+    std::optional<Catalog> catalog;  // set when the reply validated
+    std::string error;
+};
+CatalogFetch fetch_catalog();
+
+// "Install": GET the pinned zip, on the player's confirmation. `bytes` is
+// set only when the size and SHA-256 equal the pin. Runs on a worker thread.
+struct ZipDownload {
+    std::vector<uint8_t> bytes;
+    std::string error;
+};
+ZipDownload download_pinned_zip(const CatalogPlugin& plugin);
 
 // Send: POST the report to https://bench.happydwarf.dev/reports as
 // application/json, once. Runs on a worker thread.

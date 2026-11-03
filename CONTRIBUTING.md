@@ -36,7 +36,8 @@ next release.
 Scopes in use: `api` (plugin SDK / `AnvilHost`), `manifest`, `core` (loader,
 resolver, change registry), `proxy` (`version.dll` exports, entry hook), `log`,
 `cli` (`anvil.exe`), `bench-receiver` (the start-up benchmark receiver in
-`services/bench-receiver/`).
+`services/bench-receiver/`), `manager` (`AnvilManager.exe`), `catalog` (the
+Manager's plugin catalog, `catalog/plugins.json`).
 A scope is optional; leave it out when a change spans several.
 
 release-please ships nothing from `services/`: a change there alone uses a
@@ -75,6 +76,25 @@ everything a plugin can see:
   committed. After a change to the header run `sdk/rust/regen-bindings.ps1`
   (bindgen and libclang, see the script) and commit the result; CI fails when
   the file differs from what the header gives.
+
+## The plugin catalog
+
+`catalog/plugins.json` pins one release of each team plugin for the Manager's
+Catalog tab ([ADR 0002](docs/adr/0002-manager-plugin-catalog.md)). After a
+plugin release, pin it in a pull request titled
+`chore(catalog): <id> <version>`:
+
+```powershell
+python catalog/update.py <id>          # the latest release; --tag vX.Y.Z for another
+python catalog/update.py --check       # what the build check runs
+```
+
+The script downloads the zip, writes its size and SHA-256 and copies the
+version, the Anvil range, `affects_gameplay` and the builds from its
+`plugin.toml` and `symbols.toml`; the check also runs
+`gh attestation verify --repo happy-dwarf-team/<repo>`. A name, summary, note
+or link changes by hand. Players get the new list with "Get the current list";
+the copy inside the Manager follows with the next Anvil release.
 
 ## Versions and releases
 

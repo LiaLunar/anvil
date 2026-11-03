@@ -3,7 +3,7 @@
 // resources; Dear ImGui on Direct3D 11.
 //
 //   AnvilManager.exe [--game <EU4 folder>]
-//   AnvilManager.exe --check-package          exit code 0 when the package it carries is sound
+//   AnvilManager.exe --check-package          exit code 0 when the package and the catalog it carries are sound
 //   AnvilManager.exe --remove-after-exit <exe> <pid>   (internal: the uninstall's last step)
 #include "core/log.hpp"
 #include "core/playset.hpp"
@@ -217,9 +217,11 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
 }
 
 // --check-package: the package is in the resources, reads back and carries
-// this Manager's version.dll (the CI and release check).
+// this Manager's version.dll, and the plugin catalog validates (the CI and
+// release check).
 int check_package() {
     std::string error;
+    if (!load_embedded_catalog(error)) return 1;
     const auto package = load_embedded_package(error);
     if (!package) return 1;
     const ZipEntry* dll = package->zip.find("version.dll");

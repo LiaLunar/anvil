@@ -89,6 +89,12 @@ through Steam (or lets you pick the folder that contains `eu4.exe`).
 "Install Anvil" copies `version.dll`, the standard plugins and the Manager
 into that folder; from then on, start the Manager there.
 - It shows which plugins will load and why, and turns plugins on and off.
+- Its Catalog tab lists the team's plugins (Bellows, Tongs, Hamweard, Mei) and
+  installs or updates one with a click (Anvil 1.9 and later): the Manager
+  downloads the zip of the release the list pins, installs it only if its
+  SHA-256 matches, and shows what `anvil check` finds first. Nothing is
+  downloaded until you click; see
+  [ADR 0002](docs/adr/0002-manager-plugin-catalog.md).
 - It installs a plugin from its release zip after checking it against your
   `eu4.exe`, and edits plugin settings.
 - On its Mods tab it approves and revokes plugins that come with enabled mods
@@ -127,6 +133,16 @@ plugins with their install guides:
   control a running game through a local pipe, with an MCP server; also on the
   [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
   (unlisted).
+- [Hamweard](https://github.com/happy-dwarf-team/hamweard): back from a campaign
+  to the main menu without restarting the game; also on the
+  [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792).
+- [Mei](https://github.com/happy-dwarf-team/mei): Chinese, Japanese and Korean
+  text for translation mods; also on the
+  [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486),
+  which carries its fonts.
+
+The Manager's Catalog tab installs them from
+[`catalog/plugins.json`](catalog/plugins.json).
 
 [Etch](https://etch.happydwarf.dev/), a preview for EU4 interface mods in
 Visual Studio Code, is built on Anvil too: its game host runs a private copy
