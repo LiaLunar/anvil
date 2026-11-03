@@ -48,16 +48,17 @@
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
-      "version": "1.0.0",
-      "anvil": ">=1.5.0",
+      "version": "1.1.0",
+      "anvil": ">=1.9.0",
       "affects_gameplay": true,
       "builds": [
-        "eu4-1.37.5-steam-win64"
+        "eu4-1.37.5-steam-win64",
+        "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.0.0/hamweard-windows-x64.zip",
-        "size": 190007,
-        "sha256": "84efda54e03d8865769adb3f4efaeecc4042992ee571ca47209da1aa9ad4c5d4"
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.1.0/hamweard-windows-x64.zip",
+        "size": 190900,
+        "sha256": "1bb5c31aa4e3d46fbe9ea0cd1fd009a762e6f91548450d4b6a81ad860401ed7d"
       }
     },
     {
@@ -68,16 +69,17 @@
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
       "note": "The zip holds the plugin; Mei's fonts come with its Workshop item, which carries both. Without them the game's own fonts stay.",
-      "version": "0.1.0",
-      "anvil": ">=1.8.0",
+      "version": "0.2.0",
+      "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
-        "eu4-1.37.5-steam-win64"
+        "eu4-1.37.5-steam-win64",
+        "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.1.0/mei-windows-x64.zip",
-        "size": 1035116,
-        "sha256": "13502635d23f76139fadde71a90b777450189bc07399e1762d8bfaef3a7d3596"
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.2.0/mei-windows-x64.zip",
+        "size": 1038377,
+        "sha256": "f5cac1f66653520c5b5c88ae1fdab376006738de861d0e91b738a3d2919167ee"
       }
     }
   ]
