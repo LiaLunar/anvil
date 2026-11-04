@@ -8,7 +8,7 @@
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
-      "version": "0.19.0",
+      "version": "1.0.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": false,
       "builds": [
@@ -16,9 +16,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v0.19.0/bellows-windows-x64.zip",
-        "size": 1115323,
-        "sha256": "35bb6715b6f1d859e037b0176aa28fde65632933fe806dafe8f373e013b4a65b"
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.0.0/bellows-windows-x64.zip",
+        "size": 1116022,
+        "sha256": "ad328d523b61b671eee6889eff3ce5ef9ce189769f56228725dd711077816929"
       }
     },
     {
