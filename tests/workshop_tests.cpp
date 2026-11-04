@@ -199,6 +199,11 @@ int main() {
         CHECK(eu4_user_dir(game) == documents);
         write(game / "userdir.txt", "  " + generic(g.user) + "\r\n");
         CHECK(eu4_user_dir(game) == fs::path(widen(generic(g.user))));
+        // A GOG install has its own folder beside Steam's, and userdir.txt still wins.
+        write(game / "goggame-2057001589.info", "{}");
+        CHECK(eu4_user_dir(game) == fs::path(widen(generic(g.user))));
+        write(game / "userdir.txt", "");
+        CHECK(eu4_user_dir(game) == documents.parent_path() / L"Europa Universalis IV GOG");
     });
 
     run("the folder hash: sorted path, size and file hash lines, the same on every machine", [] {

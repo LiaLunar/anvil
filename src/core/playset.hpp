@@ -10,8 +10,9 @@ namespace anvil {
 
 // EU4's user folder: the path in <EU4>/userdir.txt when that file names one,
 // otherwise Documents\Paradox Interactive\Europa Universalis IV (the folder
-// the game finds with SHGetFolderPathW, as eu4.exe 1.37.5 imports it). Empty
-// when Documents cannot be found.
+// the game finds with SHGetFolderPathW, as eu4.exe 1.37.5 imports it), or
+// Europa Universalis IV GOG in a GOG install, whose eu4.exe adds " GOG" to the
+// name (design §14). Empty when Documents cannot be found.
 std::filesystem::path eu4_user_dir(const std::filesystem::path& game_dir);
 
 // One mod of the playset, from its descriptor (`<user dir>/mod/<x>.mod`).

@@ -1,5 +1,6 @@
 #include "playset.hpp"
 
+#include "game_build.hpp"
 #include "json_scan.hpp"
 #include "log.hpp"
 
@@ -125,7 +126,8 @@ fs::path eu4_user_dir(const fs::path& game_dir) {
     const bool ok = get != nullptr && SUCCEEDED(get(nullptr, CSIDL_PERSONAL, nullptr, SHGFP_TYPE_CURRENT, documents));
     FreeLibrary(shell32);
     if (!ok || documents[0] == 0) return {};
-    return fs::path(documents) / L"Paradox Interactive" / L"Europa Universalis IV";
+    return fs::path(documents) / L"Paradox Interactive" /
+           (is_gog_folder(game_dir) ? L"Europa Universalis IV GOG" : L"Europa Universalis IV");
 }
 
 std::optional<std::vector<std::string>> parse_dlc_load(std::string_view json, std::string& error) {

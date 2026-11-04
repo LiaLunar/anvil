@@ -34,6 +34,11 @@ const KnownBuild* find_known_build(const PeIdentity& identity);
 // Full-file match against the compiled-in table (`sha256` in upper-case hex).
 const KnownBuild* find_known_build_by_sha256(std::string_view sha256);
 
+// True when `game_dir` is a GOG install: GOG Galaxy and GOG's installers leave
+// goggame-2057001589.info there. It is the only sign that works for a build
+// Anvil does not know, since a GOG folder has a steam_appid.txt too.
+bool is_gog_folder(const std::filesystem::path& game_dir);
+
 // SHA-256 of a file as upper-case hex (BCrypt); empty on failure.
 std::string sha256_file(const std::filesystem::path& file);
 // SHA-256 of bytes in memory as upper-case hex (BCrypt); empty on failure.
