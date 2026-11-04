@@ -1,8 +1,11 @@
 #include "symbols.hpp"
 
+#include "game_build.hpp"
+
 #include <toml++/toml.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -15,11 +18,12 @@ namespace {
 constexpr size_t kMaxSymbolBytes = 65536;
 
 const std::set<std::string_view> kTopKeys = {"build", "builds", "symbol"};
-const std::set<std::string_view> kSymbolKeys = {"rva",  "export",    "bytes",  "memory", "points_to", "type",
-                                                "signature", "resume", "values", "note",   "build", "absent"};
+const std::set<std::string_view> kSymbolKeys = {"rva",  "export",    "bytes",  "sha256", "size",  "any",    "memory",
+                                                "points_to", "type", "signature", "resume", "values", "note", "build",
+                                                "absent"};
 // The keys a symbol may give per build (`build."<id>"`) in a file with `builds`.
-const std::set<std::string_view> kPlacementKeys = {"rva", "bytes", "points_to"};
-const std::set<std::string_view> kValueKeys = {"at", "size", "rip_relative", "type"};
+const std::set<std::string_view> kPlacementKeys = {"rva", "bytes", "sha256", "size", "any", "points_to"};
+const std::set<std::string_view> kValueKeys = {"at", "size", "rip_relative", "type", "is"};
 
 struct Fail {
     std::string message;
@@ -102,6 +106,45 @@ void parse_bytes(std::string_view text, SymbolPlacement& s) {
     if (!fixed) throw Fail{"bytes must contain at least one byte that is not \"??\""};
 }
 
+// The raw keys of a digest, before finish_digest checks them together.
+struct DigestKeys {
+    std::string sha256;
+    std::optional<uint32_t> size;
+    const toml::array* any = nullptr;
+};
+
+// `sha256`, `size` and `any` of one placement: bytes the same length as `bytes`
+// would have, zero until they verify, and the mask of `any`.
+void finish_digest(SymbolPlacement& p, const DigestKeys& keys) {
+    if (keys.sha256.empty()) {
+        if (keys.size || keys.any != nullptr) throw Fail{"size and any go with sha256"};
+        return;
+    }
+    if (!p.bytes.empty()) throw Fail{"bytes and sha256 exclude each other"};
+    if (!keys.size) throw Fail{"sha256 needs 'size': how many bytes it covers"};
+    if (*keys.size == 0 || *keys.size > kMaxSymbolBytes) {
+        throw Fail{"size must be 1 to " + std::to_string(kMaxSymbolBytes)};
+    }
+    if (keys.sha256.size() != 64 || !std::all_of(keys.sha256.begin(), keys.sha256.end(), [](char c) { return hex_digit(c) >= 0; })) {
+        throw Fail{"sha256 must be 64 hex digits"};
+    }
+    p.sha256 = keys.sha256;
+    std::transform(p.sha256.begin(), p.sha256.end(), p.sha256.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    p.bytes.assign(*keys.size, 0);
+    p.mask.assign(*keys.size, 0xFF);
+    if (keys.any == nullptr) return;
+    for (const auto& item : *keys.any) {
+        const auto offset = item.value_exact<int64_t>();
+        if (!offset || *offset < 0 || *offset >= static_cast<int64_t>(*keys.size)) {
+            throw Fail{"any: offsets must lie inside the " + std::to_string(*keys.size) + " bytes"};
+        }
+        p.mask[static_cast<size_t>(*offset)] = 0;
+    }
+    if (std::none_of(p.mask.begin(), p.mask.end(), [](uint8_t m) { return m != 0; })) {
+        throw Fail{"sha256 must cover at least one byte that any does not skip"};
+    }
+}
+
 struct Entry {
     std::string key;
     const toml::node* node;
@@ -168,6 +211,10 @@ SymbolValue parse_value(const std::string& name, const toml::node& node) {
             v.rip_relative = get_u32(*item, where + ".rip_relative");
         } else if (key == "type") {
             v.type = get_string(*item, where + ".type");
+        } else if (key == "is") {
+            const auto is = item->value_exact<int64_t>();
+            if (!is || *is < 0) throw Fail{where + ".is must be a non-negative integer"};
+            v.is = static_cast<uint64_t>(*is);
         }
     }
     if (!has_at) throw Fail{where + ": missing 'at'"};
@@ -192,8 +239,15 @@ void check_value(const SymbolValue& v, const SymbolPlacement& s) {
 }
 
 // rva, bytes or points_to: shared by every build or in one build's table.
-void parse_placement_key(SymbolPlacement& p, const std::string& key, const toml::node& item) {
-    if (key == "rva") {
+void parse_placement_key(SymbolPlacement& p, DigestKeys& digest, const std::string& key, const toml::node& item) {
+    if (key == "sha256") {
+        digest.sha256 = get_string(item, key);
+    } else if (key == "size") {
+        digest.size = get_u32(item, key);
+    } else if (key == "any") {
+        digest.any = item.as_array();
+        if (digest.any == nullptr) throw Fail{"any must be a list of offsets"};
+    } else if (key == "rva") {
         p.rva = get_u32(item, key);
         if (*p.rva == 0) throw Fail{"rva must not be 0"};
     } else if (key == "bytes") {
@@ -206,6 +260,7 @@ void parse_placement_key(SymbolPlacement& p, const std::string& key, const toml:
 // What a [symbol.<name>] table holds besides the Symbol's own fields.
 struct SymbolTables {
     SymbolPlacement shared;               // the placement keys given for every build
+    DigestKeys digest;                    // its sha256, size and any
     const toml::table* values = nullptr;
     const toml::table* builds = nullptr;  // the build."<id>" tables
     uint32_t builds_line = 0;
@@ -217,7 +272,7 @@ struct SymbolTables {
 void parse_symbol_key(Symbol& s, SymbolTables& t, const std::string& key, const toml::node& item, uint32_t line) {
     if (!kSymbolKeys.contains(key)) throw Fail{"unknown key '" + key + "'"};
     if (kPlacementKeys.contains(key)) {
-        parse_placement_key(t.shared, key, item);
+        parse_placement_key(t.shared, t.digest, key, item);
     } else if (key == "export") {
         s.export_name = get_string(item, key);
     } else if (key == "build") {
@@ -259,24 +314,32 @@ void parse_symbol_key(Symbol& s, SymbolTables& t, const std::string& key, const 
 // The shared placement keys with those of build `id`'s table, if the symbol has one.
 SymbolPlacement placement_for(const std::string& id, const SymbolTables& t) {
     SymbolPlacement p = t.shared;
+    DigestKeys digest = t.digest;
     p.build = id;
     const toml::node* node = t.builds != nullptr ? t.builds->get(id) : nullptr;
-    if (node == nullptr) return p;
+    if (node == nullptr) {
+        finish_digest(p, digest);
+        return p;
+    }
     p.line = line_of(node->source());
     const auto* table = node->as_table();
     if (table == nullptr) throw Fail{"build.\"" + id + "\" must be a table", p.line};
     for (const auto& [key, item, line] : in_file_order(*table)) {
         at_line(line, [&] {
             if (!kPlacementKeys.contains(key)) {
-                throw Fail{"build.\"" + id + "\": unknown key '" + key + "' (a build gives rva, bytes or points_to)"};
+                throw Fail{"build.\"" + id + "\": unknown key '" + key + "' (a build gives rva, bytes, sha256, size, any or points_to)"};
             }
-            const bool shared = key == "rva"     ? t.shared.rva.has_value()
-                                : key == "bytes" ? !t.shared.bytes.empty()
-                                                 : t.shared.points_to.has_value();
+            const bool shared = key == "rva"      ? t.shared.rva.has_value()
+                                : key == "bytes"  ? !t.shared.bytes.empty()
+                                : key == "sha256" ? !t.digest.sha256.empty()
+                                : key == "size"   ? t.digest.size.has_value()
+                                : key == "any"    ? t.digest.any != nullptr
+                                                  : t.shared.points_to.has_value();
             if (shared) throw Fail{"build.\"" + id + "\": " + key + " is already given for every build"};
-            parse_placement_key(p, key, *item);
+            parse_placement_key(p, digest, key, *item);
         });
     }
+    at_line(p.line, [&] { finish_digest(p, digest); });
     return p;
 }
 
@@ -299,7 +362,7 @@ void check_placement(Symbol& s, const SymbolPlacement& p, const SymbolPlacement*
     if (p.rva) {
         if (!s.memory) throw Fail{"a symbol at an rva needs 'memory' (code, read or write)"};
         if (p.bytes.empty() && !p.points_to && kind != SymbolKind::Data) {
-            throw Fail{"a symbol at an rva needs 'bytes' or 'points_to' to be verified"};
+            throw Fail{"a symbol at an rva needs 'bytes', 'sha256' or 'points_to' to be verified"};
         }
     }
 }
@@ -370,6 +433,7 @@ Symbol parse_symbol(const std::string& name, const toml::node& node, const std::
     s.rva = selected.rva;
     s.bytes = selected.bytes;
     s.mask = selected.mask;
+    s.sha256 = selected.sha256;
     s.points_to = selected.points_to;
     s.placement_line = selected.line;
     return s;
@@ -417,6 +481,7 @@ bool select_build(SymbolFile& file, std::string_view build_id) {
         s.rva = p.rva;
         s.bytes = p.bytes;
         s.mask = p.mask;
+        s.sha256 = p.sha256;
         s.points_to = p.points_to;
         s.placement_line = p.line;
     }
@@ -566,14 +631,23 @@ SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image) 
                  memory_kind_name(section->kind));
             continue;
         }
+        std::vector<uint8_t> actual(s.bytes.size());
         if (!s.bytes.empty()) {
-            std::vector<uint8_t> actual(s.bytes.size());
             if (!reader.read(rva, actual.data(), actual.size())) {
                 fail(where + ": the bytes cannot be read");
                 continue;
             }
+            if (!s.sha256.empty()) {
+                std::vector<uint8_t> masked(actual.size());
+                for (size_t i = 0; i < actual.size(); ++i) masked[i] = actual[i] & s.mask[i];
+                const std::string found = sha256_bytes(masked.data(), masked.size());
+                if (found != s.sha256) {
+                    fail(where + ": the " + std::to_string(actual.size()) + " bytes there have SHA-256 " + found + ", expected " + s.sha256);
+                    continue;
+                }
+            }
             bool same = true;
-            for (size_t i = 0; i < actual.size() && same; ++i) {
+            for (size_t i = 0; i < actual.size() && same && s.sha256.empty(); ++i) {
                 if ((actual[i] & s.mask[i]) == (s.bytes[i] & s.mask[i])) continue;
                 char text[96];
                 std::snprintf(text, sizeof(text), ": byte +0x%zX (rva 0x%llX) expected 0x%02X, found 0x%02X", i,
@@ -597,14 +671,19 @@ SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image) 
                 continue;
             }
         }
-        // Values lie on fixed bytes that now match, so the declared bytes are the image's.
+        // Values lie on fixed bytes that now match, so the bytes read are the declared ones.
         VerifiedSymbol verified;
         verified.rva = rva;
         bool values_ok = true;
         for (const auto& v : s.values) {
             uint64_t raw = 0;
-            std::memcpy(&raw, s.bytes.data() + v.at, v.rip_relative != 0 ? 4 : v.size);
+            std::memcpy(&raw, actual.data() + v.at, v.rip_relative != 0 ? 4 : v.size);
             if (v.rip_relative == 0) {
+                if (v.is && *v.is != raw) {
+                    fail(where + ": value " + v.name + " is " + hex(raw) + ", declared " + hex(*v.is));
+                    values_ok = false;
+                    break;
+                }
                 verified.values.emplace_back(v.name, raw);
                 continue;
             }
@@ -614,11 +693,24 @@ SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image) 
                 values_ok = false;
                 break;
             }
+            if (v.is && *v.is != static_cast<uint64_t>(target)) {
+                fail(where + ": value " + v.name + " is " + hex(static_cast<uint64_t>(target)) + ", declared " + hex(*v.is));
+                values_ok = false;
+                break;
+            }
             verified.values.emplace_back(v.name, static_cast<uint64_t>(target));
         }
+        if (!s.sha256.empty()) verified.bytes = std::move(actual);
         if (values_ok) out.symbols.back() = std::move(verified);
     }
     return out;
+}
+
+void adopt_verified_bytes(SymbolFile& file, const SymbolVerification& verification) {
+    for (auto& s : file.symbols) {
+        if (s.sha256.empty() || s.id >= verification.symbols.size()) continue;
+        if (!verification.symbols[s.id].bytes.empty()) s.bytes = verification.symbols[s.id].bytes;
+    }
 }
 
 }  // namespace anvil

@@ -26,6 +26,7 @@ struct SymbolValue {
     uint32_t size = 0;          // 1, 2, 4 or 8: little-endian unsigned; 0 with rip_relative
     uint32_t rip_relative = 0;  // > 0: disp32 at `at`, the value is the RVA rva + rip_relative + disp32
     std::string type;           // optional, for generated headers
+    std::optional<uint64_t> is;  // `is`: the value it must have; the constant `anvil gen` writes for a digest
 };
 
 // Where a symbol is in one game build (design §5.2): the keys a file with
@@ -35,8 +36,9 @@ struct SymbolPlacement {
     uint32_t line = 0;  // of its `build."<id>"` table; 0 when every key is shared
     bool absent = false;  // `absent` lists this build: the symbol is not in it (#193)
     std::optional<uint32_t> rva;
-    std::vector<uint8_t> bytes;
+    std::vector<uint8_t> bytes;  // with `sha256`: `size` zero bytes, until they verify
     std::vector<uint8_t> mask;
+    std::string sha256;  // `sha256`: upper-case hex of the masked bytes; empty with `bytes`
     std::optional<uint32_t> points_to;
 };
 
@@ -52,8 +54,9 @@ struct Symbol {
     // rva, bytes, mask and points_to are those of the selected build (SymbolFile::build).
     std::optional<uint32_t> rva;  // exactly one of rva and export_name
     std::string export_name;
-    std::vector<uint8_t> bytes;  // expected bytes; may be empty
+    std::vector<uint8_t> bytes;  // expected bytes; may be empty. With sha256: zeros, then the image's once verified
     std::vector<uint8_t> mask;   // 0xFF = compare, 0x00 = any byte ("??")
+    std::string sha256;          // the digest of the masked bytes instead of the bytes themselves
     std::optional<MemoryKind> memory;
     std::optional<uint32_t> points_to;  // RVA the 8-byte pointer at the symbol holds
     std::string type;
@@ -98,6 +101,7 @@ struct VerifiedSymbol {
     uint32_t rva = 0;  // resolved (exports) or declared
     std::vector<std::pair<std::string, uint64_t>> values;  // in declaration order
     bool absent = false;  // not in the selected build: rva 0, no values
+    std::vector<uint8_t> bytes;  // of a `sha256` symbol: the bytes that matched, as read from the image
 };
 
 struct SymbolVerification {
@@ -114,6 +118,10 @@ struct SymbolVerification {
 // flags and `points_to` against the stored pointer, and computes `values`.
 // Does not compare `file.build` with the image's build; the caller does.
 SymbolVerification verify_symbols(const SymbolFile& file, const PeImage& image);
+
+// Gives every `sha256` symbol of `file` the bytes that verified, so that what
+// runs after verification (changes, values) sees them as declared bytes.
+void adopt_verified_bytes(SymbolFile& file, const SymbolVerification& verification);
 
 // Why a plugin whose symbols do not verify is skipped: the first problem, and
 // how many more there are.

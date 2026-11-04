@@ -156,6 +156,7 @@ signature = "const char* ()"
 
 - **Kinds:** a symbol is a function (`signature`), a pointer slot (`points_to`), data (`type`) or a site (anything else).
 - **Values:** they must lie on fixed bytes.
+- **Digests:** decided in [ADR 0003](adr/0003-symbol-digests.md) (2026-11-04). A symbol can state `sha256`, `size` and optional `any` instead of `bytes`, so the file carries no bytes of the game. The digest is SHA-256 over `size` bytes with each `any` offset set to 0. `bytes` and `sha256` exclude each other per placement. A value's `is` states what `anvil gen` otherwise reads from the bytes. Needs Anvil 1.10; an older Anvil reports the key as unknown and skips the plugin. `bytes` stays valid for all of API 2.
 - **Exports:** an `export` symbol is resolved through the export table; `bytes`, if given, check the prologue.
 - **Schema:** unknown keys are errors. Names match `[a-z][a-z0-9_]*` (they become identifiers in generated headers), and a symbol's id is its position in the file. A symbol has exactly one of `rva` and `export`; one at an `rva` needs `memory` and `bytes` or `points_to` (a data symbol may have neither). `signature`, `points_to` and `type` exclude each other. A value has `at` and either `size` (1, 2, 4 or 8, little-endian) or `rip_relative`, the offset of the instruction's end, at least `at + 4`: it yields the RVA `rva + rip_relative + disp32`. `resume` names another symbol and needs `bytes`, the block it ends.
 

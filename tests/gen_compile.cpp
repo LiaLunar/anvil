@@ -20,6 +20,7 @@ static_assert(std::is_base_of_v<anvil::Slot, sym::Types::frontend_tick_slot>);
 static_assert(std::string_view(sym::frontend_tick_slot.symbol_name) == "frontend_tick_slot");
 static_assert(std::is_base_of_v<anvil::Site, sym::Types::root_and_date> && sym::root_and_date.id == 3);
 static_assert(sym::root_and_date.root == 0x233FE78 && sym::root_and_date.date_offset == 0x1DD0);
+static_assert(sym::digest_site.offset == 0x418);  // a digest gives no bytes: the constant comes from `is`
 static_assert(std::is_same_v<decltype(sym::root)::Type, Root> && sym::root.id == 3);
 static_assert(std::string_view(sym::root.value) == "root");
 

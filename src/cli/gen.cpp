@@ -86,7 +86,8 @@ Signature split_signature(std::string_view text) {
 // rip_relative the RVA it addresses. Unknown for a rip_relative value of an
 // export, whose RVA is resolved when the game loads.
 std::optional<uint64_t> constant_in(const Symbol& s, const std::optional<uint32_t>& rva, const std::vector<uint8_t>& bytes,
-                                    const SymbolValue& v) {
+                                    const std::string& sha256, const SymbolValue& v) {
+    if (!sha256.empty()) return v.is;  // the bytes are only in the game: `is` states what they give
     uint64_t raw = 0;
     std::memcpy(&raw, bytes.data() + v.at, v.rip_relative != 0 ? 4 : v.size);
     if (v.rip_relative == 0) return raw;
@@ -103,11 +104,11 @@ std::optional<uint64_t> constant_in(const Symbol& s, const std::optional<uint32_
 // The constant a value has in every build the file declares; unknown when
 // constant_in is, or when the builds differ (unknown_why says which).
 std::optional<uint64_t> constant_of(const Symbol& s, const SymbolValue& v) {
-    if (s.placements.empty()) return constant_in(s, s.rva, s.bytes, v);
+    if (s.placements.empty()) return constant_in(s, s.rva, s.bytes, s.sha256, v);
     std::optional<uint64_t> out;
     for (const auto& p : s.placements) {
         if (p.absent) continue;
-        const auto c = constant_in(s, p.rva, p.bytes, v);
+        const auto c = constant_in(s, p.rva, p.bytes, p.sha256, v);
         if (!c || (out && *out != *c)) return std::nullopt;
         out = c;
     }
@@ -116,6 +117,9 @@ std::optional<uint64_t> constant_of(const Symbol& s, const SymbolValue& v) {
 
 std::string unknown_why(const Symbol& s, const SymbolValue& v) {
     if (v.rip_relative != 0 && !s.export_name.empty()) return "an rva resolved when the game loads (export)";
+    if (!v.is && std::any_of(s.placements.begin(), s.placements.end(), [](const SymbolPlacement& p) { return !p.sha256.empty(); })) {
+        return "the digest does not hold it: give `is`, or read it when the game loads (symbol_value)";
+    }
     return "differs between the game builds: read it when the game loads (symbol_value)";
 }
 

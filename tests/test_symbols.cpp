@@ -123,6 +123,14 @@ std::vector<std::string> verify(const std::string& text, const ImageReader& read
     return v.problems;
 }
 
+// The digest `sha256` must hold for `size` bytes at `rva` of the test image.
+std::string digest_at(const ImageReader& reader, uint32_t rva, size_t size, std::vector<size_t> any = {}) {
+    std::vector<uint8_t> bytes(size);
+    reader.read(rva, bytes.data(), size);
+    for (size_t i : any) bytes[i] = 0;
+    return sha256_bytes(bytes.data(), size);
+}
+
 uint64_t value_of(const VerifiedSymbol& s, const std::string& name) {
     for (const auto& [n, v] : s.values) {
         if (n == name) return v;
@@ -140,6 +148,58 @@ int main() {
         std::printf("cannot build the test image: %s\n", error.c_str());
         return 1;
     }
+
+    run("symbols: sha256 verifies the bytes it covers and gives them to what runs later", [&] {
+        const std::string digest = digest_at(*file_reader, 0x1000, 8, {2});
+        const std::string text = "build = \"test-build\"\n[symbol.speed_object]\nrva = 0x1000\nsha256 = \"" + digest +
+                                 "\"\nsize = 8\nany = [2]\nmemory = \"code\"\nsignature = \"void* (void* session)\"\n";
+        CHECK(verify(text, *file_reader).empty());
+        SymbolFile file = symbols(text);
+        CHECK((file.symbols[0].bytes == std::vector<uint8_t>(8, 0)) && file.symbols[0].mask[2] == 0 && file.symbols[0].mask[3] == 0xFF);
+        std::string image_error;
+        const auto image = PeImage::parse(*file_reader, image_error);
+        const SymbolVerification v = verify_symbols(file, *image);
+        adopt_verified_bytes(file, v);
+        CHECK(file.symbols[0].bytes[0] == 0x48 && file.symbols[0].bytes[7] == 0xC3);
+    });
+
+    run("symbols: a wrong sha256 skips the symbol and names both digests", [&] {
+        const std::string wrong(64, 'A');
+        const auto problems = verify("build = \"test-build\"\n[symbol.s]\nrva = 0x1000\nsha256 = \"" + wrong +
+                                         "\"\nsize = 8\nmemory = \"code\"\n",
+                                     *file_reader);
+        CHECK(problems.size() == 1 && contains(problems[0], "SHA-256") && contains(problems[0], wrong));
+    });
+
+    run("symbols: a value of a sha256 symbol comes from the image and checks `is`", [&] {
+        const std::string digest = digest_at(*file_reader, 0x1010, 13);
+        const std::string head = "build = \"test-build\"\n[symbol.s]\nrva = 0x1010\nsha256 = \"" + digest +
+                                 "\"\nsize = 13\nmemory = \"code\"\n";
+        std::string image_error;
+        const auto image = PeImage::parse(*file_reader, image_error);
+        const SymbolVerification v = verify_symbols(symbols(head + "values.date = { at = 9, size = 4, is = 0x1DD0 }\n"), *image);
+        CHECK(v.ok() && value_of(v.symbols[0], "date") == 0x1DD0);
+        const auto wrong = verify(head + "values.date = { at = 9, size = 4, is = 0x1DD4 }\n", *file_reader);
+        CHECK(wrong.size() == 1 && contains(wrong[0], "declared 0x1DD4"));
+    });
+
+    run("symbols: sha256 schema errors", [] {
+        const std::string hash(64, 'a');
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nsha256 = \"" + hash + "\"\n")), "needs 'size'"));
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nsha256 = \"ab\"\nsize = 2\n")), "64 hex digits"));
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nbytes = \"48\"\nsha256 = \"" + hash + "\"\nsize = 1\n")), "exclude each other"));
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nbytes = \"48\"\nsize = 1\n")), "go with sha256"));
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nsha256 = \"" + hash + "\"\nsize = 2\nany = [2]\n")), "inside the 2 bytes"));
+        CHECK(contains(parse_error(with_symbol("rva = 1\nmemory = \"code\"\nsha256 = \"" + hash + "\"\nsize = 1\nany = [0]\n")), "at least one byte"));
+    });
+
+    run("symbols: sha256, size and any may differ per build", [&] {
+        const std::string a(64, 'a'), b(64, 'b');
+        SymbolFile f = symbols("builds = [\"one\", \"two\"]\n[symbol.s]\nmemory = \"code\"\n[symbol.s.build.\"one\"]\nrva = 0x10\nsha256 = \"" + a +
+                               "\"\nsize = 4\n[symbol.s.build.\"two\"]\nrva = 0x20\nsha256 = \"" + b + "\"\nsize = 6\n");
+        CHECK(f.symbols[0].bytes.size() == 4);
+        CHECK(select_build(f, "two") && f.symbols[0].bytes.size() == 6 && f.symbols[0].sha256 == std::string(64, 'B'));
+    });
 
     run("symbols: the design example parses, ids follow declaration order", [] {
         const SymbolFile f = symbols(R"toml(
@@ -247,7 +307,7 @@ signature = "const char* ()"
         CHECK(contains(parse_error(with_symbol("rva = 0x10\nbytes = \"C3\"\nmemory = \"exec\"\n")),
                        "memory must be \"code\", \"read\" or \"write\""));
         CHECK(contains(parse_error(with_symbol("rva = 0x10\nbytes = \"C3\"\n")), "needs 'memory'"));
-        CHECK(contains(parse_error(with_symbol("rva = 0x10\nmemory = \"code\"\n")), "needs 'bytes' or 'points_to'"));
+        CHECK(contains(parse_error(with_symbol("rva = 0x10\nmemory = \"code\"\n")), "needs 'bytes', 'sha256' or 'points_to'"));
         CHECK(contains(parse_error(with_symbol("rva = 0x10\nmemory = \"read\"\npoints_to = 0x20\nsignature = \"void ()\"\n")),
                        "more than one of"));
         CHECK(contains(parse_error(with_symbol(site + "signature = \"void*\"\n")), "must look like"));
@@ -600,6 +660,16 @@ signature = "const char* ()"
                        "symbols.toml is for builds build-a, build-b, the game is build-c"));
         CHECK(contains(english(check_plugin_symbols(folder / "missing.toml", "test-build", patches, mapped.address())),
                        "cannot read missing.toml"));
+        // A digest: after verification the declaration holds the image's bytes, for the
+        // checks of a later change and for values.
+        {
+            std::ofstream out(file, std::ios::binary);
+            out << "build = \"test-build\"\n[symbol.s]\nrva = 0x1010\nsha256 = \"" << digest_at(*file_reader, 0x1010, 13)
+                << "\"\nsize = 13\nmemory = \"code\"\nvalues.date = { at = 9, size = 4, is = 0x1DD0 }\n";
+        }
+        CHECK(check_plugin_symbols(file, "test-build", patches, mapped.address(), &verified, &declared).empty());
+        CHECK(value_of(verified.symbols[0], "date") == 0x1DD0 && declared.symbols[0].bytes[0] == 0x48 &&
+              declared.symbols[0].bytes[9] == 0xD0);
         std::error_code ignored;
         std::filesystem::remove_all(folder, ignored);
     });

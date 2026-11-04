@@ -15,6 +15,7 @@ i18n::Message check_plugin_symbols(const std::filesystem::path& symbols_file, co
     if (!image) return i18n::Message("image_unreadable", {error});
     SymbolVerification result = verify_symbols(*parsed.file, *image);
     if (!result.ok()) return symbol_mismatch(result.problems);
+    adopt_verified_bytes(*parsed.file, result);
     if (verified != nullptr) *verified = std::move(result);
     if (declared != nullptr) *declared = std::move(*parsed.file);
     return {};

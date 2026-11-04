@@ -29,3 +29,10 @@ values.date_offset = { at = 9, size = 4 }                          # -> sym::roo
 [symbol.physfs_get_write_dir]                 # by export name instead of RVA
 export = "PHYSFS_getWriteDir"
 signature = "const char* ()"
+
+[symbol.digest_site]                           # checked against the image by its digest, not its bytes
+rva = 0x1432200
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+size = 8
+memory = "code"
+values.offset = { at = 3, size = 4, is = 0x418 }
