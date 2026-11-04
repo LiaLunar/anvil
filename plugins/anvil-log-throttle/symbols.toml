@@ -1,28 +1,30 @@
 # The game's log writer that anvil-log-throttle changes, for EU4 1.37.5
-# (Steam, win64). Source: EU4 engine lab, docs/gameplay-script-errors.md, and
-# anvil#172.
+# (Steam and GOG 1.37.5.2, win64). Source: EU4 engine lab,
+# docs/gameplay-script-errors.md, and anvil#172. The addresses below are
+# Steam's; GOG's come from its eu4.pdb, where the class is CFileLogger.
 #
 # A log line goes from the global logger (0x2456BC0, the channel router the
 # game puts there at start-up) to the file sink of its channel. Every log file
 # (logs/<name>.log) is a sink of one class, vtable 0x1D94BA8, made by
 # 0x870ED0. Its write prefixes "[<file>:<line>]: " and calls PHYSFS_write and
 # PHYSFS_flush for each line; nothing else calls it.
-build = "eu4-1.37.5-steam-win64"
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
 
 [symbol.file_sink_destroy_slot]
-rva = 0x1D94BA8
 memory = "read"
-points_to = 0x1562B90
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D94BA8, points_to = 0x1562B90 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D7CF78, points_to = 0x1559AB0 }   # CFileLogger::`scalar deleting destructor'
 note = "slot 0 of the file sink class: the deleting destructor (sink, flags); the game deletes its sinks when it closes its logs at exit (0x872910)"
 
 [symbol.file_sink_write_slot]
-rva = 0x1D94BB0
 memory = "read"
-points_to = 0x1562BE0
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D94BB0, points_to = 0x1562BE0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D7CF80, points_to = 0x1559B00 }   # CFileLogger::Log
 note = "slot +8 of the file sink class: write(sink, channel, const std::string& source file, int source line, const std::string& message)"
 
 [symbol.channel_log_path]
-rva = 0x15635B9
+build."eu4-1.37.5-steam-win64" = { rva = 0x15635B9 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x155A4D9 }                          # CFilterLogger::GetLogFileName
 bytes = "48 8B 57 20 48 83 C2 08 48 83 7A 18 10 72 03 48 8B 12"   # mov rdx,[rdi+20h]; add rdx,8; cmp qword [rdx+18h],10h; jb; mov rdx,[rdx]
 memory = "code"
 values.file = { at = 3, size = 1 }
