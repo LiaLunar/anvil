@@ -65,6 +65,17 @@ std::span<const cli::Problem> shown_problems(const cli::CheckReport& report) {
     return report.exe_build.empty() ? all.first(std::min<size_t>(all.size(), 1)) : all;
 }
 
+// `text` with its middle cut when it is wider than `width`.
+std::string fitted(const std::string& text, float width) {
+    if (ImGui::CalcTextSize(text.c_str()).x <= width) return text;
+    const std::wstring wide = widen(text);
+    for (size_t keep = wide.size(); keep > 8; --keep) {
+        const std::string cut = narrow(wide.substr(0, keep / 2) + L"..." + wide.substr(wide.size() - (keep - keep / 2)));
+        if (ImGui::CalcTextSize(cut.c_str()).x <= width) return cut;
+    }
+    return text;
+}
+
 bool is_standard(const Package& package, const std::string& id) {
     return std::find(package.standard_plugins.begin(), package.standard_plugins.end(), id) != package.standard_plugins.end();
 }
@@ -250,7 +261,15 @@ void ManagerApp::draw_game_bar() {
     ImGui::SameLine();
     weak("|");
     ImGui::SameLine();
-    ImGui::TextUnformatted(u8(game_).c_str());
+    // The path gives way, so that Change and Play EU4 stay in the window.
+    const ImGuiStyle& style = ImGui::GetStyle();
+    const char* play = tr("Play EU4");
+    const float play_width = ImGui::CalcTextSize(play).x + style.FramePadding.x * 4;
+    const float change_width = ImGui::CalcTextSize(tr("Change...")).x + style.FramePadding.x * 2;
+    const std::string folder = u8(game_);
+    const std::string shown = fitted(folder, ImGui::GetContentRegionAvail().x - play_width - change_width - style.ItemSpacing.x * 3);
+    ImGui::TextUnformatted(shown.c_str());
+    if (shown != folder && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", folder.c_str());
     ImGui::SameLine();
     ImGui::BeginDisabled(running_ || benchmark_.busy());
     if (ImGui::SmallButton(tr("Change..."))) {
@@ -258,11 +277,10 @@ void ManagerApp::draw_game_bar() {
     }
     ImGui::EndDisabled();
 
-    const char* play = tr("Play EU4");
-    const float play_width = ImGui::CalcTextSize(play).x + ImGui::GetStyle().FramePadding.x * 4;
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - play_width));
-    ImGui::BeginDisabled(running_ || game_.empty() || benchmark_.busy());
+    const bool no_game = snapshot_ && !snapshot_->folder.error.empty();  // nothing here to start
+    ImGui::BeginDisabled(running_ || no_game || benchmark_.busy());
     const fs::path gog_start = gog_ ? gog_program(game_) : fs::path();
     if (ImGui::Button((std::string(play) + "###play").c_str(), ImVec2(play_width, 0)) && !launch_game(gog_start)) {
         if (gog_) {
@@ -428,8 +446,9 @@ void ManagerApp::draw_anvil_tab() {
 void ManagerApp::draw_catalog_tab() {
     const auto& report = snapshot_->report;
     ImGui::Spacing();
-    wrapped(tr("Plugins of the Anvil team. Install puts one in anvil/plugins; a plugin from the Steam Workshop comes with "
-               "its mod instead."));
+    wrapped(gog_ ? tr("Plugins of the Anvil team. Install puts one in anvil/plugins.")
+                 : tr("Plugins of the Anvil team. Install puts one in anvil/plugins; a plugin from the Steam Workshop comes "
+                      "with its mod instead."));
     ImGui::BeginDisabled(catalog_pending_.valid());
     if (ImGui::Button(tr("Get the current list"))) catalog_pending_ = std::async(std::launch::async, fetch_catalog);
     ImGui::EndDisabled();
@@ -469,7 +488,8 @@ void ManagerApp::draw_catalog_tab() {
 
         bool can_install = report && report->cannot_check.empty();
         if (!status.for_build) {
-            colored_wrapped(kWarn, trf("Not made for this game's build; it runs on {0}.", {join(plugin.builds)}));
+            colored_wrapped(kWarn, build.empty() ? std::string(tr("It runs only on a game build Anvil knows."))
+                                                 : trf("Not made for this game's build; it runs on {0}.", {join(plugin.builds)}));
             can_install = false;
         } else if (!status.anvil_ok) {
             colored_wrapped(kWarn, trf("It needs Anvil {0}: run the Manager of a newer Anvil first.", {plugin.anvil}));
