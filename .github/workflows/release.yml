@@ -25,6 +25,7 @@ jobs:
     outputs:
       release_created: ${{ steps.release.outputs.release_created }}
       tag_name: ${{ steps.release.outputs.tag_name }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       # With the default token the release PR does not trigger CI (GitHub does not
       # start workflows from GITHUB_TOKEN events). A RELEASE_PLEASE_TOKEN secret
@@ -37,7 +38,12 @@ jobs:
   build:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
+    # The commit release-please released, not github.sha: when two pushes come close
+    # together it releases a later commit than the one that started this run
+    # (etch#286). A draft has no tag yet, so the commit's hash, not the tag.
     uses: ./.github/workflows/build.yml
+    with:
+      ref: ${{ needs.release-please.outputs.sha }}
     permissions:
       contents: read
 
@@ -111,6 +117,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ needs.release-please.outputs.sha }}
           persist-credentials: false
 
       - name: Publish anvil-sys to crates.io
