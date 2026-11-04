@@ -1,5 +1,14 @@
 # Changelog
 
+## [1.10.1](https://github.com/happy-dwarf-team/anvil/compare/v1.10.0...v1.10.1) (2026-11-04)
+
+
+### Bug Fixes
+
+* **cli:** do not warn about plugins that declare the same address ([#209](https://github.com/happy-dwarf-team/anvil/issues/209)) ([10ff00e](https://github.com/happy-dwarf-team/anvil/commit/10ff00e4fe94f4179955613c56761691eb36c4a8))
+* **manager:** say what Play does on GOG ([#211](https://github.com/happy-dwarf-team/anvil/issues/211)) ([c89792c](https://github.com/happy-dwarf-team/anvil/commit/c89792c8813b4e813e10d55fdd12531d1857ce55))
+* **manager:** show a scrollbar when a tab does not fit ([#213](https://github.com/happy-dwarf-team/anvil/issues/213)) ([37e4e50](https://github.com/happy-dwarf-team/anvil/commit/37e4e500de2e6e3fce9e6a082503f3bd2a91cb5c))
+
 ## [1.10.0](https://github.com/happy-dwarf-team/anvil/compare/v1.9.0...v1.10.0) (2026-11-04)
 
 
