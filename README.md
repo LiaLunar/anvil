@@ -89,7 +89,7 @@ reported to Microsoft through the
 [WDSI submission](https://www.microsoft.com/wdsi/filesubmission) page.
 
 **With Anvil Manager (`AnvilManager.exe`).** Run it, and it finds the game
-through Steam (or lets you pick the folder that contains `eu4.exe`).
+through Steam or GOG (or lets you pick the folder that contains `eu4.exe`).
 "Install Anvil" copies `version.dll`, the standard plugins and the Manager
 into that folder; from then on, start the Manager there.
 - It shows which plugins will load and why, and turns plugins on and off.
@@ -109,7 +109,8 @@ into that folder; from then on, start the Manager there.
   sent to the maintainers only when you click "Send" after seeing it, or
   copied; see [docs/benchmark-privacy.md](docs/benchmark-privacy.md) and the
   [specification](docs/spec/benchmark-v1.md).
-- It shows crash reports and the log, and starts the game through Steam. On
+- It shows crash reports and the log, and starts the game through Steam or,
+  in a GOG install, through the launcher GOG starts it with. On
   its Log tab, "Copy a problem report" puts what an issue needs on the
   clipboard: the versions, the game build, the plugins and why one is
   skipped, the newest crash report and the end of `anvil.log`, with the game

@@ -243,8 +243,12 @@ bool copy_to_clipboard(HWND owner, std::string_view text) {
     return ok;
 }
 
-bool launch_game() {
-    return reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", kSteamLaunchUrl, nullptr, nullptr, SW_SHOWNORMAL)) > 32;
+bool launch_game(const fs::path& gog_program) {
+    const HINSTANCE started = gog_program.empty()
+                                  ? ShellExecuteW(nullptr, L"open", kSteamLaunchUrl, nullptr, nullptr, SW_SHOWNORMAL)
+                                  : ShellExecuteW(nullptr, L"open", gog_program.c_str(), nullptr,
+                                                  gog_program.parent_path().c_str(), SW_SHOWNORMAL);
+    return reinterpret_cast<INT_PTR>(started) > 32;
 }
 
 bool restart_elevated(const fs::path& game_dir) {

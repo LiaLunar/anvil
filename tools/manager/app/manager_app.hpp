@@ -102,8 +102,10 @@ private:
     BenchmarkTab benchmark_;
     bool benchmark_busy_ = false;  // in the last frame: the game folder is read again once a series ends
     std::vector<std::filesystem::path> steam_games_;
+    std::optional<std::filesystem::path> gog_game_;
 
     std::filesystem::path game_;
+    bool gog_ = false;  // game_ is a GOG install: Play, the Workshop and the benchmark's checks do without Steam
     std::optional<Snapshot> snapshot_;
     std::future<Snapshot> pending_;
     bool running_ = false;

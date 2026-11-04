@@ -596,18 +596,18 @@ Decided in [Player UI: in-game overlay and Anvil Manager](https://github.com/hap
     - The player's language (since 1.7): `en`, `fr`, `de` or `es`, chosen at start-up as above and written to `anvil.log`.
     - "Disable at the next start": the id goes into `disabled_plugins` of `anvil/anvil.toml`, only on the player's click. The file keeps every other line and comment: the id is inserted into the existing list, or the key is added before the first table. The edit must read back as the same file plus the id; it is written to a temporary file and replaces the old one in one step. A file that does not parse is not touched.
 - **`AnvilManager.exe`** (C++ and Dear ImGui, static):
-  - finds the game (Steam `libraryfolders.vdf`);
+  - finds the game (Steam `libraryfolders.vdf`, GOG's registry key);
   - installs, repairs and uninstalls Anvil from its own package;
   - enables plugins, approves and revokes;
   - shows what will load and why (`anvil check --game --format json`);
-  - shows crashes and logs, and launches through `steam://rungameid/236850`;
+  - shows crashes and logs, and launches through `steam://rungameid/236850` or, in a GOG install, through `dowser.exe`, what GOG's own shortcut starts;
   - runs the start-up benchmark on its Benchmark tab ([spec](spec/benchmark-v1.md) §8): a series of starts of `eu4.exe` from the game folder that quit by themselves, its result, and the report the player may copy or send;
   - has an opt-in GitHub release check that only shows a link;
   - lists the team's plugins on its Catalog tab and installs one on the player's click, from a release CI verified ([ADR 0002](adr/0002-manager-plugin-catalog.md)).
   - **How it is built** (`tools/manager`, decided in [#59](https://github.com/happy-dwarf-team/anvil/issues/59)):
     - One exe that is also the installer. The build zips `cmake --install --component anvil` of the same build (`version.dll`, `anvil/` with the standard plugins, the default `anvil.toml` and the docs) into the resource `ANVIL_PACKAGE`; `AnvilManager.exe --check-package` reads it back. Updating Anvil means running a newer Manager.
     - `anvil_manager_core` (no window) holds what it does, with `anvil_manager_tests`:
-      - the game from the registry's Steam path, `steamapps/libraryfolders.vdf` (both formats) and `appmanifest_236850.acf`, with a folder picker as fallback; `eu4.exe` is hashed against the known builds (§6);
+      - the game from the registry's Steam path, `steamapps/libraryfolders.vdf` (both formats) and `appmanifest_236850.acf`, or `path` of `HKLM\SOFTWARE\GOG.com\Games\2057001589` (32-bit view), with a folder picker as fallback; `eu4.exe` is hashed against the known builds (§6). A folder with `goggame-2057001589.info` is a GOG install, also on a build Anvil does not know; a `steam_appid.txt` says nothing, since GOG ships one too. There the Manager starts the game without Steam, offers no Workshop link, and the benchmark neither asks for Steam nor sets `SteamAppId`;
       - install, update and repair as one plan: missing or differing package files, extra files in a standard plugin's folder, `anvil.toml` only when missing, the Manager's own copy at `<EU4>/AnvilManager.exe` when its bytes differ, and `version.dll` last;
       - a `version.dll` whose version resource does not name Anvil belongs to another mod and is replaced only on the player's word;
       - uninstall removes `version.dll` first (the game is vanilla at once), then the standard plugins, Anvil's docs and `AnvilManager.exe`. It keeps the player's plugins, `anvil/data`, the crash reports in `anvil/crashes` (an empty folder goes), the logs and `anvil.toml`; "remove everything" removes `anvil/`. Removing folders never follows junctions. When the running Manager is the copy in the folder, a copy of it in the temporary folder removes it after exit, and the next Manager removes that copy;

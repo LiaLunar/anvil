@@ -2,6 +2,7 @@
 
 #include "core/anvil_toml_edit.hpp"
 #include "core/crash_history.hpp"
+#include "core/game_build.hpp"
 #include "core/log.hpp"
 #include "core/playset.hpp"
 #include "core/semver.hpp"
@@ -97,11 +98,14 @@ ManagerApp::ManagerApp(HWND window, std::optional<Package> package, std::string 
       settings_(load_manager_settings()), benchmark_(window, settings_) {
     const fs::path steam = steam_root_from_registry();
     if (!steam.empty()) steam_games_ = find_steam_games(steam);
+    gog_game_ = find_gog_game();
     if (game.empty() && runs_from(exe_, exe_.parent_path()) && inspect_game_folder(exe_.parent_path()).error.empty()) {
         game = exe_.parent_path();  // the copy in <EU4>\AnvilManager.exe
     }
     if (game.empty()) game = settings_.game_folder;
-    if (game.empty() && steam_games_.size() == 1) game = steam_games_.front();
+    if (game.empty() && steam_games_.size() + (gog_game_ ? 1 : 0) == 1) {
+        game = gog_game_ ? *gog_game_ : steam_games_.front();
+    }
     follow_language(game);
     if (!game.empty() && package_) choose_game(game);
     if (settings_.check_releases) release_pending_ = std::async(std::launch::async, fetch_latest_release);
@@ -110,6 +114,7 @@ ManagerApp::ManagerApp(HWND window, std::optional<Package> package, std::string 
 
 void ManagerApp::choose_game(const fs::path& dir) {
     game_ = dir.lexically_normal();
+    gog_ = is_gog_folder(game_);
     follow_language(game_);
     snapshot_.reset();
     editor_.reset();
@@ -250,11 +255,18 @@ void ManagerApp::draw_game_bar() {
     ImGui::SameLine();
     ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - play_width));
     ImGui::BeginDisabled(running_ || game_.empty() || benchmark_.busy());
-    if (ImGui::Button((std::string(play) + "###play").c_str(), ImVec2(play_width, 0)) && !launch_game()) {
-        show_message(tr("Steam did not start"), tr("Windows could not open steam://rungameid/236850. Is Steam installed?"));
+    const fs::path gog_start = gog_ ? gog_program(game_) : fs::path();
+    if (ImGui::Button((std::string(play) + "###play").c_str(), ImVec2(play_width, 0)) && !launch_game(gog_start)) {
+        if (gog_) {
+            show_message(tr("The GOG launcher did not start"), trf("Windows could not open {0}.", {u8(gog_start)}));
+        } else {
+            show_message(tr("Steam did not start"), tr("Windows could not open steam://rungameid/236850. Is Steam installed?"));
+        }
     }
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("%s", tr("Starts the game through Steam"));
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+        ImGui::SetTooltip("%s", gog_ ? tr("Starts the game through the GOG launcher") : tr("Starts the game through Steam"));
+    }
 
     if (snapshot_ && snapshot_->folder.error.empty()) {
         if (snapshot_->folder.build.empty()) {
@@ -280,19 +292,24 @@ void ManagerApp::draw_first_run() {
     }
     wrapped(tr("Choose the Europa Universalis IV folder: the one with eu4.exe."));
     ImGui::Spacing();
+    const auto use = [&](const fs::path& game) {
+        ImGui::PushID(u8(game).c_str());
+        if (ImGui::Button(tr("Use"))) choose_game(game);
+        ImGui::SameLine();
+        ImGui::TextUnformatted(u8(game).c_str());
+        ImGui::PopID();
+    };
     if (!steam_games_.empty()) {
         weak(tr("Steam has the game here:"));
-        for (const fs::path& game : steam_games_) {
-            ImGui::PushID(u8(game).c_str());
-            if (ImGui::Button(tr("Use"))) choose_game(game);
-            ImGui::SameLine();
-            ImGui::TextUnformatted(u8(game).c_str());
-            ImGui::PopID();
-        }
+        for (const fs::path& game : steam_games_) use(game);
         ImGui::Spacing();
-    } else {
-        weak(tr("Steam's libraries do not list the game."));
     }
+    if (gog_game_) {
+        weak(tr("GOG has the game here:"));
+        use(*gog_game_);
+        ImGui::Spacing();
+    }
+    if (steam_games_.empty() && !gog_game_) weak(tr("Neither Steam nor GOG lists the game."));
     if (ImGui::Button(tr("Choose the folder..."))) {
         if (const auto dir = pick_folder(window_, game_)) choose_game(*dir);
     }
@@ -425,7 +442,7 @@ void ManagerApp::draw_catalog_tab() {
     const auto& installation = snapshot_->installation;
     const std::string anvil_version = installation && installation->installed() ? installation->dll_version : "";
     const std::string& build = snapshot_->folder.build;
-    const bool steam = build.empty() || build.find("-steam-") != std::string::npos;
+    const bool steam = !gog_;
 
     for (const CatalogPlugin& plugin : catalog_->plugins) {
         const CatalogStatus status = catalog_status(plugin, build, anvil_version, local, mods);
@@ -954,6 +971,7 @@ void ManagerApp::save_settings() {
 void ManagerApp::draw_benchmark_tab() {
     BenchmarkContext context;
     context.game = game_;
+    context.gog = gog_;
     if (snapshot_->report && snapshot_->report->cannot_check.empty()) context.report = &*snapshot_->report;
     if (snapshot_->installation && snapshot_->installation->dll == Installation::Dll::Anvil) {
         context.installed_anvil = snapshot_->installation->dll_version;

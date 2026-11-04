@@ -193,6 +193,7 @@ bool any_eu4_running() { return process_running(L"eu4.exe"); }
 SetupFacts read_setup_facts(const fs::path& game_dir, const cli::GameReport& report, const std::string& installed_anvil,
                             const std::string& plugin) {
     SetupFacts f;
+    f.needs_steam = !is_gog_folder(game_dir);
     f.steam_running = steam_running();
     f.eu4_running = any_eu4_running();
     f.unfinished_starts = read_unfinished(game_dir / "anvil" / "data" / "anvil" / "unfinished-starts.txt");
@@ -218,8 +219,10 @@ std::vector<SetupCheck> setup_checks(const SetupFacts& f) {
                    new_enough, true,
                    trf("Install this Manager's Anvil on the Anvil tab (the benchmark needs Anvil {0} or newer).", {kBenchmarkAnvil})});
     out.push_back({tr("anvil-game loads"), f.anvil_game_loads, true, tr("Repair Anvil on the Anvil tab.")});
-    out.push_back({f.steam_running ? tr("Steam is running") : tr("Steam is not running"), f.steam_running, true,
-                   tr("Start Steam and sign in: the game starts with Steam, as you usually play.")});
+    if (f.needs_steam) {
+        out.push_back({f.steam_running ? tr("Steam is running") : tr("Steam is not running"), f.steam_running, true,
+                       tr("Start Steam and sign in: the game starts with Steam, as you usually play.")});
+    }
     out.push_back({f.eu4_running ? tr("EU4 is running") : tr("EU4 is not running"), !f.eu4_running, true, tr("Close the game.")});
     const bool safe = f.unfinished_starts >= kSafeModeAfter;
     out.push_back({safe ? tr("The next start would be in safe mode") : tr("The next start is not in safe mode"), !safe, true,
@@ -239,9 +242,9 @@ bool checks_pass(const std::vector<SetupCheck>& checks) {
     return std::all_of(checks.begin(), checks.end(), [](const SetupCheck& c) { return c.ok || !c.blocks; });
 }
 
-SeriesEnvironment read_environment(const fs::path& user_dir, const ComparablePlugin& plugin) {
+SeriesEnvironment read_environment(const fs::path& user_dir, const ComparablePlugin& plugin, bool steam) {
     SeriesEnvironment e;
-    e.steam_running = steam_running();
+    e.steam_running = steam && steam_running();
     std::error_code ec;
     if (fs::is_regular_file(user_dir / "dlc_load.json", ec)) e.dlc_load_sha256 = sha256_file(user_dir / "dlc_load.json");
     const ManifestResult manifest = load_manifest(plugin.dll.parent_path());

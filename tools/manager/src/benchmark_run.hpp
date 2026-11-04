@@ -29,13 +29,14 @@ std::filesystem::path start_record_file(const std::filesystem::path& game_dir);
 // The child's environment: this process's, with SteamAppId=236850 (the
 // player's usual start with the Steam client) and ANVIL_BENCHMARK=<arm>:<id>.
 // A Windows environment block: sorted, each entry NUL-terminated, then a NUL.
-std::wstring benchmark_environment(const std::wstring& current, Arm arm, const std::string& plugin);
+std::wstring benchmark_environment(const std::wstring& current, Arm arm, const std::string& plugin, bool steam = true);
 
 struct RunnerConfig {
     std::filesystem::path game_dir;
     std::filesystem::path exe;    // game_dir/eu4.exe
     std::wstring arguments;       // after the exe on the command line; none for the game
     std::string plugin;           // the compared plugin's id
+    bool steam = true;            // false: a GOG install, started without SteamAppId
     int target = kDefaultTarget;
     Arm first = Arm::Without;
     // Read when the series starts, then before and after every start.

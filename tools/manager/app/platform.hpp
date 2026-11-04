@@ -41,8 +41,9 @@ void open_url(std::string_view url);
 void open_folder(const std::filesystem::path& folder);
 bool copy_to_clipboard(HWND owner, std::string_view utf8);
 
-// steam://rungameid/236850 (design §15).
-bool launch_game();
+// steam://rungameid/236850, or `gog_program` from its folder when it is not
+// empty (design §15).
+bool launch_game(const std::filesystem::path& gog_program);
 
 // Starts this exe again as administrator for `game_dir` (the player answers
 // Windows' prompt); false when that did not happen.

@@ -50,7 +50,7 @@ std::vector<std::string> not_done(const StartRecord& record) {
 
 fs::path start_record_file(const fs::path& game_dir) { return game_dir / "anvil" / "data" / "anvil" / "benchmark-start.json"; }
 
-std::wstring benchmark_environment(const std::wstring& current, Arm arm, const std::string& plugin) {
+std::wstring benchmark_environment(const std::wstring& current, Arm arm, const std::string& plugin, bool steam) {
     std::vector<std::wstring> entries;
     for (size_t at = 0; at < current.size();) {
         const size_t end = current.find(L'\0', at);
@@ -62,7 +62,7 @@ std::wstring benchmark_environment(const std::wstring& current, Arm arm, const s
         if (_wcsicmp(name.c_str(), L"SteamAppId") == 0 || _wcsicmp(name.c_str(), L"ANVIL_BENCHMARK") == 0) continue;
         entries.push_back(entry);
     }
-    entries.push_back(L"SteamAppId=236850");
+    if (steam) entries.push_back(L"SteamAppId=236850");
     entries.push_back(L"ANVIL_BENCHMARK=" + widen(std::string(arm_name(arm)) + ":" + plugin));
     std::sort(entries.begin(), entries.end(), [](const std::wstring& a, const std::wstring& b) {
         return _wcsicmp(a.substr(0, a.find(L'=', 1)).c_str(), b.substr(0, b.find(L'=', 1)).c_str()) < 0;
@@ -181,7 +181,7 @@ StartObservation SeriesRunner::run_start(Arm arm, const SeriesEnvironment& initi
         env_text.assign(current, end);
         FreeEnvironmentStringsW(const_cast<wchar_t*>(current));
     }
-    std::wstring environment = benchmark_environment(env_text, arm, config_.plugin);
+    std::wstring environment = benchmark_environment(env_text, arm, config_.plugin, config_.steam);
     std::wstring command = L"\"" + config_.exe.wstring() + L"\"";
     if (!config_.arguments.empty()) command += L" " + config_.arguments;
     STARTUPINFOW startup{};

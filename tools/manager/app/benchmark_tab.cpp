@@ -327,7 +327,10 @@ void BenchmarkTab::start(const BenchmarkContext& context) {
     config.plugin = compared->id;
     config.target = target_;
     config.first = first;
-    config.environment = [user = user_dir_, plugin = *compared] { return read_environment(user, plugin); };
+    config.steam = !context.gog;
+    config.environment = [user = user_dir_, plugin = *compared, steam = !context.gog] {
+        return read_environment(user, plugin, steam);
+    };
     report_.reset();
     series_.reset();
     series_note_.clear();

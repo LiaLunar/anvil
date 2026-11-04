@@ -825,6 +825,9 @@ void manager_runner_tests() {
         CHECK(benchmark_environment(current, Arm::With, "bellows") ==
               block({L"=C:=C:\\x", L"ANVIL_BENCHMARK=with:bellows", L"Path=C:\\Windows", L"SteamAppId=236850", L"Zed=1"}));
         CHECK(benchmark_environment(L"", Arm::Without, "b") == block({L"ANVIL_BENCHMARK=without:b", L"SteamAppId=236850"}));
+        // A GOG install starts without Steam: an inherited SteamAppId goes as well.
+        CHECK(benchmark_environment(current, Arm::With, "bellows", false) ==
+              block({L"=C:=C:\\x", L"ANVIL_BENCHMARK=with:bellows", L"Path=C:\\Windows", L"Zed=1"}));
     });
 
     run("runner: a series of starts that quit by themselves completes", [] {
@@ -946,6 +949,11 @@ void manager_runner_tests() {
         }
         f.unfinished_starts = 1;
         CHECK(checks_pass(setup_checks(f)));
+        // A GOG install starts without Steam, so its state is no check there.
+        SetupFacts gog = f;
+        gog.needs_steam = false;
+        gog.steam_running = false;
+        CHECK(setup_checks(gog).size() == checks.size() - 1 && checks_pass(setup_checks(gog)));
 
         const SeriesEnvironment a{true, "m", "1", "h"};
         CHECK(environment_change(a, a).empty());

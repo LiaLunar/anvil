@@ -41,6 +41,15 @@ std::vector<std::filesystem::path> find_steam_games(const std::filesystem::path&
 // then HKLM's InstallPath); empty when Steam is not installed.
 std::filesystem::path steam_root_from_registry();
 
+// The game folder GOG has: HKLM SOFTWARE\GOG.com\Games\2057001589 (Galaxy and
+// GOG's installers write it, both as 32-bit keys) when the `path` it names has
+// eu4.exe; nullopt otherwise.
+std::optional<std::filesystem::path> find_gog_game();
+
+// What starts a GOG install as the player's shortcut does: dowser.exe, the
+// Paradox launcher's start, or eu4.exe in a folder without it.
+std::filesystem::path gog_program(const std::filesystem::path& game_dir);
+
 // What the Manager knows about a game folder before it acts on it.
 struct GameFolder {
     std::filesystem::path dir;

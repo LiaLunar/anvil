@@ -227,6 +227,12 @@ int main(int argc, char** argv) {
         const GameFolder game = inspect_game_folder(temp.dir);
         CHECK(game.error.empty() && game.has_exe && game.exe_sha256 == sha256_file(temp.dir / "eu4.exe"));
         CHECK(game.build.empty());  // the synthetic image is no known build
+        CHECK(!is_gog_folder(temp.dir));
+        CHECK(gog_program(temp.dir) == temp.dir / "eu4.exe");
+        write(temp.dir / "goggame-2057001589.info", "{}");
+        write(temp.dir / "dowser.exe", "launcher");
+        CHECK(is_gog_folder(temp.dir));
+        CHECK(gog_program(temp.dir) == temp.dir / "dowser.exe");
         CHECK(same_file(temp.dir / "eu4.exe", temp.dir / "." / "EU4.EXE"));
         CHECK(!same_file(temp.dir / "eu4.exe", temp.dir / "missing.exe"));
         CHECK(runs_from(temp.dir / "AnvilManager.exe", temp.dir));

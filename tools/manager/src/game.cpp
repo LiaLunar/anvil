@@ -228,6 +228,20 @@ fs::path steam_root_from_registry() {
     return path.empty() ? fs::path() : fs::path(path).make_preferred().lexically_normal();
 }
 
+std::optional<fs::path> find_gog_game() {
+    std::wstring path = registry_string(HKEY_LOCAL_MACHINE, L"SOFTWARE\\GOG.com\\Games\\2057001589", L"path", RRF_SUBKEY_WOW6432KEY);
+    if (path.empty()) return std::nullopt;
+    const fs::path dir = fs::path(path).make_preferred().lexically_normal();
+    std::error_code ec;
+    if (!fs::is_regular_file(dir / "eu4.exe", ec)) return std::nullopt;
+    return dir;
+}
+
+fs::path gog_program(const fs::path& game_dir) {
+    std::error_code ec;
+    return game_dir / (fs::is_regular_file(game_dir / "dowser.exe", ec) ? "dowser.exe" : "eu4.exe");
+}
+
 GameFolder inspect_game_folder(const fs::path& dir) {
     GameFolder out;
     out.dir = dir;

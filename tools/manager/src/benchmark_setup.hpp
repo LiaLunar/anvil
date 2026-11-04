@@ -41,6 +41,7 @@ std::vector<ReportPluginSource> plugin_sources(const cli::GameReport& report);
 // ---- preconditions --------------------------------------------------------------------
 
 struct SetupFacts {
+    bool needs_steam = true;            // false in a GOG install, which starts without Steam
     bool steam_running = false;
     bool eu4_running = false;           // any eu4.exe
     unsigned unfinished_starts = 0;     // anvil/data/anvil/unfinished-starts.txt
@@ -79,7 +80,9 @@ struct SeriesEnvironment {
     bool operator==(const SeriesEnvironment&) const = default;
 };
 
-SeriesEnvironment read_environment(const std::filesystem::path& user_dir, const ComparablePlugin& plugin);
+// `steam`: whether Steam counts; a GOG install starts without it, so Steam's
+// comings and goings do not end a series there.
+SeriesEnvironment read_environment(const std::filesystem::path& user_dir, const ComparablePlugin& plugin, bool steam = true);
 // Which part changed, in words; "" when nothing did.
 std::string environment_change(const SeriesEnvironment& before, const SeriesEnvironment& now);
 

@@ -22,6 +22,7 @@ namespace anvil::manager {
 // What the Benchmark tab needs of the Manager's state.
 struct BenchmarkContext {
     std::filesystem::path game;
+    bool gog = false;                         // a GOG install, which starts without Steam
     const cli::GameReport* report = nullptr;  // nullptr: Anvil is not installed
     std::string installed_anvil;              // the installed version.dll's version; "" when it is not Anvil's
     std::string exe_build;                    // a build Anvil knows, or ""

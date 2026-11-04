@@ -115,7 +115,8 @@ its own file.
 
 Before the series starts, the Manager checks:
 
-- Steam is running (blocks the series).
+- Steam is running (blocks the series; not asked in a GOG install, which starts
+  without Steam and without `SteamAppId`).
 - No `eu4.exe` is running.
 - The safe-mode counter will not trigger at the next start.
 - The compared plugin is enabled and approved, with no pending Workshop update.
