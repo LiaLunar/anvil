@@ -106,6 +106,7 @@ private:
 
     std::filesystem::path game_;
     bool gog_ = false;  // game_ is a GOG install: Play, the Workshop and the benchmark's checks do without Steam
+    bool launcher_opened_ = false;  // Play opened the Paradox launcher in a GOG install and the game has not started yet
     std::optional<Snapshot> snapshot_;
     std::future<Snapshot> pending_;
     bool running_ = false;

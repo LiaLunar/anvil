@@ -141,6 +141,7 @@ void ManagerApp::choose_game(const fs::path& dir) {
     crash_text_.clear();
     log_text_.clear();
     running_checked_ = {};
+    launcher_opened_ = false;
     if (settings_.game_folder != game_) {
         settings_.game_folder = game_;
         std::string error;
@@ -194,6 +195,7 @@ void ManagerApp::poll() {
         running_checked_ = now;
         const bool was = running_;
         running_ = game_running(game_);
+        if (running_) launcher_opened_ = false;  // the note did its job
         // The game may have written logs and crash reports; a benchmark series
         // is read once it ends, not between its starts.
         if (was && !running_ && !benchmark_.busy()) refresh();
@@ -282,16 +284,18 @@ void ManagerApp::draw_game_bar() {
     const bool no_game = snapshot_ && !snapshot_->folder.error.empty();  // nothing here to start
     ImGui::BeginDisabled(running_ || no_game || benchmark_.busy());
     const fs::path gog_start = gog_ ? gog_program(game_) : fs::path();
-    if (ImGui::Button((std::string(play) + "###play").c_str(), ImVec2(play_width, 0)) && !launch_game(gog_start)) {
-        if (gog_) {
-            show_message(tr("The GOG launcher did not start"), trf("Windows could not open {0}.", {u8(gog_start)}));
-        } else {
+    if (ImGui::Button((std::string(play) + "###play").c_str(), ImVec2(play_width, 0))) {
+        const bool started = launch_game(gog_start);
+        launcher_opened_ = started && gog_;
+        if (!started && gog_) {
+            show_message(tr("The Paradox launcher did not start"), trf("Windows could not open {0}.", {u8(gog_start)}));
+        } else if (!started) {
             show_message(tr("Steam did not start"), tr("Windows could not open steam://rungameid/236850. Is Steam installed?"));
         }
     }
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
-        ImGui::SetTooltip("%s", gog_ ? tr("Starts the game through the GOG launcher") : tr("Starts the game through Steam"));
+        ImGui::SetTooltip("%s", gog_ ? tr("Opens the Paradox launcher, as GOG does. Press Play there.") : tr("Starts the game through Steam"));
     }
 
     if (snapshot_ && snapshot_->folder.error.empty()) {
@@ -305,6 +309,9 @@ void ManagerApp::draw_game_bar() {
         } else {
             weak("eu4.exe: " + snapshot_->folder.build);
         }
+    }
+    if (launcher_opened_ && !running_) {
+        weak_wrapped(tr("The Paradox launcher opens: press Play there and Anvil loads with the game. On its first start it shows Paradox's EULA before Play. Only you can accept it; it comes from the launcher, not from Anvil."));
     }
     if (benchmark_.busy()) {
         colored_wrapped(kWarn, tr("A start-up benchmark series is running: EU4 starts and quits by itself. The other "

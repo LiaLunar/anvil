@@ -4,7 +4,7 @@
 [![Latest release](https://img.shields.io/github/v/release/happy-dwarf-team/anvil)](https://github.com/happy-dwarf-team/anvil/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/happy-dwarf-team/anvil)](LICENSE)
 
-Anvil is a plugin loader for **Europa Universalis IV** (Windows, Steam). It lets
+Anvil is a plugin loader for **Europa Universalis IV** (Windows; Steam and GOG). It lets
 native plugins improve or extend the game **without modifying `eu4.exe`**.
 
 **Install guide, plugin catalog and docs for plugin authors:
@@ -110,7 +110,7 @@ into that folder; from then on, start the Manager there.
   copied; see [docs/benchmark-privacy.md](docs/benchmark-privacy.md) and the
   [specification](docs/spec/benchmark-v1.md).
 - It shows crash reports and the log, and starts the game through Steam or,
-  in a GOG install, through the launcher GOG starts it with. On
+  in a GOG install, through the Paradox launcher, as GOG does. On
   its Log tab, "Copy a problem report" puts what an issue needs on the
   clipboard: the versions, the game build, the plugins and why one is
   skipped, the newest crash report and the end of `anvil.log`, with the game
