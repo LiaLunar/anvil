@@ -68,7 +68,7 @@
       "repo": "https://github.com/happy-dwarf-team/mei",
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
-      "note": "The zip holds the plugin; Mei's fonts come with its Workshop item, which carries both. Without them the game's own fonts stay.",
+      "note": "The zip holds the plugin. Mei's fonts come with its Workshop item; on GOG they are mei-fonts.zip in its release, for a local mod. Without them the game's own fonts stay.",
       "version": "0.3.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
