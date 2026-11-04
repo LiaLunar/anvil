@@ -87,6 +87,8 @@ build attestation with the GitHub CLI:
 flag `version.dll` because it is a proxy DLL; such false positives can be
 reported to Microsoft through the
 [WDSI submission](https://www.microsoft.com/wdsi/filesubmission) page.
+[Is it safe?](https://anvil.happydwarf.dev/docs/safety/) has the steps, and what
+Anvil and a plugin can do on your computer.
 
 **With Anvil Manager (`AnvilManager.exe`).** Run it, and it finds the game
 through Steam or GOG (or lets you pick the folder that contains `eu4.exe`).

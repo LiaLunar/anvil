@@ -18,3 +18,6 @@ contact_links:
   - name: Install guide and documentation
     url: https://anvil.happydwarf.dev
     about: How to install Anvil and plugins.
+  - name: Is it safe? Antivirus warnings
+    url: https://anvil.happydwarf.dev/docs/safety/
+    about: What Anvil does on your computer, how to check a download, and what to do when an antivirus objects.

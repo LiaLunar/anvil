@@ -28,7 +28,7 @@ body:
     id: anvil-version
     attributes:
       label: Anvil version
-      description: First line of `anvil/anvil.log`, e.g. `Anvil 1.8.0 (plugin API 2)`.
+      description: First line of `anvil/anvil.log`, e.g. `Anvil 1.10.0 (plugin API 2)`.
     validations:
       required: true
   - type: input
