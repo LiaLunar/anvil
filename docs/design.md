@@ -238,14 +238,14 @@ label = "Panel key"
 
 ## 6. Game build identity
 
-Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", and the overlay says so: it runs on every build. A plugin with `symbols` loads only on a build its file declares (§5.2).
+Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", or in a GOG install (`goggame-2057001589.info` in the game folder) with "this GOG build of the game is unknown: update it to 1.37.5.2 in GOG Galaxy", and the overlay says so: it runs on every build. A plugin with `symbols` loads only on a build its file declares (§5.2).
 
 | Build id | Store | `eu4.exe` SHA-256 |
 | --- | --- | --- |
 | `eu4-1.37.5-steam-win64` | Steam | `9AD3EFE1…D771A` |
 | `eu4-1.37.5.2-gog-win64` | GOG, 1.37.5.2 of 2025-11-13 | `D29CF745…5319` |
 
-New ids carry the store and all four parts of the version, since GOG ships two builds of 1.37.5 ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)); the Steam id keeps its name, which every plugin declares. The other GOG build (1.37.5.0, `5f4145ce…88ee`) would be `eu4-1.37.5.0-gog-win64` once a copy is checked. The Microsoft Store and Epic builds are not planned (§21, [#36](https://github.com/happy-dwarf-team/anvil/issues/36)).
+New ids carry the store and all four parts of the version, since GOG ships two builds of 1.37.5 ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)); the Steam id keeps its name, which every plugin declares. The other GOG build (1.37.5.0, `5f4145ce…88ee`) would be `eu4-1.37.5.0-gog-win64` once a copy is checked ([#187](https://github.com/happy-dwarf-team/anvil/issues/187)); until then its players are told to update, and the Manager and `anvil.log` say so. The Microsoft Store and Epic builds are not planned (§21, [#36](https://github.com/happy-dwarf-team/anvil/issues/36)).
 
 ## 7. Verification before loading
 

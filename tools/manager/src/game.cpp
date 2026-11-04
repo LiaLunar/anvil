@@ -228,9 +228,11 @@ fs::path steam_root_from_registry() {
     return path.empty() ? fs::path() : fs::path(path).make_preferred().lexically_normal();
 }
 
-std::optional<fs::path> find_gog_game() {
-    std::wstring path = registry_string(HKEY_LOCAL_MACHINE, L"SOFTWARE\\GOG.com\\Games\\2057001589", L"path", RRF_SUBKEY_WOW6432KEY);
+std::optional<fs::path> find_gog_game(std::string* version) {
+    constexpr const wchar_t* key = L"SOFTWARE\\GOG.com\\Games\\2057001589";
+    std::wstring path = registry_string(HKEY_LOCAL_MACHINE, key, L"path", RRF_SUBKEY_WOW6432KEY);
     if (path.empty()) return std::nullopt;
+    if (version != nullptr) *version = narrow(registry_string(HKEY_LOCAL_MACHINE, key, L"ver", RRF_SUBKEY_WOW6432KEY));
     const fs::path dir = fs::path(path).make_preferred().lexically_normal();
     std::error_code ec;
     if (!fs::is_regular_file(dir / "eu4.exe", ec)) return std::nullopt;
@@ -261,6 +263,12 @@ GameFolder inspect_game_folder(const fs::path& dir) {
         return out;
     }
     if (const KnownBuild* build = find_known_build_by_sha256(out.exe_sha256)) out.build = build->id;
+    out.gog = is_gog_folder(dir);
+    if (out.gog) {
+        std::string version;
+        const auto registered = find_gog_game(&version);
+        if (registered && same_file(*registered / "eu4.exe", dir / "eu4.exe")) out.gog_version = version;
+    }
     return out;
 }
 

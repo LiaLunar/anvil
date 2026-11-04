@@ -99,7 +99,7 @@ void check_against_exe(const CheckOptions& options, SymbolFile file, const std::
             set_skip(report, build_mismatch(file, report.exe_build));
         }
     } else {
-        set_skip(report, i18n::Message("build_unknown", {}));
+        set_skip(report, unknown_build_reason(options.exe.parent_path()));
         report.problems.push_back({symbols_path, file.build_line,
                                    report.exe_name + " (SHA-256 " + report.exe_sha256 +
                                        ") is not a game build this Anvil knows; symbols.toml declares " + file.build_list()});

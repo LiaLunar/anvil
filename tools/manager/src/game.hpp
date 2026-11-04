@@ -43,8 +43,8 @@ std::filesystem::path steam_root_from_registry();
 
 // The game folder GOG has: HKLM SOFTWARE\GOG.com\Games\2057001589 (Galaxy and
 // GOG's installers write it, both as 32-bit keys) when the `path` it names has
-// eu4.exe; nullopt otherwise.
-std::optional<std::filesystem::path> find_gog_game();
+// eu4.exe; nullopt otherwise. `version`, if given, receives its `ver`.
+std::optional<std::filesystem::path> find_gog_game(std::string* version = nullptr);
 
 // What starts a GOG install as the player's shortcut does: dowser.exe, the
 // Paradox launcher's start, or eu4.exe in a folder without it.
@@ -56,6 +56,8 @@ struct GameFolder {
     bool has_exe = false;     // eu4.exe is a file in it
     std::string exe_sha256;   // upper-case hex
     std::string build;        // a build Anvil knows, or empty
+    bool gog = false;         // a GOG install
+    std::string gog_version;  // what GOG's registry key says it installed here (`ver`), or empty
     std::string error;        // why it is not a game folder
 };
 

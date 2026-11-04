@@ -572,6 +572,8 @@ void startup_impl(const std::filesystem::path& game_dir) {
     std::snprintf(header, sizeof(header), "timestamp 0x%08X, image 0x%X, checksum 0x%08X, entry 0x%X",
                   identity->pe_timestamp, identity->size_of_image, identity->pe_checksum, identity->entry_point_rva);
     log_info(std::string("game build: ") + (game.build_id ? game.build_id : "unknown") + " (" + header + ")");
+    const i18n::Message unknown_build = game.build_id ? i18n::Message() : unknown_build_reason(game_dir);
+    if (unknown_build.code == "build_unknown_gog") log_warning(i18n::english(unknown_build));
 
     // Discovery: anvil/plugins/<folder>/plugin.toml
     ResolveInput input;
@@ -594,7 +596,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
             SymbolVerification verified;
             SymbolFile declared;
             i18n::Message reason = check_plugin_symbols(m.folder / m.symbols, game.build_id, *g_runtime->changes,
-                                                        identity->image_base, &verified, &declared);
+                                                        identity->image_base, &verified, &declared, unknown_build);
             if (!reason.empty()) return reason;
             verified_symbols[m.folder.wstring()] = PluginSymbols(declared, verified, identity->image_base);
             log_info(m.id + ": " + std::to_string(verified.symbols.size()) + " symbol(s) verified");

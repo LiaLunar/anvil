@@ -62,6 +62,10 @@ bool is_gog_folder(const std::filesystem::path& game_dir) {
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+i18n::Message unknown_build_reason(const std::filesystem::path& game_dir) {
+    return i18n::Message(is_gog_folder(game_dir) ? "build_unknown_gog" : "build_unknown", {});
+}
+
 namespace {
 
 // SHA-256 as upper-case hex of what `feed` passes to BCryptHashData; empty on failure.

@@ -174,6 +174,7 @@ std::string problem_report(const ProblemReportInput& input) {
     out += "| Anvil in the game folder | " + cell(installed_anvil(input.installation)) + " |\n";
     out += "| Anvil Manager | " + cell(input.manager_version) + " |\n";
     out += "| Game build | " + cell(input.build.empty() ? "unknown to this Anvil" : "`" + input.build + "`") + " |\n";
+    if (input.gog) out += "| Store | " + cell(input.gog_version.empty() ? "GOG" : "GOG " + input.gog_version) + " |\n";
     out += "| eu4.exe SHA-256 | " + cell(input.exe_sha256.empty() ? "" : "`" + input.exe_sha256 + "`") + " |\n";
     if (const cli::GameReport* game = input.game) {
         std::string toml = game->enabled ? "plugins enabled" : "all plugins disabled (`enabled = false`)";

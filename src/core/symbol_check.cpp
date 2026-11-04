@@ -2,13 +2,12 @@
 
 namespace anvil {
 
-
 i18n::Message check_plugin_symbols(const std::filesystem::path& symbols_file, const char* build_id,
                                    const ChangeRegistry& patches, uintptr_t image_base, SymbolVerification* verified,
-                                   SymbolFile* declared) {
+                                   SymbolFile* declared, const i18n::Message& unknown_build) {
     SymbolFileResult parsed = load_symbols(symbols_file);
     if (!parsed.file) return parsed.error;
-    if (build_id == nullptr) return i18n::Message("build_unknown", {});
+    if (build_id == nullptr) return unknown_build;
     if (!select_build(*parsed.file, build_id)) return build_mismatch(*parsed.file, build_id);
     const OriginalImageReader reader(patches, image_base);
     std::string error;

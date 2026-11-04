@@ -232,6 +232,7 @@ int main(int argc, char** argv) {
         write(temp.dir / "goggame-2057001589.info", "{}");
         write(temp.dir / "dowser.exe", "launcher");
         CHECK(is_gog_folder(temp.dir));
+        CHECK(inspect_game_folder(temp.dir).gog);
         CHECK(gog_program(temp.dir) == temp.dir / "dowser.exe");
         CHECK(same_file(temp.dir / "eu4.exe", temp.dir / "." / "EU4.EXE"));
         CHECK(!same_file(temp.dir / "eu4.exe", temp.dir / "missing.exe"));

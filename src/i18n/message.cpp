@@ -34,6 +34,7 @@ const std::vector<Pattern> kPatterns = {
     {"plugin_toml_missing", "plugin.toml not found"},
     {"cannot_read", "cannot read {0}"},
     {"build_unknown", "game build unknown (EU4 updated?)"},
+    {"build_unknown_gog", "this GOG build of the game is unknown: update it to 1.37.5.2 in GOG Galaxy"},
     {"symbols_build", "symbols.toml is for build {0}, the game is {1}"},
     {"symbols_builds", "symbols.toml is for builds {0}, the game is {1}"},
     {"image_unreadable", "cannot read the game image: {0}"},

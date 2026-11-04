@@ -1,5 +1,7 @@
 #pragma once
 
+#include "i18n/message.hpp"
+
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -38,6 +40,11 @@ const KnownBuild* find_known_build_by_sha256(std::string_view sha256);
 // goggame-2057001589.info there. It is the only sign that works for a build
 // Anvil does not know, since a GOG folder has a steam_appid.txt too.
 bool is_gog_folder(const std::filesystem::path& game_dir);
+
+// Why a plugin that uses game addresses is skipped on a build Anvil does not
+// know: in a GOG install, what to do about it, since GOG Galaxy offers the
+// build Anvil knows.
+i18n::Message unknown_build_reason(const std::filesystem::path& game_dir);
 
 // SHA-256 of a file as upper-case hex (BCrypt); empty on failure.
 std::string sha256_file(const std::filesystem::path& file);

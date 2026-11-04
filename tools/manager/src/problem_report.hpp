@@ -30,6 +30,8 @@ struct ProblemReportInput {
     std::optional<Installation> installation;  // nullopt: not read yet
     std::string exe_sha256;                     // of the folder's eu4.exe
     std::string build;                          // a build Anvil knows, or empty
+    bool gog = false;                           // a GOG install
+    std::string gog_version;                    // GOG's name for it, or empty
     const cli::GameReport* game = nullptr;      // `anvil check --game`; nullptr without an anvil folder
     std::optional<CrashSummary> newest_crash;
     std::string log_name;  // "anvil.log"

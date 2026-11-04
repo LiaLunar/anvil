@@ -31,10 +31,12 @@ private:
 // Loads a plugin's symbols.toml, checks that it declares the running game's
 // build (`build_id`; nullptr when the build is unknown), selects it and verifies every symbol
 // against the image at `image_base`. Returns an empty message when the plugin
-// may be loaded, otherwise why it must be skipped. On success `verified` and
-// `declared`, if given, receive the resolved symbols and the parsed file.
+// may be loaded, otherwise why it must be skipped (`unknown_build` for a build
+// that is not known). On success `verified` and `declared`, if given, receive
+// the resolved symbols and the parsed file.
 i18n::Message check_plugin_symbols(const std::filesystem::path& symbols_file, const char* build_id,
                                    const ChangeRegistry& patches, uintptr_t image_base,
-                                   SymbolVerification* verified = nullptr, SymbolFile* declared = nullptr);
+                                   SymbolVerification* verified = nullptr, SymbolFile* declared = nullptr,
+                                   const i18n::Message& unknown_build = i18n::Message("build_unknown", {}));
 
 }  // namespace anvil
