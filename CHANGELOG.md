@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.10.0](https://github.com/happy-dwarf-team/anvil/compare/v1.9.0...v1.10.0) (2026-11-04)
+
+
+### Features
+
+* **cli:** verify symbols by SHA-256 instead of public bytes ([#203](https://github.com/happy-dwarf-team/anvil/issues/203)) ([3ca95f7](https://github.com/happy-dwarf-team/anvil/commit/3ca95f7ec0ffb27f9e232c2bc14ab11677859395))
+* **manager:** find and start a GOG install ([#199](https://github.com/happy-dwarf-team/anvil/issues/199)) ([c66abba](https://github.com/happy-dwarf-team/anvil/commit/c66abba7e96e089d298c0e2eded2266aaebe9668))
+* run anvil-log-throttle on the GOG build 1.37.5.2 ([#205](https://github.com/happy-dwarf-team/anvil/issues/205)) ([ff34e66](https://github.com/happy-dwarf-team/anvil/commit/ff34e66c44993e37f14c00942bd79d1c3e9b1f84))
+* tell a GOG player how to get a build Anvil knows ([#200](https://github.com/happy-dwarf-team/anvil/issues/200)) ([72a3c39](https://github.com/happy-dwarf-team/anvil/commit/72a3c39baaab4bc4ab5760fa5a9fd837075ec4fb))
+
+
+### Bug Fixes
+
+* **manager:** clearer messages without a game or a known build ([#206](https://github.com/happy-dwarf-team/anvil/issues/206)) ([56ba08b](https://github.com/happy-dwarf-team/anvil/commit/56ba08b1ade99ab6d302acd7ca339b8f76456edf))
+* **manager:** offer the administrator when a plugin cannot be installed for lack of rights ([#198](https://github.com/happy-dwarf-team/anvil/issues/198)) ([16e2b04](https://github.com/happy-dwarf-team/anvil/commit/16e2b04cca83b0341453b066f7424b9b805fc990))
+* read a GOG install's own user folder ([#197](https://github.com/happy-dwarf-team/anvil/issues/197)) ([0040050](https://github.com/happy-dwarf-team/anvil/commit/0040050830b1bed3502e11556ac74a0e04042c55))
+* read the mods and the language from the folder -userdir names ([#207](https://github.com/happy-dwarf-team/anvil/issues/207)) ([a5ddc6f](https://github.com/happy-dwarf-team/anvil/commit/a5ddc6f97a218ebb95a30218512e9445e36a01e4))
+
 ## [1.9.0](https://github.com/happy-dwarf-team/anvil/compare/v1.8.0...v1.9.0) (2026-11-03)
 
 

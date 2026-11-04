@@ -1,6 +1,6 @@
 id = "anvil-overlay"
 name = "Anvil overlay"
-version = "1.9.0"
+version = "1.10.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin: in-game notifications about skipped plugins, the previous crash, safe mode, ironman and multiplayer, a badge with Anvil's version in the main menu, and a panel (Ctrl+Shift+F12 or a click on the badge) with the status, the crash report, the log and every plugin's settings."
 api = 2
