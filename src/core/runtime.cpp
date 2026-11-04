@@ -643,7 +643,15 @@ void startup_impl(const std::filesystem::path& game_dir) {
     // load, always from their approved copy, whose hash is checked again
     // right before LoadLibrary (load_plugin).
     std::map<std::wstring, std::string> approved_hashes;  // by the copy's folder
-    const std::filesystem::path user_dir = eu4_user_dir(game_dir);
+    // The game's own choice: -userdir first (a private profile, as Etch's live game has).
+    std::filesystem::path user_dir = eu4_user_dir(game_dir);
+    if (const auto named = user_dir_argument(GetCommandLineW())) {
+        std::error_code ec;
+        if (std::filesystem::is_directory(*named, ec)) {
+            user_dir = *named;
+            log_info("EU4's user folder from -userdir: " + narrow(user_dir.wstring()));
+        }
+    }
     {
         g_runtime->mods = discover_mod_plugins(g_runtime->anvil_dir, user_dir, local_ids);
         ModDiscovery& mods = g_runtime->mods;

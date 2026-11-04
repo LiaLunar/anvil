@@ -7,6 +7,7 @@
 #include <windows.h>
 #include <shlobj.h>
 
+#include <algorithm>
 #include <fstream>
 #include <sstream>
 
@@ -128,6 +129,29 @@ fs::path eu4_user_dir(const fs::path& game_dir) {
     if (!ok || documents[0] == 0) return {};
     return fs::path(documents) / L"Paradox Interactive" /
            (is_gog_folder(game_dir) ? L"Europa Universalis IV GOG" : L"Europa Universalis IV");
+}
+
+std::optional<fs::path> user_dir_argument(std::wstring_view line) {
+    // Past the program's name, whose path may hold the same text.
+    size_t at = line.starts_with(L'"') ? line.find(L'"', 1) : line.find(L' ');
+    if (at == std::wstring_view::npos) return std::nullopt;
+    constexpr std::wstring_view key = L"-userdir=";
+    for (at = line.find(key, at + 1); at != std::wstring_view::npos; at = line.find(key, at + 1)) {
+        const wchar_t before = line[at - 1];
+        if (before != L' ' && before != L'\t' && before != L'"') continue;
+        std::wstring_view value = line.substr(at + key.size());
+        size_t end = std::wstring_view::npos;
+        if (before == L'"') {
+            end = value.find(L'"');
+        } else {
+            for (const std::wstring_view stop : {L" -", L" +", L" /", L" continue="}) end = std::min(end, value.find(stop));
+        }
+        value = value.substr(0, end);
+        while (!value.empty() && value.back() == L' ') value.remove_suffix(1);
+        if (value.empty()) return std::nullopt;
+        return fs::path(value);
+    }
+    return std::nullopt;
 }
 
 std::optional<std::vector<std::string>> parse_dlc_load(std::string_view json, std::string& error) {

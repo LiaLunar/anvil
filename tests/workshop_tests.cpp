@@ -190,6 +190,21 @@ int main() {
         CHECK(!none.found && none.error.empty() && none.mods.empty());
     });
 
+    run("the user folder: -userdir on the game's command line", [] {
+        const auto named = [](std::wstring_view line) { return user_dir_argument(line).value_or(fs::path()).wstring(); };
+        CHECK(named(L"eu4.exe") == L"" && named(L"\"C:\\Games\\eu4.exe\" -debug") == L"");
+        CHECK(named(L"eu4.exe -userdir=C:/p/") == L"C:/p/");
+        // As Node's spawn quotes an argument with a space (Etch), and the lab's bare ones.
+        CHECK(named(L"\"C:\\My Games\\eu4.exe\" -continue=a.eu4 \"-userdir=C:/Jan Kowalski/p/\"") == L"C:/Jan Kowalski/p/");
+        CHECK(named(L"eu4.exe -userdir=C:/Jan Kowalski/p/ -debug") == L"C:/Jan Kowalski/p/");
+        CHECK(named(L"eu4.exe -userdir=C:/p/ continue=a.eu4") == L"C:/p/");
+        CHECK(named(L"eu4.exe -userdir=C:/p/ +x") == L"C:/p/");
+        CHECK(named(L"eu4.exe -userdir= -debug") == L"");
+        CHECK(named(L"eu4.exe x-userdir=C:/p/") == L"");
+        // Only in the arguments: the program's own path does not count.
+        CHECK(named(L"\"C:\\a -userdir=C:\\b\\eu4.exe\"") == L"");
+    });
+
     run("the user folder: userdir.txt names it, otherwise Documents", [] {
         Playground g("userdir");
         const fs::path game = g.root / "eu4";
