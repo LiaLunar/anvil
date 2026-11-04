@@ -211,9 +211,10 @@ void ManagerApp::draw() {
     const ImGuiViewport* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
+    // With a scrollbar: a tab can be taller than the window, and nothing else would show that it goes on.
     ImGui::Begin("Anvil Manager", nullptr,
-                 ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
-                     ImGuiWindowFlags_NoBringToFrontOnFocus);
+                 ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove |
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus);
     if (!package_) {
         colored_wrapped(kBad, trf("This AnvilManager.exe is broken: {0}. Download it again from {1}.", {package_error_, kReleasesUrl}));
         ImGui::End();
