@@ -40,8 +40,9 @@ bool ranges_overlap(const CodeRange& a, const CodeRange& b) {
 }
 
 // Plugins that load together and declare overlapping code ranges (design §16).
-// The same range at the same address is the normal case of a chain, not a
-// warning. One warning per pair of plugins, at the earlier plugin's symbol.
+// Ranges that start at the same address are the normal case of a chain, not a
+// warning: their lengths only say how many bytes each plugin verifies. One
+// warning per pair of plugins, at the earlier plugin's symbol.
 std::vector<OverlapWarning> find_overlaps(const std::vector<const CheckReport*>& loaded) {
     std::vector<OverlapWarning> warnings;
     for (size_t i = 0; i < loaded.size(); ++i) {
@@ -53,7 +54,7 @@ std::vector<OverlapWarning> find_overlaps(const std::vector<const CheckReport*>&
             size_t hits = 0;
             for (const CodeRange& x : a.code_ranges) {
                 for (const CodeRange& y : b.code_ranges) {
-                    if (!ranges_overlap(x, y) || (x.rva == y.rva && x.size == y.size)) continue;
+                    if (!ranges_overlap(x, y) || x.rva == y.rva) continue;
                     if (hits++ == 0) {
                         first_a = &x;
                         first_b = &y;

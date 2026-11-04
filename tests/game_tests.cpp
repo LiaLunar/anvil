@@ -267,6 +267,13 @@ int main(int argc, char** argv) {
         CHECK(contains(r.warnings[0].file, "a-first") && contains(r.warnings[0].file, "symbols.toml"));
         CHECK(r.warnings[1].plugin == "b-same" && r.warnings[1].other == "c-inside");
 
+        // The same address with fewer verified bytes is a chain too: the length is not what a plugin changes.
+        const Game shorter;
+        shorter.plugin("a-first", "", symbols("test-build"));
+        shorter.plugin("b-shorter", "", symbols("test-build", "shorter", 0x1000, "48 8B 81 18"));
+        const GameReport chain = shorter.check();
+        CHECK(chain.exit_code == kExitOk && loaded(chain) == "a-first,b-shorter" && chain.warnings.empty());
+
         // A plugin that is skipped overlaps nothing.
         game.plugin("c-inside", conflicts_with("a-first"), symbols("test-build", "tail", 0x1005, "00 00 C3"));
         const GameReport skipped = game.check();
