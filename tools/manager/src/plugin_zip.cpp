@@ -19,15 +19,22 @@ namespace fs = std::filesystem;
 
 fs::path below(const fs::path& dir, std::string_view relative) { return dir / fs::path(widen(relative)).make_preferred(); }
 
-// A folder below `parent` that did not exist: <name>-<pid>-<n>.
-fs::path fresh_folder(const fs::path& parent, const std::string& name) {
+// A folder below `parent` that did not exist: <name>-<pid>-<n>. Empty on a
+// failure, with Windows' error in `code`.
+fs::path fresh_folder(const fs::path& parent, const std::string& name, DWORD& code) {
     static std::atomic<unsigned> counter{0};
+    std::error_code ec;
+    fs::create_directories(parent, ec);
+    if (ec) {
+        code = static_cast<DWORD>(ec.value());
+        return {};
+    }
     for (int attempt = 0; attempt < 100; ++attempt) {
         const fs::path dir = parent / widen(name + "-" + std::to_string(GetCurrentProcessId()) + "-" +
                                             std::to_string(counter.fetch_add(1)));
-        std::error_code ec;
-        fs::create_directories(parent, ec);
         if (CreateDirectoryW(dir.c_str(), nullptr)) return dir;
+        code = GetLastError();
+        if (code != ERROR_ALREADY_EXISTS) return {};
     }
     return {};
 }
@@ -80,7 +87,8 @@ PluginZipCheck check_plugin_zip(const ZipArchive& zip, const fs::path& game_dir,
         }
     }
 
-    const fs::path stage = fresh_folder(temp_dir, "anvil-manager-check");
+    DWORD code = 0;
+    const fs::path stage = fresh_folder(temp_dir, "anvil-manager-check", code);
     if (stage.empty()) {
         out.error = i18n::trf("cannot create a temporary folder in {0}", {narrow(temp_dir.wstring())});
         return out;
@@ -161,10 +169,11 @@ PluginInstallResult install_plugin_zip(const ZipArchive& zip, const PluginZipChe
         return result;
     }
     const fs::path work = game_dir / "anvil" / "data" / "anvil" / "manager";
-    const fs::path incoming = fresh_folder(work, check.id + ".incoming");
+    DWORD incoming_code = 0;
+    const fs::path incoming = fresh_folder(work, check.id + ".incoming", incoming_code);
     if (incoming.empty()) {
         result.error = i18n::trf("cannot create a folder in {0}", {narrow(work.wstring())});
-        result.access_denied = GetLastError() == ERROR_ACCESS_DENIED;
+        result.access_denied = incoming_code == ERROR_ACCESS_DENIED;
         return result;
     }
     if (!unpack(zip, check.files, check.root, incoming, result.error, &result.access_denied)) {
@@ -186,10 +195,11 @@ PluginInstallResult install_plugin_zip(const ZipArchive& zip, const PluginZipChe
         const fs::path folder = game_dir / "anvil" / "plugins" / widen(name);
         if (GetFileAttributesW(folder.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
         if (std::find(aside.begin(), aside.end(), folder) != aside.end()) continue;
-        previous = fresh_folder(work, name + ".previous");
+        DWORD code = 0;
+        previous = fresh_folder(work, name + ".previous", code);
         if (previous.empty() || !RemoveDirectoryW(previous.c_str()) ||
             !MoveFileExW(folder.c_str(), previous.c_str(), 0)) {
-            const DWORD code = GetLastError();
+            if (code == 0) code = GetLastError();
             remove_tree(incoming);
             return fail(i18n::trf("cannot move {0} aside; is a file in it open?", {narrow(folder.wstring())}), code);
         }

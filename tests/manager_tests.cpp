@@ -417,6 +417,24 @@ int main(int argc, char** argv) {
         CHECK(fs::exists(game / "anvil" / "anvil.toml"));
     });
 
+    run("plugin zip: a folder the player cannot write offers the administrator", [&] {
+        // Program Files without Steam's permissions (GOG Galaxy's default), and no
+        // anvil/data yet: the game never ran with Anvil.
+        const TempDir temp("plugin_zip_denied");
+        const fs::path game = make_game(temp.dir / "game");
+        fs::create_directories(game / "anvil" / "plugins");
+        const auto zip = zip_of({{"plugin.toml", plugin_toml("hello")}, {"hello.dll", "MZ"}});
+        CHECK(zip.has_value());
+        if (!zip) return;
+        const PluginZipCheck check = check_plugin_zip(*zip, game, temp.dir / "tmp", {});
+        CHECK(check.error.empty());
+        const std::wstring folder = L"\"" + (game / "anvil").wstring() + L"\"";
+        CHECK(_wsystem((L"icacls " + folder + L" /deny *S-1-1-0:(AD) >nul").c_str()) == 0);
+        const PluginInstallResult installed = install_plugin_zip(*zip, check, game);
+        _wsystem((L"icacls " + folder + L" /remove:d *S-1-1-0 >nul").c_str());
+        CHECK(!installed.ok && installed.access_denied);
+    });
+
     run("plugin zip: checked against eu4.exe before anything is copied", [&] {
         const TempDir temp("plugin_zip");
         const fs::path game = make_game(temp.dir / "game");
