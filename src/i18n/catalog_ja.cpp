@@ -75,7 +75,7 @@ extern const Translation kJapanese[] = {
     {"Anvil is uninstalled. The game starts vanilla.",
      "Anvil をアンインストールしました。ゲームはバニラで起動します。"},
     {"Anvil knows this game version, but these plugins do not support it yet. Look for an update of each.",
-     "Anvil はこのゲームバージョンを知っていますが、これらのプラグインはまだ対応していません。プラグインごとの更新を確認してください。"},
+     "Anvil はこのゲームバージョンに対応していますが、これらのプラグインはまだ対応していません。プラグインごとの更新を確認してください。"},
     {"Anvil on GitHub",
      "GitHub の Anvil"},
     {"Anvil safe mode",

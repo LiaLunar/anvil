@@ -75,7 +75,7 @@ extern const Translation kSimplifiedChinese[] = {
     {"Anvil is uninstalled. The game starts vanilla.",
      "Anvil 已卸载。游戏将以原版启动。"},
     {"Anvil knows this game version, but these plugins do not support it yet. Look for an update of each.",
-     "Anvil 已知此游戏版本，但这些插件尚不支持。请查看每个插件的更新。"},
+     "Anvil 已支持此游戏版本，但这些插件尚不支持。请查看每个插件的更新。"},
     {"Anvil on GitHub",
      "GitHub 上的 Anvil"},
     {"Anvil safe mode",

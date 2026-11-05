@@ -75,7 +75,7 @@ extern const Translation kKorean[] = {
     {"Anvil is uninstalled. The game starts vanilla.",
      "Anvil을 제거했습니다. 게임은 바닐라로 시작됩니다."},
     {"Anvil knows this game version, but these plugins do not support it yet. Look for an update of each.",
-     "Anvil은 이 게임 버전을 알고 있지만 이 플러그인들은 아직 지원하지 않습니다. 각각의 업데이트를 확인하세요."},
+     "Anvil은 이 게임 버전을 지원하지만 이 플러그인들은 아직 지원하지 않습니다. 각각의 업데이트를 확인하세요."},
     {"Anvil on GitHub",
      "GitHub의 Anvil"},
     {"Anvil safe mode",
