@@ -145,6 +145,24 @@ describe("check 3: per day", () => {
   });
 });
 
+describe("check 3: per day, in bytes", () => {
+  it("answers 503 once the day's bytes are reached", async () => {
+    await env.DB.prepare("INSERT INTO daily_counts (day, received, bytes) VALUES (?1, 1, ?2)")
+      .bind(today(), Number(env.DAILY_BYTES_LIMIT))
+      .run();
+    expect((await post(report())).status).toBe(503);
+  });
+
+  it("adds a new report's bytes, and a repeat's not at all", async () => {
+    const r = report();
+    const body = JSON.stringify(r);
+    expect((await post(body)).status).toBe(201);
+    expect((await post(body)).status).toBe(200);
+    const row = await env.DB.prepare("SELECT received, bytes FROM daily_counts WHERE day = ?1").bind(today()).first();
+    expect(row).toEqual({ received: 1, bytes: new TextEncoder().encode(body).byteLength });
+  });
+});
+
 describe("check 4: validation", () => {
   it("refuses a body that is not JSON", async () => {
     const response = await post("{");

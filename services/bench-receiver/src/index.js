@@ -27,6 +27,7 @@ function config(env) {
   return {
     maxBodyBytes: Number(env.MAX_BODY_BYTES),
     dailyLimit: Number(env.DAILY_LIMIT),
+    dailyBytesLimit: Number(env.DAILY_BYTES_LIMIT),
     retentionMonths: Number(env.RETENTION_MONTHS),
     minStartMs: Number(env.MIN_START_MS),
     maxStartMs: Number(env.MAX_START_MS),
@@ -58,8 +59,8 @@ async function receive(request, env) {
   const day = new Date().toISOString().slice(0, 10);
   try {
     // 3. Across all senders, per UTC day.
-    const today = await env.DB.prepare("SELECT received FROM daily_counts WHERE day = ?1").bind(day).first("received");
-    if ((today ?? 0) >= limits.dailyLimit) {
+    const today = await env.DB.prepare("SELECT received, bytes FROM daily_counts WHERE day = ?1").bind(day).first();
+    if ((today?.received ?? 0) >= limits.dailyLimit || (today?.bytes ?? 0) >= limits.dailyBytesLimit) {
       return { status: 503, message: "The receiver has taken all the reports it can today. Try again tomorrow.", bytes: size };
     }
 
@@ -84,9 +85,10 @@ async function receive(request, env) {
       return { status: 200, message: "This report has already arrived.", format: checked.format, bytes: size };
     }
     await env.DB.prepare(
-      "INSERT INTO daily_counts (day, received) VALUES (?1, 1) ON CONFLICT (day) DO UPDATE SET received = received + 1",
+      "INSERT INTO daily_counts (day, received, bytes) VALUES (?1, 1, ?2) " +
+        "ON CONFLICT (day) DO UPDATE SET received = received + 1, bytes = bytes + ?2",
     )
-      .bind(day)
+      .bind(day, size)
       .run();
     return { status: 201, message: "Received. Thank you.", format: checked.format, bytes: size };
   } catch {

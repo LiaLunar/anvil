@@ -492,8 +492,8 @@ Decided in anvil#132.
   `body`, the raw text byte for byte. Envelope fields (Anvil version, compared
   plugin and version, series state) are indexed generated columns from
   `json_extract`; per-format views read rows with `json_each`. No R2.
-- A second table, `daily_counts`, holds the number of reports received per
-  UTC day for the daily limit, so a request reads one row instead of counting
+- A second table, `daily_counts`, holds the number of reports and bytes received
+  per UTC day for the daily limits, so a request reads one row instead of counting
   the day's reports; past days are deleted daily.
 - Nothing else is stored: no IP address, country, User-Agent or time of day.
   The IP lives only in the rate limiter's counters.

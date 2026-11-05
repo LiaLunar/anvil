@@ -25,8 +25,10 @@ this folder, and changes here that do not touch the Manager use a hidden type
 
 1. Body up to `MAX_BODY_BYTES` (413) and `application/json` (415).
 2. 5 requests per 60 s per IP through the `RATE_LIMITER` binding (429).
-3. At most `DAILY_LIMIT` new reports per UTC day across all senders (503),
-   read from the `daily_counts` row of the day: one row read per request
+3. At most `DAILY_LIMIT` new reports and `DAILY_BYTES_LIMIT` bytes per UTC day
+   across all senders (503), so that one address cannot fill the database with
+   the largest reports, read from the `daily_counts` row of the day: one row
+   read per request
    instead of counting the day's reports.
 4. The format's schema, then the plugin fields against `plugin_schemas` in the
    same report (every value declared, of its kind, or `null`), then
