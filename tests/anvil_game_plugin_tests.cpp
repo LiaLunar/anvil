@@ -17,6 +17,7 @@
 
 #include "../plugins/anvil-game/src/session.hpp"
 #include "../plugins/anvil-game/src/work_queue.hpp"
+#include "../plugins/anvil-game/src/world.hpp"
 
 #include <anvil/anvil_game.h>
 #include <anvil/anvil_plugin.h>
@@ -27,7 +28,10 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <fstream>
+#include <functional>
 #include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -76,6 +80,7 @@ struct FakeEu4 {
         commit(0x1CB8000, PAGE_READWRITE);
         commit(0x1D5A000, PAGE_READWRITE);
         commit(0x1FB0000, PAGE_READWRITE);
+        commit(0x233D000, PAGE_READWRITE);
         commit(0x233F000, PAGE_READWRITE);
         write_headers();
 
@@ -207,6 +212,130 @@ struct GameObjects {
     void set_front_end_state(uint32_t state) { std::memcpy(frontend + 0x900, &state, sizeof(state)); }
 };
 
+// The country database's global, from the bytes of province_base_tax on Steam.
+constexpr uint32_t kCountriesDb = 0x233D8D0;
+
+// A tag as the game stores it: three characters, the country index, the kind, the valid byte.
+uint64_t game_tag(const char* text, uint16_t index, uint8_t kind = 0, uint8_t valid = 1) {
+    uint64_t tag = 0;
+    std::memcpy(&tag, text, std::min<size_t>(std::strlen(text), 3));
+    return tag | (uint64_t{index} << 32) | (uint64_t{kind} << 48) | (uint64_t{valid} << 56);
+}
+
+// A small world, laid out as eu4.exe 1.37.5 on Steam does: provinces 1-3 and
+// the countries RUS, TUR and the observer.
+struct FakeWorld {
+    static constexpr size_t kProvinceSize = 0x2E10;
+    static constexpr int kProvinces = 4;  // the dummy entry 0 included
+
+    std::vector<uint8_t> provinces = std::vector<uint8_t>(kProvinceSize * kProvinces);
+    uintptr_t pointers[kProvinces] = {};
+    alignas(8) uint8_t map[kProvinces][0x240] = {};
+    uint64_t cores[2] = {game_tag("RUS", 0), game_tag("TUR", 1)};
+    int32_t owned[2] = {1, 3};
+    alignas(8) uint8_t rus[0x1500] = {};
+    alignas(8) uint8_t tur[0x1500] = {};
+    alignas(8) uint8_t observer[0x1500] = {};
+    uintptr_t countries[3] = {};
+    alignas(8) uint8_t db[0x800] = {};
+    std::vector<uint64_t> bucket_tags[64];
+    std::string long_name = "S\xE3o Tom\xE9 and a name long enough for the heap";
+
+    template <class T>
+    static void set(void* at, size_t offset, T value) {
+        std::memcpy(static_cast<uint8_t*>(at) + offset, &value, sizeof(value));
+    }
+    uint8_t* province(int id) { return provinces.data() + id * kProvinceSize; }
+    void set_name(int id, const std::string& name) {
+        uint8_t* at = map[id] + 0x10;
+        const uint64_t size = name.size();
+        if (name.size() < 16) {
+            std::memcpy(at, name.data(), name.size());
+            set(at, 0x18, uint64_t{15});
+        } else {
+            set(at, 0, reinterpret_cast<uintptr_t>(name.data()));
+            set(at, 0x18, size);
+        }
+        set(at, 0x10, size);
+    }
+    void add_country(uint8_t* country, uint64_t tag, uint16_t index) {
+        set(country, 0x20, tag);
+        countries[index] = reinterpret_cast<uintptr_t>(country);
+        bucket_tags[anvil_game::tag_bucket(std::string_view(reinterpret_cast<const char*>(&tag), 3), 0x3F)].push_back(tag);
+    }
+    void install(uint8_t* root, FakeEu4& image) {
+        for (int id = 0; id < kProvinces; ++id) {
+            pointers[id] = reinterpret_cast<uintptr_t>(province(id));
+            set(province(id), 0x20, id);
+            set(province(id), 0x28, reinterpret_cast<uintptr_t>(map[id]));
+        }
+        set(root, 0x1C90, reinterpret_cast<uintptr_t>(pointers));
+        set(root, 0x1C98, reinterpret_cast<uintptr_t>(pointers + kProvinces));
+        set(root, 0x1CA8, reinterpret_cast<uintptr_t>(provinces.data()));
+        // Moskva: RUS, core RUS and TUR, land.
+        set(province(1), 0x468, game_tag("RUS", 0));
+        set(province(1), 0x470, game_tag("TUR", 1));
+        set(province(1), 0x490, reinterpret_cast<uintptr_t>(cores));
+        set(province(1), 0x498, reinterpret_cast<uintptr_t>(cores + 2));
+        set(province(1), 0x3E4, 15000);
+        set(province(1), 0x3E8, 8000);
+        set(province(1), 0x3E0, 9500);
+        map[1][0x228] = 1 << 3;
+        set_name(1, "Moskva");
+        // A wasteland without an owner, with a long name in Windows-1252.
+        set(province(2), 0x468, game_tag("---", 0, 0, 0));
+        set(province(2), 0x470, game_tag("---", 0, 0, 0));
+        map[2][0x228] = 1 << 3;
+        map[2][0x229] = 1 << 3;
+        set_name(2, long_name);
+        // A sea with a name in UTF-8, as Mei keeps it.
+        set_name(3, "\xE5\x8C\x97\xE4\xBA\xAC");
+        add_country(rus, game_tag("RUS", 0), 0);
+        add_country(tur, game_tag("TUR", 1), 1);
+        add_country(observer, game_tag("O00", 2, 7), 2);
+        set(rus, 0x14B8, 1);
+        set(rus, 0x1338, reinterpret_cast<uintptr_t>(owned));
+        set(rus, 0x1344, 2);
+        set(rus, 0xBB0, 123456);
+        set(rus, 0xBD8, 2000);
+        set(rus, 0xCF8, -5500);
+        set(rus, 0xDB8, 25000);
+        set(rus, 0xE38, 9750);
+        set(tur, 0x14B8, 99);  // no such province
+        set(db, 0x118, reinterpret_cast<uintptr_t>(countries));
+        for (int n = 0; n < 64; ++n) {
+            set(db, 0x148 + n * 0x18, reinterpret_cast<uintptr_t>(bucket_tags[n].data()));
+            set(db, 0x154 + n * 0x18, static_cast<int32_t>(bucket_tags[n].size()));
+        }
+        image.put_pointer(kCountriesDb, reinterpret_cast<uintptr_t>(db));
+    }
+};
+
+// What a plugin hears of the campaign: "day 1 1719.3.18", "player RUS TUR".
+void listen_campaign(const char* event, const void* payload, void* context) {
+    auto* heard = static_cast<std::vector<std::string>*>(context);
+    const std::string name = event;
+    if (name == ANVIL_GAME_EVENT_PLAYER) {
+        const auto* p = static_cast<const AnvilGamePlayerChange*>(payload);
+        heard->push_back(std::string("player ") + p->previous.text + " " + p->tag.text);
+        return;
+    }
+    const auto* c = static_cast<const AnvilGameDateChange*>(payload);
+    heard->push_back(name.substr(std::strlen("anvil-game.")) + " " + std::to_string(c->days) + " " +
+                     std::to_string(c->date.year) + "." + std::to_string(c->date.month) + "." +
+                     std::to_string(c->date.day));
+}
+
+// Runs in the handler of the frame event, then clears itself.
+std::function<void()> g_in_frame_handler;
+void run_in_frame_handler(const char*, const void*, void*) {
+    if (g_in_frame_handler) {
+        const auto work = std::move(g_in_frame_handler);
+        g_in_frame_handler = nullptr;
+        work();
+    }
+}
+
 const AnvilGameService* g_service = nullptr;
 
 // What a plugin hears from anvil-game, in order.
@@ -306,6 +435,48 @@ int main(int argc, char** argv) {
         CHECK(is(anvil_game::kUnsetDate, 1, 1, 1) && is(0, -5000, 1, 1) && is(-1, -5001, 12, 31));
     });
 
+    run("anvil-game: the date's events", [] {
+        constexpr int32_t kDay = 24;
+        constexpr int32_t k31Jan = 43'800'000 + 1719 * 365 * kDay + 30 * kDay;
+        const auto kinds = [](const anvil_game::DateEvents& e) {
+            return std::string(e.day ? "d" : "") + (e.month ? "m" : "") + (e.year ? "y" : "");
+        };
+        anvil_game::DateTracker t;
+        CHECK(kinds(t.update(true, 1, k31Jan)).empty());      // the first date of a session
+        CHECK(kinds(t.update(true, 1, k31Jan)).empty());      // a frame without a new day
+        CHECK(kinds(t.update(true, 1, k31Jan + 5)).empty());  // hours are not days
+        const auto day = t.update(true, 1, k31Jan + kDay);    // 1 February
+        CHECK(kinds(day) == "dm" && day.change.days == 1 && day.change.size == sizeof(AnvilGameDateChange) &&
+              day.change.date.month == 2 && day.change.date.day == 1 && day.change.date.session == 1 &&
+              day.change.previous.month == 1 && day.change.previous.day == 31 && day.change.previous.session == 1);
+        CHECK(kinds(t.update(true, 1, k31Jan + 2 * kDay)) == "d");
+        // Three days in one frame, across a year.
+        CHECK(kinds(t.update(true, 1, k31Jan + 334 * kDay)) == "dm");  // 31 December
+        const auto year = t.update(true, 1, k31Jan + 337 * kDay);      // 3 January
+        CHECK(kinds(year) == "dmy" && year.change.days == 3 && year.change.date.year == 1720);
+        // A date that goes back, a new session, leaving: only a new baseline.
+        CHECK(kinds(t.update(true, 1, k31Jan)).empty());
+        CHECK(kinds(t.update(true, 1, k31Jan + kDay)) == "dm");
+        CHECK(kinds(t.update(true, 2, k31Jan + 100 * kDay)).empty());
+        CHECK(kinds(t.update(false, 0, 0)).empty());
+        CHECK(kinds(t.update(true, 2, k31Jan + 101 * kDay)).empty());
+    });
+
+    run("anvil-game: text and tags of the world", [] {
+        using anvil_game::game_text_to_utf8;
+        CHECK(game_text_to_utf8("Moskva") == "Moskva");
+        CHECK(game_text_to_utf8("S\xE3o") == "S\xC3\xA3o");                       // Windows-1252
+        CHECK(game_text_to_utf8("\x80") == "\xE2\x82\xAC");                       // the euro sign
+        CHECK(game_text_to_utf8("\xA7Ygold\xA7!") == "gold");                      // colour codes
+        CHECK(game_text_to_utf8("\xE5\x8C\x97\xE4\xBA\xAC") == "\xE5\x8C\x97\xE4\xBA\xAC");  // UTF-8 stays
+        CHECK(game_text_to_utf8("\xED\xA0\x80") != "\xED\xA0\x80");              // a surrogate is not UTF-8
+        CHECK(anvil_game::fit_utf8("abc", 4) == 3 && anvil_game::fit_utf8("abc", 3) == 2 &&
+              anvil_game::fit_utf8("abc", 1) == 0 && anvil_game::fit_utf8("abc", 0) == 0);
+        CHECK(anvil_game::fit_utf8("\xE5\x8C\x97\xE4\xBA\xAC", 5) == 3);  // never half a character
+        CHECK(anvil_game::tag_bucket("RUS", 0x3F) == (('R' + 'U' + 'S') & 0x3Fu) &&
+              anvil_game::tag_bucket("rus", 0x3F) == anvil_game::tag_bucket("RUS", 0x3F));
+    });
+
     run("anvil-game: the work queue", [] {
         anvil_game::WorkQueue q;
         static std::vector<int> ran;
@@ -350,6 +521,11 @@ int main(int argc, char** argv) {
     });
     bus.register_service("anvil", ANVIL_BENCHMARK_SERVICE, ANVIL_BENCHMARK_SERVICE_VERSION, bench.service());
     Heard& heard = *new Heard;
+    std::vector<std::string>& campaign = *new std::vector<std::string>;
+    for (const char* event : {ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER}) {
+        bus.subscribe("listener", event, listen_campaign, &campaign);
+    }
+    bus.subscribe("listener", ANVIL_GAME_EVENT_FRAME, run_in_frame_handler, nullptr);
     for (const char* event : {ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION,
                               ANVIL_GAME_EVENT_MAIN_MENU}) {
         bus.subscribe("listener", event, listen, &heard);
@@ -364,12 +540,29 @@ int main(int argc, char** argv) {
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest && parsed.manifest->phase == Phase::Early && !parsed.manifest->affects_gameplay);
         if (!parsed.manifest) return;
+        // The world's symbols: their declared bytes at their RVAs, read from the file.
+        std::ifstream symbols_file(dir / parsed.manifest->symbols, std::ios::binary);
+        std::stringstream symbols_text;
+        symbols_text << symbols_file.rdbuf();
+        SymbolFileResult symbols = parse_symbols_text(symbols_text.str());
+        CHECK(symbols.file.has_value());
+        if (!symbols.file) return;
+        CHECK(select_build(*symbols.file, kBuild));
+        bool world = false;
+        for (const Symbol& s : symbols.file->symbols) {
+            world = world || s.name == "province_count";
+            if (!world) continue;
+            for (uint32_t page = *s.rva & ~0xFFFu; page < *s.rva + s.bytes.size(); page += 0x1000) {
+                image.commit(page, PAGE_EXECUTE_READWRITE);
+            }
+            std::memcpy(image.base + *s.rva, s.bytes.data(), s.bytes.size());
+        }
         SymbolVerification verified;
         SymbolFile declared;
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 16);
+        CHECK(reason.empty() && verified.symbols.size() == 34);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -392,6 +585,8 @@ int main(int argc, char** argv) {
               ANVIL_GAME_HAS(service, main_menu));
         CHECK(contains(log, "anvil-game: frame hook staged; events anvil-game.ready, anvil-game.frame, "
                             "anvil-game.session, anvil-game.main_menu; service anvil-game.game v1"));
+        CHECK(contains(log, "anvil-game: service anvil-game.world v1; events anvil-game.day, anvil-game.month, "
+                            "anvil-game.year, anvil-game.player"));
         g_service = service;
     });
     if (plugin == nullptr || service == nullptr) {
@@ -671,6 +866,200 @@ int main(int argc, char** argv) {
         CHECK(host.publish(&other, "other.event", nullptr) == ANVIL_OK);
         CHECK(!changes.suspended(gp));
         CHECK(contains(log, "other: publish anvil-game.session refused: plugins publish only events named other.<name>"));
+    });
+
+    run("anvil-game.world: reads on the main thread after an outer frame, in a session", [&] {
+        const auto* world = static_cast<const AnvilGameWorldService*>(
+            bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
+        CHECK(world != nullptr && world->size == sizeof(AnvilGameWorldService) &&
+              ANVIL_GAME_WORLD_HAS(world, country_provinces));
+        if (world == nullptr) return;
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        const uintptr_t root = reinterpret_cast<uintptr_t>(game.root);
+        std::memcpy(image.base + 0x233FE78, &root, sizeof(root));
+        game.set_session(game.session);
+        FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
+        FakeWorld::set(game.root, 0x1E68, game_tag("---", 0, 0, 0));
+        game.set_date(58'860'240);
+        frame(game.app, 1);
+        CHECK(service->session(nullptr) == 1);
+
+        // Off the moment: from here between frames, from a frame inside a game update, from another thread.
+        AnvilGameTag tag{};
+        AnvilGameProvince p{};
+        p.size = sizeof(p);
+        AnvilGameCountry c{};
+        c.size = sizeof(c);
+        CHECK(world->player(&tag) == ANVIL_ERROR_WRONG_PHASE && world->province_limit() == 0);
+        CHECK(world->province(1, &p) == ANVIL_ERROR_WRONG_PHASE && world->country("RUS", &c) == ANVIL_ERROR_WRONG_PHASE);
+        static AnvilResult inside = ANVIL_OK;
+        static const AnvilGameWorldService* world_inside = nullptr;
+        world_inside = world;
+        g_inside_frame = [] {
+            AnvilGameTag t{};
+            inside = world_inside->player(&t);
+        };
+        frame(game.app, 0);
+        CHECK(inside == ANVIL_ERROR_WRONG_PHASE);
+        inside = ANVIL_OK;
+        frame(game.app, 1);
+        CHECK(inside == ANVIL_ERROR_WRONG_PHASE);
+        g_inside_frame = nullptr;
+
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            CHECK(world->province_limit() == 4);
+            std::thread([&] {
+                AnvilGameTag t{};
+                CHECK(world->player(&t) == ANVIL_ERROR_WRONG_PHASE && world->province_limit() == 0);
+            }).join();
+
+            AnvilGameTag me{};
+            CHECK(world->player(&me) == ANVIL_OK && std::strcmp(me.text, "RUS") == 0);
+            CHECK(world->player(nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+            AnvilGameProvince moskva{};
+            moskva.size = sizeof(moskva);
+            CHECK(world->province(1, &moskva) == ANVIL_OK && moskva.id == 1 && moskva.size == sizeof(moskva));
+            CHECK(std::strcmp(moskva.owner.text, "RUS") == 0 && std::strcmp(moskva.controller.text, "TUR") == 0);
+            CHECK(moskva.base_tax == 15000 && moskva.base_production == 8000 && moskva.base_manpower == 9500);
+            CHECK(moskva.flags == ANVIL_GAME_PROVINCE_LAND);
+            AnvilGameProvince waste{};
+            waste.size = sizeof(waste);
+            CHECK(world->province(2, &waste) == ANVIL_OK && waste.owner.text[0] == 0 &&
+                  waste.flags == (ANVIL_GAME_PROVINCE_LAND | ANVIL_GAME_PROVINCE_WASTELAND));
+            CHECK(world->province(3, &waste) == ANVIL_OK && waste.flags == 0);
+            CHECK(world->province(0, &waste) == ANVIL_ERROR_NOT_FOUND && world->province(4, &waste) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->province(1, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            // A struct as an older header knows it: nothing behind its size is written.
+            struct Older {
+                AnvilGameProvince known;
+            } older{};
+            std::memset(&older, 0xCC, sizeof(older));
+            older.known.size = offsetof(AnvilGameProvince, owner);
+            CHECK(world->province(1, &older.known) == ANVIL_OK && older.known.id == 1 &&
+                  static_cast<uint8_t>(older.known.owner.text[0]) == 0xCC);
+
+            char name[64] = {};
+            uint32_t length = 0;
+            CHECK(world->province_name(1, name, sizeof(name), &length) == ANVIL_OK && std::strcmp(name, "Moskva") == 0 &&
+                  length == 6);
+            CHECK(world->province_name(2, name, sizeof(name), &length) == ANVIL_OK &&
+                  std::string(name) == "S\xC3\xA3o Tom\xC3\xA9 and a name long enough for the heap");
+            CHECK(world->province_name(3, name, 5, &length) == ANVIL_OK && length == 6 &&
+                  std::strcmp(name, "\xE5\x8C\x97") == 0);
+            CHECK(world->province_name(3, nullptr, 0, &length) == ANVIL_OK && length == 6);
+            CHECK(world->province_name(3, nullptr, 8, &length) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+            AnvilGameTag cores[4] = {};
+            uint32_t count = 0;
+            CHECK(world->province_cores(1, cores, 4, &count) == ANVIL_OK && count == 2 &&
+                  std::strcmp(cores[1].text, "TUR") == 0);
+            CHECK(world->province_cores(1, cores, 1, &count) == ANVIL_OK && count == 2);
+            CHECK(world->province_cores(2, nullptr, 0, &count) == ANVIL_OK && count == 0);
+
+            AnvilGameCountry rus{};
+            rus.size = sizeof(rus);
+            CHECK(world->country("rus", &rus) == ANVIL_OK && std::strcmp(rus.tag.text, "RUS") == 0 && rus.capital == 1 &&
+                  rus.province_count == 2 && rus.flags == 0);
+            CHECK(rus.values == (ANVIL_GAME_VALUE_TREASURY | ANVIL_GAME_VALUE_STABILITY | ANVIL_GAME_VALUE_PRESTIGE |
+                                 ANVIL_GAME_VALUE_MANPOWER | ANVIL_GAME_VALUE_MONTHLY_INCOME));
+            CHECK(rus.treasury == 123456 && rus.stability == 2000 && rus.prestige == -5500 && rus.manpower == 25000 &&
+                  rus.monthly_income == 9750);
+            AnvilGameCountry other{};
+            other.size = sizeof(other);
+            CHECK(world->country("TUR", &other) == ANVIL_OK && other.capital == 0 && other.province_count == 0);
+            CHECK(world->country("O00", &other) == ANVIL_OK && other.flags == ANVIL_GAME_COUNTRY_OBSERVER);
+            CHECK(world->country("XXX", &other) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->country("RU", &other) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country("R-S", &other) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country(nullptr, &other) == ANVIL_ERROR_INVALID_ARGUMENT);
+            int32_t ids[4] = {};
+            CHECK(world->country_provinces("RUS", ids, 4, &count) == ANVIL_OK && count == 2 && ids[0] == 1 && ids[1] == 3);
+            CHECK(world->country_provinces("TUR", nullptr, 0, &count) == ANVIL_OK && count == 0);
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+
+        // Memory that is not what it should be costs that answer only.
+        ran = false;
+        FakeWorld::set(fake.province(1), 0x20, 7);  // the entry holds another ID
+        FakeWorld::set(fake.tur, 0x20, game_tag("SWE", 1));
+        FakeWorld::set(fake.province(2), 0x490, uintptr_t{0x1000});
+        FakeWorld::set(fake.province(2), 0x498, uintptr_t{0x1004});
+        FakeWorld::set(fake.province(3), 0x28, uintptr_t{0x10});
+        g_in_frame_handler = [&] {
+            ran = true;
+            AnvilGameProvince q{};
+            q.size = sizeof(q);
+            AnvilGameCountry r{};
+            r.size = sizeof(r);
+            uint32_t count = 0;
+            char name[8] = {};
+            CHECK(world->province(1, &q) == ANVIL_ERROR_INTERNAL && world->country("TUR", &r) == ANVIL_ERROR_INTERNAL);
+            CHECK(world->province_cores(2, nullptr, 0, &count) == ANVIL_ERROR_INTERNAL);
+            CHECK(world->province(3, &q) == ANVIL_ERROR_INTERNAL && world->province_name(3, name, 8, &count) == ANVIL_ERROR_INTERNAL);
+            CHECK(world->province(2, &q) == ANVIL_OK && world->country("RUS", &r) == ANVIL_OK);
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        FakeWorld::set(fake.province(1), 0x20, 1);
+        FakeWorld::set(fake.tur, 0x20, game_tag("TUR", 1));
+
+        // A country value absent on a build: its bit is clear and the field 0.
+        anvil_game::WorldLayout l;
+        l.root = image.address(0x233FE78);
+        l.countries_db = image.address(kCountriesDb);
+        l.provinces = 0x1C90, l.provinces_end = 0x1C98, l.pointer_shift = 3;
+        l.bucket_mask = 0x3F, l.bucket_stride = 0x18, l.buckets = 0x148, l.bucket_count = 0x154, l.compared = 3;
+        l.countries = 0x118, l.country_index_shift = 32, l.country_tag = 0x20, l.tag_kind = 6, l.tag_valid = 7;
+        l.observer_kind = 7, l.capital = 0x14B8, l.owned_count = 0x1344;
+        l.treasury = 0xBB0;
+        AnvilGameCountry partial{};
+        CHECK(anvil_game::read_country(l, "RUS", partial) == ANVIL_OK && partial.values == ANVIL_GAME_VALUE_TREASURY &&
+              partial.treasury == 123456 && partial.stability == 0);
+    });
+
+    run("anvil-game: the campaign's events after outer frames", [&] {
+        constexpr int32_t kDay = 24;
+        constexpr int32_t k31Dec = 43'800'000 + 1719 * 365 * kDay + 364 * kDay;
+        game.set_date(k31Dec - 2 * kDay);
+        frame(game.app, 1);  // far ahead: a day and a month
+        campaign.clear();
+        game.set_date(k31Dec - kDay);
+        frame(game.app, 1);
+        CHECK((campaign == std::vector<std::string>{"day 1 1719.12.30"}));
+        // A frame inside a game update moves the date; the next outer frame reports it.
+        game.set_date(k31Dec);
+        frame(game.app, 0);
+        CHECK(campaign.size() == 1);
+        frame(game.app, 1);
+        CHECK(campaign.size() == 2 && campaign[1] == "day 1 1719.12.31");
+        campaign.clear();
+        game.set_date(k31Dec + kDay);
+        frame(game.app, 1);
+        CHECK((campaign == std::vector<std::string>{"day 1 1720.1.1", "month 1 1720.1.1", "year 1 1720.1.1"}));
+
+        // The player's country: formed, observed, then a new session starts a new baseline.
+        campaign.clear();
+        FakeWorld::set(game.root, 0x1E60, game_tag("TUR", 1));
+        frame(game.app, 1);
+        CHECK((campaign == std::vector<std::string>{"player RUS TUR"}));
+        FakeWorld::set(game.root, 0x1E60, game_tag("O00", 2, 7));
+        FakeWorld::set(game.root, 0x1E68, game_tag("RUS", 0));
+        frame(game.app, 1);
+        CHECK(campaign.size() == 2 && campaign[1] == "player TUR RUS");
+        frame(game.app, 1);
+        CHECK(campaign.size() == 2);
+        campaign.clear();
+        const auto set_session = reinterpret_cast<void (*)(void*, void*)>(image.address(0x756A30));
+        FakeWorld::set(game.root, 0x1E60, game_tag("TUR", 1));
+        game.set_date(k31Dec - 100 * kDay);
+        set_session(game.root, game.session);
+        frame(game.app, 1);
+        CHECK(campaign.empty());
     });
 
     run("anvil-game: a benchmark start quits on the core's event, on the main thread", [&] {

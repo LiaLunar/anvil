@@ -64,7 +64,7 @@ The buffers are the caller's, so no pointer into game memory leaves the service 
 | `manpower` | `+0xDB8` | `CCountry::AddManpower` |
 | `monthly_income` | `+0xE38` | `lea rdi,[r12+0xE38]` in `CCountry::MonthlyUpdateSerial` |
 
-The service copies the field; it never calls these functions. `monthly_income` looks like a snapshot of the monthly update, the only code that takes the field's address after construction [pdb; that it writes there is a hypothesis], and it is not the result of `GetEstimatedMonthlyIncome`, which takes arguments and calculates. So the header says "as of the last monthly update". No one has read these five live: the live check of the release compares them with the country view and the ledger, on both builds.
+The service copies the field; it never calls these functions. `monthly_income` is what the monthly update writes, the income total of the economy view before expenses, and not the result of `GetEstimatedMonthlyIncome`, which takes arguments and calculates. The five were compared with the game's top bar and economy view on both builds [live: anvil#219].
 
 **Not in v1.** The selection stays in Tongs: it hangs off the game session, whose layout differs between builds, and only navigation needs it.
 
@@ -213,9 +213,9 @@ So the first useful step, when it comes, is a small service that posts a short l
 
 ## Limits
 
-- No game was started. The Steam offsets of `root+0x1E28` and `root+0x1E98` and the `_PendingEvents` condition are unchecked; `root+0x1DD0` and `root+0x1E60` from the same class do match Steam [code]. The five country values are checked statically on both builds, never live.
+- No game was started for this ADR; the release of stage 1a was checked in the game on both builds (anvil#219). The Steam offsets of `root+0x1E28` and `root+0x1E98` and the `_PendingEvents` condition are unchecked; `root+0x1DD0` and `root+0x1E60` from the same class do match Steam [code].
 - System fonts in the panel are not tried: neither a CJK panel in the game nor the ImGui upgrade.
-- Whether anything of the simulation runs between outer frames is open: the lab's single-player AI hypothesis says decisions may spread across frames (lab `docs/range-witness-verify.md`). The reads of tongs#107 during a run were 12 reads. A live check reads every frame at speed 5 before release.
+- Whether anything of the simulation runs between outer frames is open: the lab's single-player AI hypothesis says decisions may spread across frames (lab `docs/range-witness-verify.md`). Reads every frame at speed 5 gave no failed read in about 139 000 reads on both builds [live: anvil#219]; that shows the reads hold, not that nothing runs.
 - The number of symbols for the game's GUI, and every effort in the table, are estimates.
 
 ## Decisions of the maintainer (2026-11-05)

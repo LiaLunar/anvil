@@ -185,3 +185,241 @@ signature = "int (void* event)"
 note = "SDL_PushEvent: stamps the event's time with SDL_GetTicks, then queues it"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1746B90 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1730810 }       # SDL_PushEvent_REAL
+
+# --- the world (anvil-game.world): from Tongs, checked live there -------------------
+# Provinces are one array indexed by ID; root+0x1C90 is a vector of pointers to
+# every entry, entry 0 (a dummy) included, so a valid ID is 1 <= id < its length.
+
+[symbol.province_count]
+memory = "code"
+values.root = { at = 3, rip_relative = 7 }
+values.provinces_end = { at = 10, size = 4 }
+values.provinces = { at = 17, size = 4 }
+values.pointer_shift = { at = 24, size = 1 }
+note = "debug_name: (root+0x1C98 - root+0x1C90) >> 3 provinces, the dummy entry 0 included"
+
+[symbol.province_count.build."eu4-1.37.5-steam-win64"]
+rva = 0xE8674D
+bytes = "48 8B 05 24 97 4B 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+
+[symbol.province_count.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xE84E9D
+bytes = "48 8B 05 54 EE 49 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+
+[symbol.province_is_sea]
+memory = "code"
+values.province_size = { at = 3, size = 4 }
+values.root = { at = 10, rip_relative = 14 }
+values.province_array = { at = 17, size = 4 }
+values.static_part = { at = 25, size = 1 }
+values.land_flags = { at = 29, size = 4 }
+values.land_bit = { at = 35, size = 1 }
+note = "is_sea trigger: province = root+0x1CA8 + id*0x2E10; sea or lake when bit 3 of static(+0x28)+0x228 is clear"
+
+[symbol.province_is_sea.build."eu4-1.37.5-steam-win64"]
+rva = 0xC467BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD 96 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+
+[symbol.province_is_sea.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC44F6D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D ED 6D 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+
+[symbol.province_is_wasteland]
+memory = "code"
+values.province_size = { at = 3, size = 4 }
+values.root = { at = 10, rip_relative = 14 }
+values.province_array = { at = 17, size = 4 }
+values.static_part = { at = 25, size = 1 }
+values.wasteland_flags = { at = 29, size = 4 }
+values.wasteland_bit = { at = 35, size = 1 }
+note = "is_wasteland trigger: bit 3 of static+0x229"
+
+[symbol.province_is_wasteland.build."eu4-1.37.5-steam-win64"]
+rva = 0xC400BD
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD FD 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+
+[symbol.province_is_wasteland.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC3E86D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D 54 6E 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+
+[symbol.province_base_tax]
+memory = "code"
+values.owner = { at = 6, size = 4 }
+values.countries_db = { at = 13, rip_relative = 17 }
+values.country_index_shift = { at = 20, size = 1 }
+values.countries = { at = 28, size = 4 }
+values.province_id = { at = 51, size = 1 }
+values.capital = { at = 54, size = 4 }
+values.base_tax = { at = 91, size = 4 }
+note = "script value base_tax: owner tag +0x468, country = (db+0x118)[tag >> 32], capital +0x14B8, base tax +0x3E4 (x 1000)"
+
+[symbol.province_base_tax.build."eu4-1.37.5-steam-win64"]
+rva = 0x6DE7A0
+bytes = """
+4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 1F F1 C5 01 48 C1 E9 20 48 0F BF C9
+48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
+41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
+C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
+"""
+
+[symbol.province_base_tax.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6DE270
+bytes = """
+4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 CF 34 C4 01 48 C1 E9 20 48 0F BF C9
+48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26
+41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2
+C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
+"""
+
+[symbol.province_base_production]
+bytes = "B8 D3 4D 62 10 F7 69 20 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E8 03 00 00"
+memory = "code"
+values.base_production = { at = 31, size = 4 }
+note = "script value base_production: +0x3E8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6DE86C }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE33C }
+
+[symbol.province_base_manpower]
+bytes = "B8 D3 4D 62 10 F7 69 24 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E0 03 00 00"
+memory = "code"
+values.base_manpower = { at = 31, size = 4 }
+note = "script value base_manpower: +0x3E0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6DE8FC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE3CC }
+
+[symbol.province_controller]
+bytes = "48 8B 85 B8 01 00 00 48 89 86 70 04 00 00"
+memory = "code"
+values.controller = { at = 10, size = 4 }
+note = "controller setter 0xA015C0 stores the new controller tag"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA01AC6 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA00AA6 }
+
+[symbol.province_cores]
+bytes = "48 8D B1 90 04 00 00 48 8B 46 08 4C 8B 16 4C 3B D0 74 28 48 C1 EA 20"
+memory = "code"
+values.cores = { at = 3, size = 4 }
+values.cores_end = { at = 10, size = 1 }
+note = "core adder 0xA05770: std::vector of 8-byte tags at +0x490 (begin, end)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA0579E }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA0477E }
+
+[symbol.province_name]
+bytes = "48 8B 8F 60 05 00 00 45 33 C0 48 8B 51 28 48 8B C8 48 83 C2 10"
+memory = "code"
+values.static_part = { at = 13, size = 1 }
+values.name = { at = 20, size = 1 }
+note = "province view label province_name: the displayed name, a std::string at static(+0x28)+0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0xE31A26 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xE30176 }
+
+[symbol.player_country]
+memory = "code"
+values.player_kind = { at = 2, size = 4 }
+values.observer_kind = { at = 6, size = 1 }
+values.observed_valid = { at = 18, size = 4 }
+values.observed = { at = 28, size = 4 }
+values.player = { at = 46, size = 4 }
+values.countries_db = { at = 53, rip_relative = 57 }
+values.countries = { at = 68, size = 4 }
+note = "pre-command hook: player = root+0x1E68 if the kind byte of root+0x1E60 (+6) is 7 and the valid byte of root+0x1E68 (+7) is set, else root+0x1E60"
+
+[symbol.player_country.build."eu4-1.37.5-steam-win64"]
+rva = 0x874133
+bytes = """
+80 B8 66 1E 00 00 07 C6 05 97 E2 74 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
+48 8B 88 68 1E 00 00 EB 10 48 8B 05 1C BD AC 01 EB D5 48 8B 88 60 1E 00 00
+48 8B 05 64 97 AC 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
+"""
+
+[symbol.player_country.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x873423
+bytes = """
+80 B8 66 1E 00 00 07 C6 05 A7 2F 73 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12
+48 8B 88 68 1E 00 00 EB 10 48 8B 05 AC 08 AB 01 EB D5 48 8B 88 60 1E 00 00
+48 8B 05 F4 E2 AA 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
+"""
+
+[symbol.tag_buckets]
+bytes = """
+25 3F 00 00 80 7D 07 FF C8 83 C8 C0 FF C0 48 98 33 ED 48 89 5C 24 50
+48 8D 0C 40 4D 8D 3C CA 4D 63 B7 54 01 00 00 4D 85 F6 7E 45 8B DD 49 8B 87 48 01 00 00
+41 B8 03 00 00 00 48 8B 0C D8
+"""
+memory = "code"
+values.bucket_mask = { at = 1, size = 1 }
+values.bucket_count = { at = 34, size = 4 }
+values.buckets = { at = 48, size = 4 }
+values.compared = { at = 54, size = 4 }
+note = "tag lookup 0x286120: the upper-cased first three characters summed, & 0x3F; bucket = db + 0x18*n (lea rcx,[rax+rax*2]; lea r15,[r10+rcx*8]), 8-byte tags at +0x148, count +0x154, compared by _strnicmp over 3 characters"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2861A4 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x286154 }
+
+[symbol.country_exists]
+memory = "code"
+values.countries_db = { at = 3, rip_relative = 7 }
+values.countries = { at = 22, size = 4 }
+values.owned_count = { at = 32, size = 4 }
+values.kind = { at = 41, size = 1 }
+values.observer_kind = { at = 42, size = 1 }
+note = "AI loop: a country with no provinces (+0x1344 == 0) is skipped unless the kind byte of its own tag (+0x20, kind at +0x26) is 7"
+
+[symbol.country_exists.build."eu4-1.37.5-steam-win64"]
+rva = 0x75B78A
+bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
+[symbol.country_exists.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x75A94A
+bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
+[symbol.country_provinces]
+bytes = "48 8B B1 38 13 00 00 48 63 81 44 13 00 00 4C 8D 24 86"
+memory = "code"
+values.owned = { at = 3, size = 4 }
+values.owned_count = { at = 10, size = 4 }
+note = "tag switch: the country's province IDs (int32) at +0x1338, count +0x1344 (0 = no provinces)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x779429 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x778729 }
+
+# --- the country's values (anvil-game.world) --------------------------------------
+# Getters and setters of CCountry; only the offsets are used, nothing here is called.
+
+[symbol.country_treasury]
+bytes = "8B 81 B0 0B 00 00 89 02 48 8B C2 C3"
+memory = "code"
+values.treasury = { at = 2, size = 4 }
+note = "CCountry::GetTreasury: a fixed point (x 1000) at +0xBB0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A300 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A330 }
+
+[symbol.country_stability]
+bytes = "8B 81 D8 0B 00 00 89 02 48 8B C2 C3"
+memory = "code"
+values.stability = { at = 2, size = 4 }
+note = "CCountry::GetStability: a fixed point at +0xBD8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A310 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A340 }
+
+[symbol.country_prestige]
+bytes = "8B 81 F8 0C 00 00 89 02 48 8B C2 C3"
+memory = "code"
+values.prestige = { at = 2, size = 4 }
+note = "CCountry::GetPrestige: a fixed point at +0xCF8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A330 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A360 }
+
+[symbol.country_manpower]
+bytes = "48 83 EC 28 8B 12 44 8B 81 B8 0D 00 00 44 03 C2"
+memory = "code"
+values.manpower = { at = 9, size = 4 }
+note = "CCountry::AddManpower: a fixed point at +0xDB8, in thousands of men, so the raw value is men"
+build."eu4-1.37.5-steam-win64" = { rva = 0x34CF10 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x34CDE0 }
+
+[symbol.country_monthly_income]
+bytes = "49 8D BC 24 38 0E 00 00 8B 44 24 50 89 07 41 8B DE 49 8B CC"
+memory = "code"
+values.monthly_income = { at = 4, size = 4 }
+note = "CCountry::MonthlyUpdateSerial: _vEstimatedMonthlyIncome at +0xE38 is set to 0, summed and clamped there, once a month: the economy view's income total"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2F75F7 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x2F75A7 }

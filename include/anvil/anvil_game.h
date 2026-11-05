@@ -130,6 +130,148 @@ typedef struct AnvilGameService {
 #define ANVIL_GAME_HAS(service, field) \
     ((service)->size >= offsetof(AnvilGameService, field) + sizeof((service)->field))
 
+/* --- Since anvil-game 1.11.0: the campaign ---------------------------------
+ *
+ * Reads and events for a plugin with no game addresses. All of it only reads:
+ * it calls no game code and changes nothing, so it needs no
+ * affects_gameplay = true. What a plugin then does with the answers is its own
+ * affair: frames differ between the machines of a multiplayer game, so these
+ * events are local observations, not a clock for anything that must match
+ * there. Anvil's ADR 0004 has the reasons. */
+
+/* A country's tag: three characters and a NUL, "" for no country. */
+typedef struct AnvilGameTag {
+    char text[4];
+} AnvilGameTag;
+
+/* After the outer frame in which the date moved, while a session runs. Each is
+ * published at most once per frame: `days` says how many days it covers, 1 in
+ * a single-player game, perhaps more on a multiplayer client. So .month and
+ * .year come after .day of the same frame, and by then the game has run its
+ * monthly and yearly updates. Nothing is published for the first date of a
+ * session, across a load, or for a date that goes back. Payload
+ * const AnvilGameDateChange*, valid for the handler. */
+#define ANVIL_GAME_EVENT_DAY "anvil-game.day"
+#define ANVIL_GAME_EVENT_MONTH "anvil-game.month"
+#define ANVIL_GAME_EVENT_YEAR "anvil-game.year"
+
+typedef struct AnvilGameDateChange {
+    uint32_t size; /* sizeof(AnvilGameDateChange) as known by anvil-game */
+    uint32_t days;
+    AnvilGameDate date;
+    AnvilGameDate previous;
+} AnvilGameDateChange;
+
+/* After the outer frame in which the player's country changed within a
+ * session: a formed nation, observe mode, the console's tag. Not for the first
+ * country of a session. Payload const AnvilGamePlayerChange*. */
+#define ANVIL_GAME_EVENT_PLAYER "anvil-game.player"
+
+typedef struct AnvilGamePlayerChange {
+    uint32_t size; /* sizeof(AnvilGamePlayerChange) as known by anvil-game */
+    AnvilGameTag tag;
+    AnvilGameTag previous;
+    uint64_t session; /* AnvilGameSession.number */
+} AnvilGamePlayerChange;
+
+/* AnvilGameProvince.flags */
+#define ANVIL_GAME_PROVINCE_LAND 0x1u      /* not a sea or a lake */
+#define ANVIL_GAME_PROVINCE_WASTELAND 0x2u
+
+/* AnvilGameCountry.flags */
+#define ANVIL_GAME_COUNTRY_OBSERVER 0x1u   /* the observer's pseudo-country */
+
+/* AnvilGameCountry.values: the fields below this game build has. */
+#define ANVIL_GAME_VALUE_TREASURY 0x1u
+#define ANVIL_GAME_VALUE_STABILITY 0x2u
+#define ANVIL_GAME_VALUE_PRESTIGE 0x4u
+#define ANVIL_GAME_VALUE_MANPOWER 0x8u
+#define ANVIL_GAME_VALUE_MONTHLY_INCOME 0x10u
+
+/* Set `size` to sizeof(the struct) before a call: only that much is written,
+ * so a plugin built against an older header stays safe. Values marked x 1000
+ * are as the game stores them: 4500 is 4.5. */
+typedef struct AnvilGameProvince {
+    uint32_t size;
+    int32_t id;
+    AnvilGameTag owner;
+    AnvilGameTag controller;
+    int32_t base_tax;        /* x 1000, without the capital's bonus */
+    int32_t base_production; /* x 1000 */
+    int32_t base_manpower;   /* x 1000 */
+    uint32_t flags;          /* ANVIL_GAME_PROVINCE_* */
+} AnvilGameProvince;
+
+typedef struct AnvilGameCountry {
+    uint32_t size;
+    AnvilGameTag tag;
+    int32_t capital;        /* a province ID; 0: none */
+    int32_t province_count; /* > 0: the country exists on the map */
+    uint32_t flags;         /* ANVIL_GAME_COUNTRY_* */
+    uint32_t values;        /* ANVIL_GAME_VALUE_*; a field without its bit is 0 */
+    int32_t treasury;       /* x 1000, ducats */
+    int32_t stability;      /* x 1000 */
+    int32_t prestige;       /* x 1000 */
+    int32_t manpower;       /* x 1000 of the game's thousands: 25000 is 25 000 men */
+    int32_t monthly_income; /* x 1000: the income total of the economy view, before expenses, as of the last
+                             * monthly update */
+} AnvilGameCountry;
+
+#define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
+#define ANVIL_GAME_WORLD_SERVICE_VERSION 1
+
+/* The world of the running session, read straight from the game. NULL from
+ * get_service with an older anvil-game, or on a game build whose symbols for
+ * it are declared absent.
+ *
+ * Thread. Call only on the game's main thread, after an outer frame: from a
+ * handler of an anvil-game event or from run_on_main_thread work. Anywhere
+ * else, and outside a session, a call answers ANVIL_ERROR_WRONG_PHASE and reads
+ * nothing: the game is in the middle of a day on any other thread and in any
+ * frame drawn inside its update.
+ *
+ * Results. ANVIL_ERROR_NOT_FOUND for an unknown province ID or tag,
+ * ANVIL_ERROR_INVALID_ARGUMENT for a bad argument or a tag that is not three
+ * characters, ANVIL_ERROR_INTERNAL when the game's memory is not what it should
+ * be, which costs that answer only.
+ *
+ * Buffers are the caller's. A list or a name is filled as far as it fits and
+ * *count or *length gets the whole size, so a call with capacity 0 asks for it.
+ *
+ * Cost. A province read takes about 100 ns, and nothing is kept between calls.
+ * A pass over the whole map takes about 0.6 ms: fine once a month, not for a
+ * plugin that does it every day of a 35 ms game day without a reason.
+ *
+ * What it shows. Everything: provinces under terra incognita and any country,
+ * also in multiplayer, where that is more than the player sees. Anvil cannot
+ * hide what a native plugin can read for itself, so it does not try. A plugin
+ * that shows such values in multiplayer does not enter Anvil's catalog.
+ *
+ * Within version 1 fields are only appended to the structs and functions to
+ * the end of the service; check with ANVIL_GAME_WORLD_HAS. */
+typedef struct AnvilGameWorldService {
+    uint32_t size; /* sizeof(AnvilGameWorldService) as known by anvil-game */
+
+    /* The country the game treats as the player's, the observed one in
+     * observe mode. */
+    AnvilResult (*player)(AnvilGameTag *out);
+    /* Valid province IDs are 1 .. limit - 1; 0 where a call is not allowed. */
+    int32_t (*province_limit)(void);
+    AnvilResult (*province)(int32_t id, AnvilGameProvince *out);
+    /* The name the game displays, which follows the owner's culture, in UTF-8
+     * with a NUL, cut at a whole character. */
+    AnvilResult (*province_name)(int32_t id, char *utf8, uint32_t capacity, uint32_t *length);
+    AnvilResult (*province_cores)(int32_t id, AnvilGameTag *out, uint32_t capacity, uint32_t *count);
+    /* `tag` ignores case. */
+    AnvilResult (*country)(const char *tag, AnvilGameCountry *out);
+    /* The IDs of the provinces it owns, in the game's order. */
+    AnvilResult (*country_provinces)(const char *tag, int32_t *ids, uint32_t capacity, uint32_t *count);
+} AnvilGameWorldService;
+
+/* Nonzero when `service` provides `field`. */
+#define ANVIL_GAME_WORLD_HAS(service, field) \
+    ((service)->size >= offsetof(AnvilGameWorldService, field) + sizeof((service)->field))
+
 #ifdef __cplusplus
 }
 #endif

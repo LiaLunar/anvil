@@ -29,6 +29,28 @@ constexpr std::int32_t kUnsetDate = 43'800'000 + 365 * 24;
 // leap days), as Tongs reads it for tongs_state. `session` is left 0.
 AnvilGameDate decode_date(std::int32_t hours);
 
+// What one frame's date gives: the events to publish, and their payload.
+struct DateEvents {
+    bool day = false;
+    bool month = false;
+    bool year = false;
+    AnvilGameDateChange change{};
+};
+
+// Compares the date frame by frame. The first date of a session is the
+// baseline, a session change starts a new one, and a date that goes back only
+// moves the baseline. Main thread only.
+class DateTracker {
+public:
+    // `running`: a session runs; `session`: its number; `hours`: the root's date.
+    DateEvents update(bool running, std::uint64_t session, std::int32_t hours);
+
+private:
+    bool known_ = false;
+    std::uint64_t session_ = 0;
+    std::int32_t hours_ = 0;
+};
+
 // The session events one view causes, in order: at most an ENDED and a STARTED.
 struct SessionChanges {
     AnvilGameSession items[2]{};

@@ -29,6 +29,32 @@ AnvilGameDate decode_date(std::int32_t hours) {
     return out;
 }
 
+DateEvents DateTracker::update(bool running, std::uint64_t session, std::int32_t hours) {
+    DateEvents out;
+    if (!running) {
+        known_ = false;
+        return out;
+    }
+    const bool same = known_ && session == session_;
+    const std::int64_t previous_days = floor_div(hours_, 24);
+    const std::int64_t days = floor_div(hours, 24);
+    const std::int32_t previous = hours_;
+    known_ = true;
+    session_ = session;
+    hours_ = hours;
+    if (!same || days <= previous_days) return out;
+    out.change.size = sizeof(AnvilGameDateChange);
+    out.change.days = static_cast<std::uint32_t>(days - previous_days);
+    out.change.date = decode_date(hours);
+    out.change.date.session = session;
+    out.change.previous = decode_date(previous);
+    out.change.previous.session = session;
+    out.day = true;
+    out.year = out.change.date.year != out.change.previous.year;
+    out.month = out.year || out.change.date.month != out.change.previous.month;
+    return out;
+}
+
 SessionChanges SessionTracker::update(const SessionView& view) {
     SessionChanges out;
     if (!view.readable) return out;

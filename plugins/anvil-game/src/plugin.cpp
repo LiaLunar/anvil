@@ -11,11 +11,15 @@
 //   3. the main menu: outside a session, whether the front end is in its
 //      main-menu state, published when it changes;
 //   4. the work queued with run_on_main_thread;
-//   5. the frame event.
+//   5. the date's and the player's events, by comparing them with the last frame;
+//   6. the frame event.
 // Frames drawn inside a game update or a save load (outer = 0) and frames on
 // any other thread are passed on untouched; anvil-game only counts the
 // nested ones that run, so the main menu is not reported over a loading
 // screen.
+//
+// The service anvil-game.world reads the world in those same moments: on the
+// main thread, inside this step, while a session runs (world.hpp).
 //
 // In a start-up benchmark start it also quits the game when the core says so
 // (ANVIL_BENCHMARK_EVENT_QUIT): SDL_QUIT pushed on the main thread, which is
@@ -33,18 +37,25 @@
 
 #include "session.hpp"
 #include "work_queue.hpp"
+#include "world.hpp"
 
+#include <algorithm>
 #include <atomic>
 #include <mutex>
 #include <new>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace {
 
+using anvil_game::DateEvents;
+using anvil_game::DateTracker;
 using anvil_game::SessionChanges;
 using anvil_game::SessionTracker;
 using anvil_game::SessionView;
 using anvil_game::WorkQueue;
+using anvil_game::WorldLayout;
 using anvil_game::kUnsetDate;
 
 // What the hook reads, all from verified symbols and values (symbols.toml).
@@ -79,6 +90,16 @@ std::atomic<bool> g_main_menu{false};
 std::atomic<int> g_nested_frames{0};
 WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
+DateTracker g_dates;       // main thread only
+
+// The world: false when a symbol of it is absent on this build.
+WorldLayout g_world;
+bool g_world_available = false;
+// Inside after_frame(): the moment a world read is allowed.
+std::atomic<bool> g_after_frame{false};
+// The player's country of this session, to compare frame by frame. Main thread only.
+AnvilGameTag g_player{};
+std::uint64_t g_player_session = 0;
 
 // The session and its date as the service reports them to any thread.
 std::mutex g_session_mutex;
@@ -148,7 +169,31 @@ const char* mode_text(const AnvilGameSession& s) {
     return "neither ironman nor multiplayer";
 }
 
-void after_frame(std::uint64_t number) {
+bool same_tag(const AnvilGameTag& a, const AnvilGameTag& b) { return std::memcmp(a.text, b.text, sizeof(a.text)) == 0; }
+
+void publish_date(const DateEvents& events) {
+    if (events.day) publish(ANVIL_GAME_EVENT_DAY, &events.change);
+    if (events.month) publish(ANVIL_GAME_EVENT_MONTH, &events.change);
+    if (events.year) publish(ANVIL_GAME_EVENT_YEAR, &events.change);
+}
+
+void publish_player(std::uint64_t session) {
+    AnvilGameTag tag{};
+    if (anvil_game::read_player(g_world, tag) != ANVIL_OK) return;
+    const AnvilGameTag previous = g_player;
+    const bool same_session = session == g_player_session;
+    g_player = tag;
+    g_player_session = session;
+    if (!same_session || same_tag(tag, previous)) return;
+    AnvilGamePlayerChange change{};
+    change.size = sizeof(change);
+    change.tag = tag;
+    change.previous = previous;
+    change.session = session;
+    publish(ANVIL_GAME_EVENT_PLAYER, &change);
+}
+
+void after_frame_body(std::uint64_t number) {
     const anvil::Host host;
     if (!g_ready.load(std::memory_order_relaxed) && *g_layout.ready_flag == 1) {
         g_ready.store(true, std::memory_order_release);
@@ -196,10 +241,21 @@ void after_frame(std::uint64_t number) {
     }
     g_work.run();
     g_frame_number.store(number, std::memory_order_release);
+    const bool running = view.running && g_tracker.active();
+    publish_date(g_dates.update(running, g_tracker.current().number, view.date));
+    if (running && g_world_available) publish_player(g_tracker.current().number);
     AnvilGameFrame frame{};
     frame.size = sizeof(frame);
     frame.number = number;
     publish(ANVIL_GAME_EVENT_FRAME, &frame);
+}
+
+void after_frame(std::uint64_t number) {
+    struct Open {
+        Open() { g_after_frame.store(true, std::memory_order_release); }
+        ~Open() { g_after_frame.store(false, std::memory_order_release); }
+    } open;
+    after_frame_body(number);
 }
 
 // A save loaded from the game menu puts the same session object back into
@@ -303,6 +359,175 @@ constexpr AnvilGameService kService = {
     service_session,          service_date,  service_main_menu,
 };
 
+// ---- the world service ------------------------------------------------------
+
+bool world_open() {
+    return GetCurrentThreadId() == g_main_thread.load(std::memory_order_acquire) &&
+           g_after_frame.load(std::memory_order_acquire) && g_tracker.active();
+}
+
+// The caller's struct takes only what its `size` covers, and keeps that size.
+template <class T>
+AnvilResult give(T* out, T& value) {
+    const std::uint32_t size = out->size;
+    value.size = size;
+    std::memcpy(out, &value, std::min<std::size_t>(size, sizeof(T)));
+    return ANVIL_OK;
+}
+
+AnvilResult world_player(AnvilGameTag* out) {
+    if (out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return world_open() ? anvil_game::read_player(g_world, *out) : ANVIL_ERROR_WRONG_PHASE;
+}
+
+std::int32_t world_province_limit() { return world_open() ? anvil_game::read_province_limit(g_world) : 0; }
+
+AnvilResult world_province(std::int32_t id, AnvilGameProvince* out) {
+    if (out == nullptr || out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    AnvilGameProvince province{};
+    const AnvilResult r = anvil_game::read_province(g_world, id, province);
+    return r == ANVIL_OK ? give(out, province) : r;
+}
+
+// A list's answer: as much as fits, and the whole count.
+template <class T>
+void give_list(const std::vector<T>& list, T* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0) std::memcpy(out, list.data(), std::min<std::size_t>(capacity, list.size()) * sizeof(T));
+    if (count != nullptr) *count = static_cast<std::uint32_t>(list.size());
+}
+
+AnvilResult world_province_name(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && utf8 == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string name;
+        const AnvilResult r = anvil_game::read_province_name(g_world, id, name);
+        if (r != ANVIL_OK) return r;
+        if (capacity != 0) {
+            const std::size_t fits = anvil_game::fit_utf8(name, capacity);
+            std::memcpy(utf8, name.data(), fits);
+            utf8[fits] = '\0';
+        }
+        if (length != nullptr) *length = static_cast<std::uint32_t>(name.size());
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_province_cores(std::int32_t id, AnvilGameTag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<AnvilGameTag> cores;
+        const AnvilResult r = anvil_game::read_province_cores(g_world, id, cores);
+        if (r == ANVIL_OK) give_list(cores, out, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_country(const char* tag, AnvilGameCountry* out) {
+    if (tag == nullptr || out == nullptr || out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    AnvilGameCountry country{};
+    const AnvilResult r = anvil_game::read_country(g_world, tag, country);
+    return r == ANVIL_OK ? give(out, country) : r;
+}
+
+AnvilResult world_country_provinces(const char* tag, std::int32_t* ids, std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr || (capacity != 0 && ids == nullptr)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<std::int32_t> provinces;
+        const AnvilResult r = anvil_game::read_country_provinces(g_world, tag, provinces);
+        if (r == ANVIL_OK) give_list(provinces, ids, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+constexpr AnvilGameWorldService kWorldService = {
+    sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
+    world_province_name,           world_province_cores, world_country,        world_country_provinces,
+};
+
+// A port may declare these symbols absent on a new build (ADR 0004): the game
+// then runs with the session and without the world, or without a country value.
+void load_world(anvil::Host& host) {
+    const bool present = host.present(sym::province_count) && host.present(sym::province_is_sea) &&
+                         host.present(sym::province_is_wasteland) && host.present(sym::province_base_tax) &&
+                         host.present(sym::province_base_production) && host.present(sym::province_base_manpower) &&
+                         host.present(sym::province_controller) && host.present(sym::province_cores) &&
+                         host.present(sym::province_name) && host.present(sym::player_country) &&
+                         host.present(sym::tag_buckets) && host.present(sym::country_exists) &&
+                         host.present(sym::country_provinces);
+    if (!present) {
+        host.info("the world's symbols are absent on this build: no service {}", ANVIL_GAME_WORLD_SERVICE);
+        return;
+    }
+    const std::uintptr_t base = host.game().image_base;
+    const std::uint64_t root = host.value(sym::root_and_date, "root");
+    if (host.value(sym::province_count, "root") != root || host.value(sym::province_is_sea, "root") != root ||
+        host.value(sym::province_is_wasteland, "root") != root ||
+        host.value(sym::player_country, "countries_db") != host.value(sym::province_base_tax, "countries_db") ||
+        host.value(sym::country_exists, "countries_db") != host.value(sym::province_base_tax, "countries_db")) {
+        host.warn("the world's symbols disagree on the game root: no service {}", ANVIL_GAME_WORLD_SERVICE);
+        return;
+    }
+    WorldLayout l;
+    l.root = base + root;
+    l.countries_db = base + host.value(sym::province_base_tax, "countries_db");
+    l.provinces = sym::province_count.provinces;
+    l.provinces_end = sym::province_count.provinces_end;
+    l.pointer_shift = sym::province_count.pointer_shift;
+    l.province_array = sym::province_is_sea.province_array;
+    l.province_size = sym::province_is_sea.province_size;
+    l.province_id = sym::province_base_tax.province_id;
+    l.owner = sym::province_base_tax.owner;
+    l.controller = sym::province_controller.controller;
+    l.cores = sym::province_cores.cores;
+    l.cores_end = sym::province_cores.cores_end;
+    l.base_tax = sym::province_base_tax.base_tax;
+    l.base_production = sym::province_base_production.base_production;
+    l.base_manpower = sym::province_base_manpower.base_manpower;
+    l.static_part = sym::province_is_sea.static_part;
+    l.name = sym::province_name.name;
+    l.land_flags = sym::province_is_sea.land_flags;
+    l.land_bit = sym::province_is_sea.land_bit;
+    l.wasteland_flags = sym::province_is_wasteland.wasteland_flags;
+    l.wasteland_bit = sym::province_is_wasteland.wasteland_bit;
+    l.country_index_shift = sym::province_base_tax.country_index_shift;
+    l.tag_kind = sym::player_country.player_kind - sym::player_country.player;
+    l.tag_valid = sym::player_country.observed_valid - sym::player_country.observed;
+    l.observer_kind = sym::player_country.observer_kind;
+    l.countries = sym::province_base_tax.countries;
+    l.buckets = sym::tag_buckets.buckets;
+    l.bucket_count = sym::tag_buckets.bucket_count;
+    l.bucket_mask = sym::tag_buckets.bucket_mask;
+    l.bucket_stride = 0x18;  // the lea pair of tag_buckets: lea rcx,[rax+rax*2]; lea r15,[r10+rcx*8]
+    l.compared = sym::tag_buckets.compared;
+    l.country_tag = sym::country_exists.kind - l.tag_kind;
+    l.capital = sym::province_base_tax.capital;
+    l.owned = sym::country_provinces.owned;
+    l.owned_count = sym::country_provinces.owned_count;
+    l.player = sym::player_country.player;
+    l.observed = sym::player_country.observed;
+    if (host.present(sym::country_treasury)) l.treasury = sym::country_treasury.treasury;
+    if (host.present(sym::country_stability)) l.stability = sym::country_stability.stability;
+    if (host.present(sym::country_prestige)) l.prestige = sym::country_prestige.prestige;
+    if (host.present(sym::country_manpower)) l.manpower = sym::country_manpower.manpower;
+    if (host.present(sym::country_monthly_income)) l.monthly_income = sym::country_monthly_income.monthly_income;
+    g_world = l;
+    g_world_available = true;
+    host.register_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION, kWorldService);
+    host.info("service {} v{}; events {}, {}, {}, {}", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
+              ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER);
+}
+
 struct AnvilGame : anvil::Plugin {
     void load(anvil::Host& host) override {
         g_layout.frame_counter = sym::frame_counter.counter;
@@ -325,6 +550,7 @@ struct AnvilGame : anvil::Plugin {
         g_layout.frontend_state = static_cast<std::uint32_t>(host.value(sym::frontend_state, "state"));
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);
+        load_world(host);
         host.hook(g_frame, sym::frame, on_frame);
         host.hook(g_set_session, sym::set_session, on_set_session);
         host.info("frame hook staged; events {}, {}, {}, {}; service {} v{}", ANVIL_GAME_EVENT_READY,

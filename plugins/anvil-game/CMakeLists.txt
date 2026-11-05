@@ -7,4 +7,4 @@ if(NOT COMMAND anvil_add_plugin)
     find_package(AnvilPlugin REQUIRED)
 endif()
 
-anvil_add_plugin(anvil_game SOURCES src/plugin.cpp src/session.cpp src/work_queue.cpp)
+anvil_add_plugin(anvil_game SOURCES src/plugin.cpp src/session.cpp src/work_queue.cpp src/world.cpp)
