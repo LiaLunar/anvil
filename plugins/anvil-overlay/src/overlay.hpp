@@ -3,6 +3,7 @@
 #pragma once
 
 #include "control_client.hpp"
+#include "panels.hpp"
 
 #include <anvil/anvil_game.h>
 #include <windows.h>
@@ -32,6 +33,10 @@ struct Shared {
     // and the menu as its last event said.
     const AnvilGameService* game = nullptr;
     std::atomic<bool> main_menu{false};
+    // anvil-game's service of any version, for the clicks of plugins' panels.
+    const AnvilGameService* game_work = nullptr;
+    // The windows of plugins (anvil-overlay.panel).
+    PanelStore panels;
 
     // Settings (settings.toml), updated by their callbacks.
     std::atomic<int64_t> panel_key{0};

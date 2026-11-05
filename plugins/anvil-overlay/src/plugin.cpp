@@ -336,6 +336,36 @@ void on_game_ready() {
     }
 }
 
+// ---- anvil-overlay.panel ----------------------------------------------------
+
+AnvilResult panel_create(const char* title, AnvilPanel** out) {
+    try {
+        return shared().panels.create(title, out);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+AnvilResult panel_set_rows(AnvilPanel* panel, const AnvilPanelRow* rows, std::uint32_t count, std::uint32_t row_size) {
+    try {
+        return shared().panels.set_rows(panel, rows, count, row_size);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+AnvilResult panel_on_click(AnvilPanel* panel, AnvilPanelClick click, void* context) {
+    return shared().panels.on_click(panel, click, context);
+}
+AnvilResult panel_show(AnvilPanel* panel, int shown) {
+    const AnvilResult r = shared().panels.show(panel, shown != 0);
+    shared().mark_dirty();
+    return r;
+}
+int panel_shown(const AnvilPanel* panel) { return shared().panels.shown(panel) ? 1 : 0; }
+const char* panel_language() { return anvil::i18n::language_code(anvil::i18n::language()); }
+
+constexpr AnvilPanelService kPanelService = {sizeof(AnvilPanelService), panel_create, panel_set_rows, panel_on_click,
+                                             panel_show,                panel_shown,  panel_language};
+
 // The player's language: ANVIL_LANGUAGE, else the `language` setting, else
 // the core's choice (EU4's settings.txt, or with Mei Steam's or Windows').
 void apply_language() {
@@ -404,6 +434,8 @@ struct AnvilOverlay : anvil::Plugin {
         // and no badge in the menu.
         const auto* game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
         s.uses_game_plugin.store(game != nullptr);
+        s.game_work = game;
+        host.register_service(ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION, kPanelService);
         if (game != nullptr) {
             host.subscribe(ANVIL_GAME_EVENT_READY, [] { on_game_ready(); });
             host.subscribe(ANVIL_GAME_EVENT_SESSION, [] {

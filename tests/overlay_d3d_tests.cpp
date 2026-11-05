@@ -17,6 +17,7 @@
 #include "test_support.hpp"
 
 #include <anvil/anvil_game.h>
+#include <anvil/anvil_panel.h>
 #include <anvil/anvil_plugin.h>
 #include <windows.h>
 #include <d3d9.h>
@@ -43,7 +44,16 @@ bool g_nested_frame = false;
 int fake_ready() { return 1; }
 uint32_t fake_main_thread() { return GetCurrentThreadId(); }
 uint64_t fake_frame_number() { return 0; }
-AnvilResult fake_run_on_main_thread(AnvilGameWork, void*) { return ANVIL_ERROR_UNSUPPORTED; }
+std::vector<std::pair<AnvilGameWork, void*>> g_work;
+AnvilResult fake_run_on_main_thread(AnvilGameWork work, void* context) {
+    g_work.emplace_back(work, context);
+    return ANVIL_OK;
+}
+void run_work() {
+    const auto work = std::move(g_work);
+    g_work.clear();
+    for (const auto& [run, context] : work) run(context);
+}
 int fake_session(AnvilGameSession*) { return 0; }
 int fake_date(AnvilGameDate*) { return 0; }
 int fake_main_menu() { return g_main_menu && !g_nested_frame ? 1 : 0; }
@@ -344,6 +354,78 @@ int main(int argc, char** argv) {
         bus.publish(ANVIL_GAME_EVENT_MAIN_MENU, nullptr);
         frame(device, badge);
         CHECK(frame(device, badge) == 0);
+    });
+
+    run("overlay: a plugin's panel is drawn, takes its clicks after a frame, and draws CJK text", [&] {
+        const auto* panels = static_cast<const AnvilPanelService*>(bus.get_service(ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION));
+        CHECK(panels != nullptr && panels->size == sizeof(AnvilPanelService) && ANVIL_PANEL_HAS(panels, language));
+        if (panels == nullptr) return;
+        CHECK(std::string(panels->language()) == "en");
+        AnvilPanel* panel = nullptr;
+        CHECK(panels->create("Test panel", &panel) == ANVIL_OK);
+        const RECT area{0, 100, 500, 500};
+        const size_t empty = frame(device, area);
+        // A panel with no rows yet still shows its title.
+        CHECK(panels->show(panel, 1) == ANVIL_OK);
+        size_t bare = 0;
+        for (int i = 0; i < 3; ++i) bare = frame(device, area);
+        CHECK(bare > 1500);
+        CHECK(panels->show(panel, 0) == ANVIL_OK);
+        frame(device, area);
+
+        const AnvilPanelRow rows[] = {{ANVIL_PANEL_TEXT, 0, "Treasury", "100", 0},
+                                      {ANVIL_PANEL_TEXT, 0, "Stability", "3", 0},
+                                      {ANVIL_PANEL_SEPARATOR, 0, nullptr, nullptr, 0},
+                                      {ANVIL_PANEL_BUTTON, 0, "Save the stats", nullptr, 42}};
+        CHECK(panels->set_rows(panel, rows, 4, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        static uint64_t clicked = 0;
+        CHECK(panels->on_click(panel, [](void*, uint64_t id) { clicked = id; }, nullptr) == ANVIL_OK);
+        CHECK(panels->show(panel, 1) == ANVIL_OK && panels->shown(panel) == 1);
+        size_t drawn = 0;
+        for (int i = 0; i < 3; ++i) drawn = frame(device, area);
+        CHECK(empty == 0 && drawn > 2000);
+        CHECK(!contains(log, "system fonts merged"));
+
+        // The button, under the window's title bar and the two rows. ImGui lays
+        // out in the client area, which the back buffer is stretched to.
+        RECT client{};
+        GetClientRect(window, &client);
+        const auto x = [&](int v) { return v * client.right / static_cast<int>(kWidth); };
+        const auto y = [&](int v) { return v * client.bottom / static_cast<int>(kHeight); };
+        const int presses = g_game_button_downs;
+        for (int row = 290; row < 370 && clicked == 0; row += 6) {
+            const LPARAM at = point(x(100), y(row));
+            SendMessageW(window, WM_MOUSEMOVE, 0, at);
+            for (int i = 0; i < 2; ++i) frame(device, area);
+            SendMessageW(window, WM_LBUTTONDOWN, MK_LBUTTON, at);
+            frame(device, area);
+            SendMessageW(window, WM_LBUTTONUP, 0, at);
+            for (int i = 0; i < 2; ++i) frame(device, area);
+            CHECK(clicked == 0);  // only after an outer frame
+            run_work();
+        }
+        CHECK(clicked == 42 && g_game_button_downs == presses);
+        SendMessageW(window, WM_MOUSEMOVE, 0, point(client.right - 20, client.bottom - 20));
+        frame(device, area);
+
+        // Chinese, Japanese and Korean from the fonts of Windows: more is drawn
+        // than the same rows without them, where only a placeholder would be.
+        const AnvilPanelRow cjk[] = {{ANVIL_PANEL_TEXT, 0, "\xE5\x8C\x97\xE4\xBA\xAC\xE5\xB8\x82", "\xE6\x9D\xB1\xE4\xBA\xAC", 0},
+                                     {ANVIL_PANEL_TEXT, 0, "\xEC\x84\x9C\xEC\x9A\xB8", "\xE3\x81\x82\xE3\x81\x84", 0}};
+        CHECK(panels->set_rows(panel, cjk, 2, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        for (int i = 0; i < 4; ++i) drawn = frame(device, area);
+        CHECK(drawn > 800);
+        CHECK(contains(log, "system fonts merged"));
+
+        // After a device reset it still draws.
+        D3DPRESENT_PARAMETERS again = parameters(window);
+        CHECK(SUCCEEDED(device->Reset(&again)));
+        frame(device, area);
+        CHECK(frame(device, area) > 800);
+
+        CHECK(panels->show(panel, 0) == ANVIL_OK && panels->shown(panel) == 0);
+        frame(device, area);
+        CHECK(frame(device, area) == 0);
     });
 
     device->Release();

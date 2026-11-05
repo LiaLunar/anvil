@@ -35,7 +35,7 @@ target_compile_definitions(anvil_overlay_imgui PUBLIC
 set_target_properties(anvil_overlay_imgui PROPERTIES COMPILE_WARNING_AS_ERROR OFF POSITION_INDEPENDENT_CODE ON)
 set(ANVIL_OVERLAY_IMGUI_LICENSE ${imgui_SOURCE_DIR}/LICENSE.txt CACHE INTERNAL "")
 
-anvil_add_plugin(anvil_overlay SOURCES src/plugin.cpp src/ui.cpp src/notices.cpp src/control_client.cpp)
+anvil_add_plugin(anvil_overlay SOURCES src/plugin.cpp src/ui.cpp src/notices.cpp src/control_client.cpp src/panels.cpp)
 target_include_directories(anvil_overlay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control)
 target_link_libraries(anvil_overlay PRIVATE anvil_overlay_imgui anvil_i18n)
 target_sources(anvil_overlay PRIVATE ${ANVIL_CJK_FONTS_RC})

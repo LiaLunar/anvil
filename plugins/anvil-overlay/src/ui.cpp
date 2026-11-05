@@ -14,7 +14,10 @@
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
+#include <climits>
+#include <iterator>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -41,8 +44,9 @@ struct Ui {
     IDirect3DDevice9* dx9_device = nullptr;  // the DX9 backend's device
     HWND win32_window = nullptr;             // the Win32 backend's window
     bool was_visible = false;
-    double font_scale = 0.0;  // the scale the font atlas was built for
+    double font_scale = 0.0;  // the scale the fonts were loaded for
     anvil::i18n::Language font_language = anvil::i18n::Language::English;  // and the language
+    bool system_fonts = false;  // the CJK fonts of Windows are merged in
     ImGuiStyle base_style;
 
     // The badge in the main menu: the status it shows, read once a second.
@@ -213,7 +217,7 @@ bool notice_alive(const ShownNotice& n, ULONGLONG now) {
 bool content_visible(ULONGLONG now) {
     const Shared& s = shared();
     const Ui& u = ui();
-    bool any = !u.session.empty() || s.panel_open.load() || s.recording_key.load();
+    bool any = !u.session.empty() || s.panel_open.load() || s.recording_key.load() || s.panels.any_shown();
     for (const ShownNotice& n : u.start) any = any || notice_alive(n, now);
     return any;
 }
@@ -282,6 +286,74 @@ void build_fonts(double font_scale, anvil::i18n::Language language) {
     std::snprintf(line, sizeof(line), "fonts for %s at scale %.2f loaded in %.1f ms", anvil::i18n::language_code(language),
                   font_scale, ms);
     log_info(line);
+    ui().system_fonts = false;
+}
+
+// A font file of Windows, mapped once for the process. ImGui reads it through
+// the view, so it costs address space and the pages its glyphs touch.
+struct MappedFont {
+    const wchar_t* file = nullptr;
+    void* view = nullptr;
+    int size = 0;
+    bool opened = false;
+};
+
+MappedFont g_system_fonts[] = {{L"msyh.ttc"}, {L"msjh.ttc"}, {L"YuGothR.ttc"}, {L"malgun.ttf"}};
+enum SystemFont { kYaHei, kJhengHei, kYuGothic, kMalgun };
+
+void map_font(MappedFont& font) {
+    if (font.opened) return;
+    font.opened = true;
+    wchar_t windows[MAX_PATH] = {};
+    if (GetWindowsDirectoryW(windows, MAX_PATH) == 0) return;
+    const std::wstring path = std::wstring(windows) + L"\\Fonts\\" + font.file;
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < INT_MAX) {
+        if (const HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr)) {
+            font.view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+            if (font.view != nullptr) font.size = static_cast<int>(size.QuadPart);
+            CloseHandle(mapping);
+        }
+    }
+    CloseHandle(file);
+}
+
+// Plugins' text in Chinese, Japanese or Korean, past what Anvil's own subset
+// has: the fonts of Windows, the player's language's first, so that a shared
+// ideograph takes that language's form. Between frames only.
+void merge_system_fonts() {
+    Ui& u = ui();
+    if (u.system_fonts || !shared().panels.wants_cjk()) return;
+    u.system_fonts = true;
+    SystemFont order[] = {kYaHei, kJhengHei, kYuGothic, kMalgun};
+    switch (anvil::i18n::language()) {
+    case anvil::i18n::Language::TraditionalChinese: std::swap(order[0], order[1]); break;
+    case anvil::i18n::Language::Japanese: std::swap(order[0], order[2]); break;
+    case anvil::i18n::Language::Korean: std::swap(order[0], order[3]); break;
+    default: break;
+    }
+    int merged = 0;
+    for (const SystemFont which : order) {
+        MappedFont& font = g_system_fonts[which];
+        map_font(font);
+        if (font.view == nullptr) continue;
+        ImFontConfig config;
+        config.MergeMode = true;
+        config.FontDataOwnedByAtlas = false;  // the mapped view
+        config.OversampleH = 1;
+        config.PixelSnapH = true;
+        ImGui::GetIO().Fonts->AddFontFromMemoryTTF(font.view, font.size, 0.0f, &config);
+        ++merged;
+    }
+    char line[96];
+    std::snprintf(line, sizeof(line), "plugins' CJK text: %d of %zu system fonts merged", merged, std::size(order));
+    if (merged == static_cast<int>(std::size(order))) {
+        log_info(line);
+    } else {
+        log_warning(line);
+    }
 }
 
 bool ensure_imgui(IDirect3DDevice9* device) {
@@ -346,6 +418,91 @@ bool targets_back_buffer(IDirect3DDevice9* device) {
     if (target != nullptr) target->Release();
     if (back != nullptr) back->Release();
     return same;
+}
+
+// ---- the windows of plugins -----------------------------------------------------------
+
+struct PanelClick {
+    const AnvilPanel* panel;
+    uint64_t id;
+};
+
+// On the main thread after an outer frame: a click comes from EndScene, and
+// frames are also drawn inside the game's update.
+void run_click(void* context) {
+    const std::unique_ptr<PanelClick> click(static_cast<PanelClick*>(context));
+    shared().panels.deliver(click->panel, click->id);
+}
+
+void queue_click(const AnvilPanel& panel, uint64_t id) {
+    const AnvilGameService* game = shared().game_work;
+    if (game == nullptr) return;
+    auto click = std::make_unique<PanelClick>(PanelClick{&panel, id});
+    if (game->run_on_main_thread(run_click, click.get()) == ANVIL_OK) click.release();
+}
+
+void draw_plugin_panel(AnvilPanel& panel) {
+    const float s = scale();
+    // Side by side first: a window's size is not known before it is drawn.
+    const float index = static_cast<float>(panel.index % 4);
+    const float line = static_cast<float>(panel.index / 4);
+    ImGui::SetNextWindowPos(ImVec2((48.0f + 330.0f * index + 28.0f * line) * s, (220.0f + 28.0f * line) * s), ImGuiCond_FirstUseEver);
+    bool open = true;
+    const std::string name = panel.title + "###anvil-panel-" + std::to_string(panel.index);
+    const ImGuiWindowFlags flags = ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoSavedSettings;
+    // As wide as its title, also before it has rows.
+    const float title_width = ImGui::CalcTextSize(panel.title.c_str()).x + ImGui::GetFontSize() * 3.0f;
+    ImGui::SetNextWindowSizeConstraints(ImVec2(title_width, 0.0f), ImVec2(FLT_MAX, ImGui::GetIO().DisplaySize.y * 0.8f));
+    if (ImGui::Begin(name.c_str(), &open, flags)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 40.0f);
+        const auto& rows = panel.rows;
+        for (size_t i = 0; i < rows.size(); ++i) {
+            const AnvilPanel::Row& row = rows[i];
+            ImGui::PushID(static_cast<int>(i));
+            if (row.kind == ANVIL_PANEL_SEPARATOR) {
+                ImGui::Separator();
+            } else if (row.kind == ANVIL_PANEL_BUTTON) {
+                if (ImGui::Button(row.label.c_str())) queue_click(panel, row.id);
+            } else if (!row.has_value) {
+                ImGui::TextUnformatted(row.label.c_str());
+            } else {
+                // A run of labelled values lines up in one table.
+                if (ImGui::BeginTable("values", 2, ImGuiTableFlags_SizingFixedFit)) {
+                    for (; i < rows.size() && rows[i].kind == ANVIL_PANEL_TEXT && rows[i].has_value; ++i) {
+                        ImGui::TableNextRow();
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(rows[i].label.c_str());
+                        ImGui::TableNextColumn();
+                        ImGui::TextUnformatted(rows[i].value.c_str());
+                    }
+                    --i;
+                    ImGui::EndTable();
+                }
+            }
+            ImGui::PopID();
+        }
+        ImGui::PopTextWrapPos();
+    }
+    ImGui::End();
+    if (!open) shared().panels.set_shown_locked(panel, false);
+}
+
+void draw_plugin_panels() {
+    shared().panels.each([](AnvilPanel& panel) {
+        if (panel.shown) draw_plugin_panel(panel);
+    });
+}
+
+// In the status tab: a plugin's window can be shown again after it was closed.
+void draw_panel_switches() {
+    shared().panels.each([](AnvilPanel& panel) {
+        bool shown = panel.shown;
+        ImGui::PushID(static_cast<int>(panel.index));
+        if (ImGui::Checkbox(panel.title.c_str(), &shown)) shared().panels.set_shown_locked(panel, shown);
+        ImGui::PopID();
+        ImGui::SameLine();
+    });
+    ImGui::NewLine();
 }
 
 // ---- widgets -------------------------------------------------------------------------
@@ -538,6 +695,9 @@ void draw_status() {
     const ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_Resizable |
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
     const float warnings_height = u.warnings.empty() ? 0.0f : ImGui::GetFrameHeightWithSpacing() * 6.0f;
+    bool any_panel = false;
+    shared().panels.each([&](AnvilPanel&) { any_panel = true; });
+    if (any_panel) draw_panel_switches();
     if (ImGui::BeginTable("plugins", 5, flags, ImVec2(0.0f, -warnings_height - ImGui::GetFrameHeightWithSpacing()))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn(tr("Plugin"), ImGuiTableColumnFlags_WidthStretch, 1.2f);
@@ -1018,11 +1178,13 @@ void ui_frame(IDirect3DDevice9* device) {
         ImGui::GetIO().ClearInputKeys();
         u.was_visible = true;
     }
+    merge_system_fonts();
     ImGui_ImplDX9_NewFrame();
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     draw_notices(now);
     if (badge) draw_badge(now);
+    draw_plugin_panels();
     if (s.panel_open.load()) draw_panel();
     ImGui::EndFrame();
     ImGui::Render();

@@ -9,6 +9,7 @@
 
 #include "../plugins/anvil-overlay/src/control_client.hpp"
 #include "../plugins/anvil-overlay/src/notices.hpp"
+#include "../plugins/anvil-overlay/src/panels.hpp"
 
 #include <windows.h>
 
@@ -48,6 +49,91 @@ size_t disable_actions(const Notice& n) {
 }  // namespace
 
 int main() {
+    run("overlay: plugins' panels keep what they are given", [] {
+        PanelStore store;
+        AnvilPanel* panel = nullptr;
+        CHECK(store.create(nullptr, &panel) == ANVIL_ERROR_INVALID_ARGUMENT && store.create("", &panel) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.create("Stats", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.create("Stats", &panel) == ANVIL_OK && panel != nullptr && panel->title == "Stats");
+        CHECK(!store.shown(panel) && !store.any_shown() && !store.wants_cjk());
+
+        std::string label = "Treasury", value = "100";
+        const AnvilPanelRow rows[] = {{ANVIL_PANEL_TEXT, 0, label.c_str(), value.c_str(), 0},
+                                      {ANVIL_PANEL_SEPARATOR, 0, nullptr, nullptr, 0},
+                                      {ANVIL_PANEL_TEXT, 0, "plain", nullptr, 0},
+                                      {ANVIL_PANEL_BUTTON, 0, "Save", nullptr, 7}};
+        CHECK(store.set_rows(panel, rows, 4, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        label = "changed";  // the rows were copied
+        store.each([](AnvilPanel& p) {
+            CHECK(p.rows.size() == 4 && p.rows[0].label == "Treasury" && p.rows[0].has_value && p.rows[0].value == "100");
+            CHECK(p.rows[1].kind == ANVIL_PANEL_SEPARATOR && !p.rows[2].has_value && p.rows[3].id == 7);
+        });
+        CHECK(store.set_rows(panel, rows, 0, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        store.each([](AnvilPanel& p) { CHECK(p.rows.empty()); });
+
+        // ImGui would end a label at "##".
+        PanelStore labels;
+        AnvilPanel* hashes = nullptr;
+        CHECK(labels.create("a##b###c", &hashes) == ANVIL_OK && hashes->title == "a# #b# # #c");
+        const AnvilPanelRow button[] = {{ANVIL_PANEL_BUTTON, 0, "Go##1", nullptr, 0}, {ANVIL_PANEL_TEXT, 0, "a##b", nullptr, 0}};
+        CHECK(labels.set_rows(hashes, button, 2, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        CHECK(hashes->rows[0].label == "Go# #1" && hashes->rows[1].label == "a##b");
+
+        // Bad rows change nothing.
+        CHECK(store.set_rows(panel, rows, 4, sizeof(AnvilPanelRow)) == ANVIL_OK);
+        const AnvilPanelRow bad_kind[] = {{9, 0, "x", nullptr, 0}};
+        const AnvilPanelRow no_label[] = {{ANVIL_PANEL_TEXT, 0, nullptr, nullptr, 0}};
+        const std::string long_text(kMaxText + 1, 'x');
+        const AnvilPanelRow too_long[] = {{ANVIL_PANEL_TEXT, 0, long_text.c_str(), nullptr, 0}};
+        CHECK(store.set_rows(panel, bad_kind, 1, sizeof(AnvilPanelRow)) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.set_rows(panel, no_label, 1, sizeof(AnvilPanelRow)) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.set_rows(panel, too_long, 1, sizeof(AnvilPanelRow)) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.set_rows(panel, rows, kMaxRows + 1, sizeof(AnvilPanelRow)) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.set_rows(panel, rows, 4, 8) == ANVIL_ERROR_INVALID_ARGUMENT);
+        store.each([](AnvilPanel& p) { CHECK(p.rows.size() == 4); });
+        AnvilPanel stranger;
+        CHECK(store.set_rows(&stranger, rows, 4, sizeof(AnvilPanelRow)) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(store.show(&stranger, true) == ANVIL_ERROR_INVALID_ARGUMENT && !store.shown(&stranger));
+
+        // A newer row: a longer stride reads the fields it knows.
+        struct Newer {
+            AnvilPanelRow row;
+            uint64_t extra;
+        } newer[2] = {{{ANVIL_PANEL_TEXT, 0, "a", nullptr, 0}, 1}, {{ANVIL_PANEL_TEXT, 0, "b", nullptr, 0}, 2}};
+        CHECK(store.set_rows(panel, &newer[0].row, 2, sizeof(Newer)) == ANVIL_OK);
+        store.each([](AnvilPanel& p) { CHECK(p.rows.size() == 2 && p.rows[1].label == "b"); });
+
+        CHECK(store.show(panel, true) == ANVIL_OK && store.shown(panel) && store.any_shown());
+        CHECK(store.show(panel, true) == ANVIL_OK && store.any_shown());
+        store.each([&](AnvilPanel& p) { store.set_shown_locked(p, false); });  // the player closed it
+        CHECK(!store.shown(panel) && !store.any_shown());
+
+        static uint64_t clicked = 0;
+        static void* clicked_context = nullptr;
+        int context = 0;
+        store.deliver(panel, 5);  // no handler
+        CHECK(store.on_click(panel, [](void* c, uint64_t id) {
+            clicked = id;
+            clicked_context = c;
+        }, &context) == ANVIL_OK);
+        store.deliver(panel, 5);
+        CHECK(clicked == 5 && clicked_context == &context);
+        store.deliver(&stranger, 6);
+        CHECK(clicked == 5);
+
+        // Texts that need the fonts of Windows.
+        CHECK(!has_cjk("Moskva") && !has_cjk("S\xC3\xA3o Tom\xC3\xA9") && !has_cjk("\xD0\x9C\xD0\xBE\xD1\x81\xD0\xBA\xD0\xB2\xD0\xB0"));
+        CHECK(has_cjk("\xE5\x8C\x97\xE4\xBA\xAC") && has_cjk("a\xE3\x81\x82") && has_cjk("\xEC\x84\x9C\xEC\x9A\xB8"));
+        CHECK(!has_cjk("\xE5\x8C"));  // cut short
+        const AnvilPanelRow cjk[] = {{ANVIL_PANEL_TEXT, 0, "city", "\xE5\x8C\x97\xE4\xBA\xAC", 0}};
+        CHECK(store.set_rows(panel, cjk, 1, sizeof(AnvilPanelRow)) == ANVIL_OK && store.wants_cjk());
+        PanelStore titled;
+        AnvilPanel* other = nullptr;
+        CHECK(titled.create("\xE5\x8C\x97", &other) == ANVIL_OK && titled.wants_cjk());
+        for (uint32_t i = 1; i < kMaxPanels; ++i) CHECK(titled.create("x", &other) == ANVIL_OK);
+        CHECK(titled.create("x", &other) == ANVIL_ERROR_OUT_OF_MEMORY);
+    });
+
     run("notices: a clean start shows none", [] {
         StartFacts facts;
         facts.plugins = {row("anvil-game", "loaded"), row("anvil-overlay", "loaded"), row("off", "skipped", "disabled", true)};
