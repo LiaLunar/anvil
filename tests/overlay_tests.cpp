@@ -181,14 +181,75 @@ int main() {
         const Notice* rest = find(notices, "not-loaded");  // another reason keeps its own notice
         CHECK(rest != nullptr && rest->lines.size() == 1 && rest->lines[0].find("other: requires") == 0 && !rest->until_closed);
 
+        // A plugin held back by one of them counts with them, however long the chain.
+        StartFacts chain;
+        chain.plugins = {row("anvil-game", "skipped", "game build unknown (EU4 updated?)"),
+                         row("no-addresses", "skipped", "requires plugin 'anvil-game' (^1.11.0), which is not loaded"),
+                         row("on-top", "skipped", "requires plugin 'no-addresses' (*), which is not loaded"),
+                         row("gameplay", "skipped", "affects gameplay, so it needs plugin 'anvil-game'"),
+                         row("elsewhere", "skipped", "requires plugin 'nothing' (*), which is not loaded")};
+        chain.plugins[0].why = anvil::i18n::Message("build_unknown", {});
+        chain.plugins[1].why = anvil::i18n::Message("requires_missing", {"anvil-game", "^1.11.0"});
+        chain.plugins[2].why = anvil::i18n::Message("requires_missing", {"no-addresses", "*"});
+        chain.plugins[3].why = anvil::i18n::Message("needs_anvil_game", {"anvil-game"});
+        chain.plugins[4].why = anvil::i18n::Message("requires_missing", {"nothing", "*"});
+        const auto chained = start_notices(chain);
+        const Notice* c = find(chained, "unknown-build");
+        CHECK(chained.size() == 2 && c != nullptr);
+        if (c != nullptr) {
+            CHECK(c->title == "4 plugins were not loaded");
+            CHECK(c->lines[1] == "anvil-game, no-addresses, on-top, gameplay");
+        }
+        const Notice* other = find(chained, "not-loaded");
+        CHECK(other != nullptr && other->lines.size() == 1 && other->lines[0].find("elsewhere: ") == 0);
+
         // On GOG the reason says what to do.
         StartFacts gog;
         gog.plugins = {row("anvil-game", "skipped", "this GOG build of the game is unknown")};
-        gog.plugins[0].why = anvil::i18n::Message("build_unknown_gog", {});
+        gog.plugins[0].why = anvil::i18n::Message("build_unknown_gog", {"1.37.5.2"});
         const auto gog_notices = start_notices(gog);
         const Notice* g = find(gog_notices, "unknown-build");
         CHECK(gog_notices.size() == 1 && g != nullptr && g->title == "1 plugin was not loaded");
-        if (g != nullptr) CHECK(g->lines[0].find("GOG Galaxy") != std::string::npos && g->lines[1] == "anvil-game");
+        if (g != nullptr) {
+            CHECK(g->lines[0].find("Anvil runs on 1.37.5.2") != std::string::npos);
+            CHECK(g->lines[0].find("GOG Galaxy") != std::string::npos && g->lines[1] == "anvil-game");
+        }
+    });
+
+    run("notices: plugins not ported to a known build wait in one notice that stays", [] {
+        StartFacts facts;
+        facts.plugins = {row("anvil-game", "loaded"),
+                         row("bellows", "skipped", "symbols.toml is for builds a, b, the game is c"),
+                         row("tongs", "skipped", "symbols.toml is for build a, the game is c"),
+                         row("on-tongs", "skipped", "requires plugin 'tongs' (*), which is not loaded"),
+                         row("newer", "skipped", "requires Anvil >=99.0.0, this is Anvil 1.11.0")};
+        facts.plugins[1].why = anvil::i18n::Message("symbols_builds", {"a, b", "c"});
+        facts.plugins[2].why = anvil::i18n::Message("symbols_build", {"a", "c"});
+        facts.plugins[3].why = anvil::i18n::Message("requires_missing", {"tongs", "*"});
+        facts.plugins[4].why = anvil::i18n::Message("anvil_version", {">=99.0.0", "1.11.0"});
+        const auto notices = start_notices(facts);
+        CHECK(notices.size() == 2 && find(notices, "unknown-build") == nullptr);
+        const Notice* n = find(notices, "waiting-for-build");
+        CHECK(n != nullptr);
+        if (n == nullptr) return;
+        CHECK(n->title == "3 plugins wait for this game version");
+        CHECK(n->until_closed && !n->lasting && n->kind == NoticeKind::Warning);
+        CHECK(n->lines.size() == 2 && n->lines[1] == "bellows, tongs, on-tongs");
+        CHECK(!n->actions.empty() && n->actions[0].type == NoticeAction::Type::OpenPanel);
+        const Notice* rest = find(notices, "not-loaded");
+        CHECK(rest != nullptr && rest->lines.size() == 1 && rest->lines[0].find("newer: ") == 0 && !rest->until_closed);
+        CHECK(plugins_waiting_for_build(facts.plugins) == 3);
+
+        StartFacts one;
+        one.plugins = {row("hello", "skipped", "symbols.toml is for build a, the game is c")};
+        one.plugins[0].why = anvil::i18n::Message("symbols_build", {"a", "c"});
+        const auto single = start_notices(one);
+        CHECK(single.size() == 1 && single[0].title == "1 plugin waits for this game version");
+
+        // A skip for any other reason is no wait.
+        StartFacts none;
+        none.plugins = {row("off", "skipped", "disabled in anvil.toml")};
+        CHECK(plugins_waiting_for_build(none.plugins) == 0);
     });
 
     run("notices: the previous crash offers to disable the plugins it was in", [] {
@@ -346,11 +407,14 @@ int main() {
         AnvilControlStatus status{};
         status.loaded = 4;
         status.skipped = 1;
-        auto lines = menu_badge_tooltip(status, false, "Ctrl+Shift+F12");
+        auto lines = menu_badge_tooltip(status, 0, false, "Ctrl+Shift+F12");
         CHECK(lines.size() == 2 && lines[0] == "4 loaded, 0 failed, 1 skipped" &&
               lines[1] == "Click to open the Anvil panel, or press Ctrl+Shift+F12.");
-        CHECK(menu_badge_tooltip(status, false, "")[1] == "Click to open the Anvil panel.");
-        CHECK(menu_badge_tooltip(status, true, "F11")[1] == "Click to close the Anvil panel.");
+        CHECK(menu_badge_tooltip(status, 0, false, "")[1] == "Click to open the Anvil panel.");
+        CHECK(menu_badge_tooltip(status, 0, true, "F11")[1] == "Click to close the Anvil panel.");
+        lines = menu_badge_tooltip(status, 2, true, "F11");
+        CHECK(lines.size() == 3 && lines[1] == "2 plugins wait for this game version" &&
+              lines[2] == "Click to close the Anvil panel.");
     });
 
     run("panel key: exact match with modifiers", [] {

@@ -300,13 +300,13 @@ void ManagerApp::draw_game_bar() {
     }
 
     if (snapshot_ && snapshot_->folder.error.empty()) {
-        if (snapshot_->folder.build.empty() && snapshot_->folder.gog) {
-            colored_wrapped(kWarn, tr("eu4.exe is a GOG build Anvil does not know: plugins that need game addresses are "
-                                      "skipped, the others load. Update the game to 1.37.5.2 in GOG Galaxy."));
-            if (!snapshot_->folder.gog_version.empty()) weak(trf("GOG calls this version {0}.", {snapshot_->folder.gog_version}));
-        } else if (snapshot_->folder.build.empty()) {
+        if (snapshot_->folder.build.empty()) {
             colored_wrapped(kWarn, tr("eu4.exe is not a build Anvil knows (EU4 updated?): plugins that need game "
                                       "addresses are skipped, the others load."));
+            if (snapshot_->folder.gog) {
+                colored_wrapped(kWarn, i18n::text(i18n::Message("build_unknown_gog", {known_gog_version()})));
+                if (!snapshot_->folder.gog_version.empty()) weak(trf("GOG calls this version {0}.", {snapshot_->folder.gog_version}));
+            }
         } else {
             weak("eu4.exe: " + snapshot_->folder.build);
         }

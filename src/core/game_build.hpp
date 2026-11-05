@@ -41,6 +41,10 @@ const KnownBuild* find_known_build_by_sha256(std::string_view sha256);
 // Anvil does not know, since a GOG folder has a steam_appid.txt too.
 bool is_gog_folder(const std::filesystem::path& game_dir);
 
+// The newest GOG version Anvil knows, from the last GOG row of the table of
+// builds ("1.37.5.2"): the only place the words to a GOG player get it from.
+std::string known_gog_version();
+
 // Why a plugin that uses game addresses is skipped on a build Anvil does not
 // know: in a GOG install, what to do about it, since GOG Galaxy offers the
 // build Anvil knows.

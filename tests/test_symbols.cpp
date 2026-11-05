@@ -630,8 +630,8 @@ signature = "const char* ()"
         CHECK(verified.symbols.size() == 6 && value_of(verified.symbols[1], "root") == 0x3008);
         CHECK(contains(english(check_plugin_symbols(file, nullptr, patches, mapped.address())), "game build unknown"));
         CHECK(contains(english(check_plugin_symbols(file, nullptr, patches, mapped.address(), nullptr, nullptr,
-                                                    i18n::Message("build_unknown_gog", {}))),
-                       "update it to 1.37.5.2 in GOG Galaxy"));
+                                                    i18n::Message("build_unknown_gog", {known_gog_version()}))),
+                       "Anvil runs on 1.37.5.2. If yours is older, update it in GOG Galaxy"));
         CHECK(unknown_build_reason(folder).code == "build_unknown");
         std::ofstream(folder / "goggame-2057001589.info") << "{}";
         CHECK(unknown_build_reason(folder).code == "build_unknown_gog");

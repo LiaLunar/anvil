@@ -52,6 +52,7 @@ struct Ui {
     // The badge in the main menu: the status it shows, read once a second.
     AnvilControlStatus badge_status{};
     ULONGLONG badge_refreshed = 0;
+    size_t waiting_for_build = 0;  // plugins_waiting_for_build at the start
 
     // Notices
     bool start_built = false;
@@ -187,6 +188,7 @@ void build_start_notices(ULONGLONG now) {
     facts.mod_plugins = control.mod_plugins();
     load_crash();
     facts.crash = u.crash;
+    u.waiting_for_build = plugins_waiting_for_build(facts.plugins);
     for (Notice& n : start_notices(facts)) u.start.push_back({std::move(n), now, false});
     u.start_built = true;
     if (!u.start.empty()) {
@@ -599,7 +601,8 @@ std::string panel_key_text() {
     return "";
 }
 
-// Anvil's version, with a dot that turns red when a plugin failed; a click
+// Anvil's version, with a dot that turns amber when a plugin waits for this
+// game version and red when a plugin failed; a click
 // opens or closes the panel. Only the badge takes the mouse: clicks beside it
 // reach the game.
 void draw_badge(ULONGLONG now) {
@@ -638,12 +641,14 @@ void draw_badge(ULONGLONG now) {
         }
         const float middle = at.y + size.y * 0.5f;
         draw->AddCircleFilled(ImVec2(at.x + padding.x + dot * 0.5f, middle), dot * 0.5f,
-                              ImGui::GetColorU32(status.failed > 0 ? kRed : kGreen));
+                              ImGui::GetColorU32(status.failed > 0 ? kRed : u.waiting_for_build > 0 ? kAmber : kGreen));
         draw->AddText(ImVec2(at.x + padding.x + dot + style.ItemInnerSpacing.x, at.y + padding.y),
                       ImGui::GetColorU32(ImGuiCol_Text), label.c_str());
         if (hovered && ImGui::BeginTooltip()) {
             ImGui::TextUnformatted(label.c_str());
-            for (const std::string& l : menu_badge_tooltip(status, s.panel_open.load(), panel_key_text())) line(l);
+            for (const std::string& l : menu_badge_tooltip(status, u.waiting_for_build, s.panel_open.load(), panel_key_text())) {
+                line(l);
+            }
             ImGui::EndTooltip();
         }
         if (clicked) {

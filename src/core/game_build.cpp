@@ -62,8 +62,20 @@ bool is_gog_folder(const std::filesystem::path& game_dir) {
     return attributes != INVALID_FILE_ATTRIBUTES && (attributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
 }
 
+std::string known_gog_version() {
+    constexpr std::string_view prefix = "eu4-", suffix = "-gog-win64";
+    std::string version;
+    for (const auto& b : kKnownBuilds) {
+        const std::string_view id = b.id;
+        if (!id.starts_with(prefix) || !id.ends_with(suffix)) continue;
+        version = id.substr(prefix.size(), id.size() - prefix.size() - suffix.size());
+    }
+    return version;
+}
+
 i18n::Message unknown_build_reason(const std::filesystem::path& game_dir) {
-    return i18n::Message(is_gog_folder(game_dir) ? "build_unknown_gog" : "build_unknown", {});
+    if (is_gog_folder(game_dir)) return i18n::Message("build_unknown_gog", {known_gog_version()});
+    return i18n::Message("build_unknown", {});
 }
 
 namespace {

@@ -1,6 +1,7 @@
 #include "notices.hpp"
 
 #include <algorithm>
+#include <set>
 
 namespace overlay {
 namespace {
@@ -26,10 +27,55 @@ std::string crash_line(const CrashInfo& crash) {
     return tr("The report names no plugin.");
 }
 
+bool unknown_build(const PluginRow& p) { return p.why.code == "build_unknown" || p.why.code == "build_unknown_gog"; }
+bool not_for_this_build(const PluginRow& p) { return p.why.code == "symbols_build" || p.why.code == "symbols_builds"; }
+
+// The plugins `reason` skips, and those skipped because they need one of them,
+// in the order of the list: a plugin with no addresses of its own that depends
+// on anvil-game goes with it, and comes back with it.
+std::vector<const PluginRow*> held_back(const std::vector<PluginRow>& plugins, bool (*reason)(const PluginRow&)) {
+    std::set<std::string> ids;
+    for (const PluginRow& p : plugins) {
+        if (p.state == "skipped" && reason(p)) ids.insert(p.id);
+    }
+    if (ids.empty()) return {};
+    for (bool grew = true; grew;) {
+        grew = false;
+        for (const PluginRow& p : plugins) {
+            const bool needs_another = p.why.code == "requires_missing" || p.why.code == "needs_anvil_game";
+            if (p.state != "skipped" || !needs_another || p.why.args.empty() || ids.contains(p.id)) continue;
+            if (ids.contains(p.why.args[0].text)) {
+                ids.insert(p.id);
+                grew = true;
+            }
+        }
+    }
+    std::vector<const PluginRow*> held;
+    for (const PluginRow& p : plugins) {
+        if (ids.contains(p.id)) held.push_back(&p);
+    }
+    return held;
+}
+
+std::string id_list(const std::vector<const PluginRow*>& plugins) {
+    std::string ids;
+    for (const PluginRow* p : plugins) ids += (ids.empty() ? "" : ", ") + p->id;
+    return ids;
+}
+
 // "and 3 more" under a list cut at kMaxListed.
 std::string and_more(size_t more) { return trf("and {0} more", {std::to_string(more)}); }
 
 }  // namespace
+
+size_t plugins_waiting_for_build(const std::vector<PluginRow>& plugins) {
+    return held_back(plugins, not_for_this_build).size();
+}
+
+std::string waiting_for_build_text(size_t plugins) {
+    return trf(plugins == 1 ? N_("{0} plugin waits for this game version") : N_("{0} plugins wait for this game version"),
+               {std::to_string(plugins)});
+}
 
 std::vector<Notice> start_notices(const StartFacts& facts) {
     std::vector<Notice> notices;
@@ -72,33 +118,44 @@ std::vector<Notice> start_notices(const StartFacts& facts) {
     // A game update skips every plugin with addresses for the same reason: one
     // notice that says so. anvil-game is among them, so there is no badge in the
     // menu and no ready event, and this one must outlast the loading screen.
-    std::string unknown_build;
-    std::string skipped_by_build;
-    size_t skipped_count = 0;
-    for (const PluginRow& p : facts.plugins) {
-        if (p.state != "skipped" || (p.why.code != "build_unknown" && p.why.code != "build_unknown_gog")) continue;
-        unknown_build = p.why.code == "build_unknown_gog"
-                            ? p.reason_text()
-                            : std::string(tr("eu4.exe is not a build Anvil knows (EU4 updated?): plugins that need game "
-                                             "addresses are skipped, the others load."));
-        skipped_by_build += (skipped_by_build.empty() ? "" : ", ") + p.id;
-        ++skipped_count;
-    }
-    if (skipped_count != 0) {
+    const std::vector<const PluginRow*> unknown = held_back(facts.plugins, unknown_build);
+    if (!unknown.empty()) {
+        std::string why = tr("eu4.exe is not a build Anvil knows (EU4 updated?): plugins that need game addresses are "
+                             "skipped, the others load.");
+        for (const PluginRow* p : unknown) {
+            if (p->why.code == "build_unknown_gog") why = p->reason_text();
+        }
         Notice n;
         n.id = "unknown-build";
         n.kind = NoticeKind::Warning;
         n.until_closed = true;
-        n.title = trf(skipped_count == 1 ? N_("{0} plugin was not loaded") : N_("{0} plugins were not loaded"),
-                      {std::to_string(skipped_count)});
-        n.lines = {unknown_build, skipped_by_build};
+        n.title = trf(unknown.size() == 1 ? N_("{0} plugin was not loaded") : N_("{0} plugins were not loaded"),
+                      {std::to_string(unknown.size())});
+        n.lines = {why, id_list(unknown)};
+        n.actions.push_back({NoticeAction::Type::OpenPanel, {}, tr("Details")});
+        notices.push_back(std::move(n));
+    }
+
+    // After an update of Anvil the build is known, and each plugin comes back
+    // when its own update does: the longest wait a game update brings.
+    const std::vector<const PluginRow*> waiting_plugins = held_back(facts.plugins, not_for_this_build);
+    if (!waiting_plugins.empty()) {
+        Notice n;
+        n.id = "waiting-for-build";
+        n.kind = NoticeKind::Warning;
+        n.until_closed = true;
+        n.title = waiting_for_build_text(waiting_plugins.size());
+        n.lines = {tr("Anvil knows this game version, but these plugins do not support it yet. Look for an update of each."),
+                   id_list(waiting_plugins)};
         n.actions.push_back({NoticeAction::Type::OpenPanel, {}, tr("Details")});
         notices.push_back(std::move(n));
     }
 
     std::vector<std::string> lines;
     for (const PluginRow& p : facts.plugins) {
-        if (p.why.code == "build_unknown" || p.why.code == "build_unknown_gog") continue;
+        const auto same = [&](const PluginRow* other) { return other == &p; };
+        if (std::any_of(unknown.begin(), unknown.end(), same)) continue;
+        if (std::any_of(waiting_plugins.begin(), waiting_plugins.end(), same)) continue;
         if (p.state == "failed") {
             lines.push_back(trf("{0}: failed: {1}", {p.id, p.reason_text()}));
         } else if (p.state == "skipped" && !p.disabled && !p.awaiting_approval &&
@@ -192,11 +249,12 @@ BadgeRect menu_badge_rect(float screen_height, float badge_width, float badge_he
     return r;
 }
 
-std::vector<std::string> menu_badge_tooltip(const AnvilControlStatus& status, bool panel_open,
+std::vector<std::string> menu_badge_tooltip(const AnvilControlStatus& status, size_t waiting_for_build, bool panel_open,
                                             const std::string& panel_key) {
     std::vector<std::string> lines;
     lines.push_back(trf("{0} loaded, {1} failed, {2} skipped",
                         {std::to_string(status.loaded), std::to_string(status.failed), std::to_string(status.skipped)}));
+    if (waiting_for_build != 0) lines.push_back(waiting_for_build_text(waiting_for_build));
     if (panel_open) {
         lines.push_back(tr("Click to close the Anvil panel."));
     } else if (panel_key.empty()) {

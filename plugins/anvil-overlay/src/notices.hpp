@@ -22,7 +22,7 @@ struct NoticeAction {
 };
 
 struct Notice {
-    std::string id;  // stable: "safe-mode", "crash", "unknown-build", "not-loaded", "approvals", "ironman", "multiplayer"
+    std::string id;  // stable: "safe-mode", "crash", "unknown-build", "waiting-for-build", "not-loaded", "approvals", "ironman", "multiplayer"
     NoticeKind kind = NoticeKind::Info;
     std::string title;
     std::vector<std::string> lines;
@@ -45,6 +45,13 @@ struct StartFacts {
 };
 std::vector<Notice> start_notices(const StartFacts& facts);
 
+// How many plugins wait for an update that supports this game build: those
+// whose symbols.toml does not declare it and those that need one of them. The
+// badge turns amber for them; a plugin that failed still turns it red.
+size_t plugins_waiting_for_build(const std::vector<PluginRow>& plugins);
+// "2 plugins wait for this game version", in the player's language.
+std::string waiting_for_build_text(size_t plugins);
+
 // While a game session runs (anvil-game.session), design §13.
 struct SessionFacts {
     bool session = false;
@@ -64,9 +71,10 @@ struct BadgeRect {
 // menu's bottom bar at any resolution and at any interface scale the game
 // allows (game_ui_scale), however wide the badge is at any overlay scale.
 BadgeRect menu_badge_rect(float screen_height, float badge_width, float badge_height);
-// The tooltip's lines: the plugin counts and what a click does. `panel_key`
-// is the key as the settings show it, "" when there is none.
-std::vector<std::string> menu_badge_tooltip(const AnvilControlStatus& status, bool panel_open,
+// The tooltip's lines: the plugin counts, how many wait for this game version
+// when any do, and what a click does. `panel_key` is the key as the settings
+// show it, "" when there is none.
+std::vector<std::string> menu_badge_tooltip(const AnvilControlStatus& status, size_t waiting_for_build, bool panel_open,
                                             const std::string& panel_key);
 
 // The panel key: a key code of settings.toml (virtual key in bits 0-7,
