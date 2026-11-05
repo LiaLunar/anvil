@@ -77,6 +77,13 @@ std::string check_pinned_zip(const CatalogPlugin& plugin, const std::vector<uint
 // version); empty when it does.
 std::string check_pinned_manifest(const CatalogPlugin& plugin, std::string_view id, std::string_view version);
 
+// The catalog plugin that a plugin from a mod presents itself as, by its id,
+// name or repository, when the mod is not that plugin's Workshop item; nullptr
+// otherwise. A plugin.toml says what it likes, so this is what the approval
+// dialog can check it against.
+const CatalogPlugin* impersonated_plugin(const Catalog& catalog, std::string_view id, std::string_view name,
+                                         std::string_view repository, std::string_view workshop_id);
+
 // The host and path of the pinned zip's URL, for WinHTTP.
 std::pair<std::wstring, std::wstring> split_https_url(std::string_view url);
 

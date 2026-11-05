@@ -72,6 +72,19 @@ id = "legacy"
               minimal.manifest->allow_ironman == Allow::No && minimal.manifest->conflicts.empty());
     });
 
+    run("manifest: a plugin.toml past the limit is not read", [] {
+        namespace fs = std::filesystem;
+        const fs::path folder = fs::temp_directory_path() / L"anvil-manifest-limit";
+        fs::create_directories(folder);
+        {
+            std::ofstream file(folder / "plugin.toml", std::ios::binary);
+            file << "id = \"p\"\n" << std::string(kMaxManifestBytes, '#');
+        }
+        const ManifestResult result = load_manifest(folder);
+        CHECK(!result.manifest && result.error.find("larger than 1 MB") != std::string::npos);
+        fs::remove_all(folder);
+    });
+
     run("manifest v2: unknown keys are errors", [] {
         CHECK(error_of(plugin_toml("a", "custom = 1\n")) == "plugin.toml: unknown key 'custom'");
         CHECK(error_of(without_gameplay("a", "afects_gameplay = false\n")) ==

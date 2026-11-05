@@ -341,6 +341,8 @@ extern const Translation kGerman[] = {
      "Es wird nur installiert, wenn sein SHA-256 {0} ist, der aus der Liste. Vorher siehst du, was es enthält und was anvil check findet."},
     {"It needs Anvil {0}: run the Manager of a newer Anvil first.",
      "Es braucht Anvil {0}: Starte zuerst den Manager eines neueren Anvil."},
+    {"It presents itself as {0}, but it is not the Workshop item the catalog lists for {0}. Its name, authors and repository are what the mod says: Anvil cannot check them.",
+     "Es gibt sich als {0} aus, ist aber nicht das Workshop-Objekt, das der Katalog für {0} nennt. Name, Autoren und Repository sind Angaben der Mod: Anvil kann sie nicht prüfen."},
     {"It replaces the approved {0} from the next start.",
      "Es ersetzt ab dem nächsten Start die freigegebene Version {0}."},
     {"It replaces the installed copy in {0}. Its settings and data stay.",

@@ -542,6 +542,26 @@ int main(int argc, char** argv) {
         CHECK(!newer_release("v1.2.0-rc.1", "1.2.0"));
     });
 
+    run("catalog: a mod that presents itself as a catalog plugin is told apart from its Workshop item", [] {
+        Catalog catalog;
+        CatalogPlugin bellows;
+        bellows.id = "bellows";
+        bellows.name = "Bellows";
+        bellows.workshop = std::string(kCatalogWorkshopPrefix) + "3823747170";
+        bellows.zip.url = "https://github.com/happy-dwarf-team/bellows/releases/download/v1.2.0/bellows-windows-x64.zip";
+        catalog.plugins.push_back(bellows);
+        const auto claimed = [&](std::string_view id, std::string_view name, std::string_view repository, std::string_view item) {
+            return impersonated_plugin(catalog, id, name, repository, item) != nullptr;
+        };
+        CHECK(!claimed("bellows", "Bellows", "https://github.com/happy-dwarf-team/bellows", "3823747170"));
+        CHECK(claimed("bellows", "Anything", "", "111"));
+        CHECK(claimed("bellows", "Anything", "", ""));
+        CHECK(claimed("faster-game", "BELLOWS", "", "111"));
+        CHECK(claimed("faster-game", "Faster", "https://github.com/Happy-Dwarf-Team/bellows.git/", "111"));
+        CHECK(!claimed("faster-game", "Faster", "https://example.com/bellows", "111"));
+        CHECK(!claimed("faster-game", "Faster", "", ""));
+    });
+
     run("catalog: the list in the repository validates and pins every plugin", [] {
         const auto text = read(fs::path(ANVIL_SOURCE_DIR) / "catalog" / "plugins.json");
         std::string error;

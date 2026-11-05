@@ -175,6 +175,36 @@ std::string check_pinned_manifest(const CatalogPlugin& plugin, std::string_view 
     return {};
 }
 
+namespace {
+
+std::string folded(std::string_view text) {
+    std::string out(text);
+    std::transform(out.begin(), out.end(), out.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    while (out.ends_with('/')) out.pop_back();
+    if (out.ends_with(".git")) out.resize(out.size() - 4);
+    return out;
+}
+
+// https://github.com/happy-dwarf-team/<repo> of a pinned zip's URL.
+std::string repository_of(const CatalogPlugin& plugin) {
+    const size_t releases = plugin.zip.url.find("/releases/");
+    return releases == std::string::npos ? std::string() : plugin.zip.url.substr(0, releases);
+}
+
+}  // namespace
+
+const CatalogPlugin* impersonated_plugin(const Catalog& catalog, std::string_view id, std::string_view name,
+                                         std::string_view repository, std::string_view workshop_id) {
+    for (const CatalogPlugin& plugin : catalog.plugins) {
+        const bool claims = plugin.id == id || folded(plugin.name) == folded(name) ||
+                            (!repository.empty() && folded(repository_of(plugin)) == folded(repository));
+        if (!claims) continue;
+        const bool that_item = !workshop_id.empty() && plugin.workshop == std::string(kCatalogWorkshopPrefix) + std::string(workshop_id);
+        if (!that_item) return &plugin;
+    }
+    return nullptr;
+}
+
 std::pair<std::wstring, std::wstring> split_https_url(std::string_view url) {
     constexpr std::string_view scheme = "https://";
     if (!url.starts_with(scheme)) return {};

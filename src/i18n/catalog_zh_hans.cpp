@@ -342,6 +342,8 @@ extern const Translation kSimplifiedChinese[] = {
      "只有当它的 SHA-256 为列表中的 {0} 时才会安装。在此之前，你会看到它包含的内容以及 anvil check 的检查结果。"},
     {"It needs Anvil {0}: run the Manager of a newer Anvil first.",
      "它需要 Anvil {0}：请先运行更新版本 Anvil 的管理器。"},
+    {"It presents itself as {0}, but it is not the Workshop item the catalog lists for {0}. Its name, authors and repository are what the mod says: Anvil cannot check them.",
+     "它使用 {0} 的名称，但不是目录中 {0} 的创意工坊项目。名称、作者和仓库由 Mod 提供，Anvil 无法检查。"},
     {"It replaces the approved {0} from the next start.",
      "从下次启动起，它会替换已批准的 {0}。"},
     {"It replaces the installed copy in {0}. Its settings and data stay.",

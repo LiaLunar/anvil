@@ -1,5 +1,7 @@
 #include "settings.hpp"
 
+#include "manifest.hpp"
+
 #include <toml++/toml.hpp>
 
 #include <algorithm>
@@ -521,6 +523,11 @@ std::string shown(const std::filesystem::path& path) {
 }
 
 bool read_text(const std::filesystem::path& file, std::string& text) {
+    std::error_code size_error;
+    if (const std::uintmax_t size = std::filesystem::file_size(file, size_error);
+        !size_error && size > kMaxPluginTomlBytes) {
+        return false;
+    }
     std::ifstream in(file, std::ios::binary);
     if (!in) return false;
     std::stringstream buffer;

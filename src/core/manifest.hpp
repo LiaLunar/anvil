@@ -73,6 +73,12 @@ ManifestResult load_manifest(const std::filesystem::path& folder);
 
 bool is_valid_plugin_id(std::string_view id);
 
+// The largest plugin.toml, and the largest symbols.toml or settings.toml, that
+// is read. Anvil reads the manifests of plugins nobody has approved yet at every
+// start, so a mod must not be able to make that cost what it likes.
+inline constexpr std::uintmax_t kMaxManifestBytes = 1u << 20;
+inline constexpr std::uintmax_t kMaxPluginTomlBytes = 16u << 20;
+
 // The longest byte pattern symbols.toml accepts.
 inline constexpr size_t kMaxPatternBytes = 65536;
 

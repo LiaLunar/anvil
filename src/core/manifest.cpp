@@ -377,6 +377,9 @@ ManifestResult parse_manifest_text(std::string_view text, const std::filesystem:
 }
 
 ManifestResult load_manifest(const std::filesystem::path& folder) {
+    std::error_code size_error;
+    const std::uintmax_t size = std::filesystem::file_size(folder / "plugin.toml", size_error);
+    if (!size_error && size > kMaxManifestBytes) return {std::nullopt, "plugin.toml is larger than 1 MB"};
     std::ifstream file(folder / "plugin.toml", std::ios::binary);
     if (!file) {
         return {std::nullopt, "plugin.toml not found"};

@@ -341,6 +341,8 @@ extern const Translation kFrench[] = {
      "Il n'est installé que si son SHA-256 est {0}, celui de la liste. Avant cela, vous voyez ce qu'il contient et ce que trouve anvil check."},
     {"It needs Anvil {0}: run the Manager of a newer Anvil first.",
      "Il demande Anvil {0} : lancez d'abord le Manager d'un Anvil plus récent."},
+    {"It presents itself as {0}, but it is not the Workshop item the catalog lists for {0}. Its name, authors and repository are what the mod says: Anvil cannot check them.",
+     "Il se présente comme {0}, mais ce n'est pas l'élément du Workshop que le catalogue indique pour {0}. Le nom, les auteurs et le dépôt sont déclarés par le mod : Anvil ne peut pas les vérifier."},
     {"It replaces the approved {0} from the next start.",
      "Il remplace la version approuvée {0} dès le prochain démarrage."},
     {"It replaces the installed copy in {0}. Its settings and data stay.",

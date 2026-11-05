@@ -805,6 +805,13 @@ void ManagerApp::draw_approve_modal() {
     bullet(offered.has_symbols ? trf("{0} game address(es) declared in symbols.toml", {std::to_string(offered.symbols)})
                                : std::string(tr("It declares no game addresses (no symbols.toml).")));
     bullet(trf("Hash of its files: {0}", {p.hash}));
+    if (catalog_) {
+        if (const CatalogPlugin* claimed = impersonated_plugin(*catalog_, m.id, m.name, m.repository, p.workshop_id)) {
+            colored_wrapped(kBad, trf("It presents itself as {0}, but it is not the Workshop item the catalog lists for {0}. "
+                                      "Its name, authors and repository are what the mod says: Anvil cannot check them.",
+                                      {claimed->name}));
+        }
+    }
     if (p.state == "update-pending") bullet(trf("It replaces the approved {0} from the next start.", {p.approved_version}));
     if (p.state == "conflict") bullet(tr("Other enabled mods have a plugin with this id; this approval picks this one."));
     if (!offered.skip_reason.empty()) {
