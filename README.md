@@ -139,12 +139,11 @@ The [plugin catalog](https://anvil.happydwarf.dev/plugins/) lists released
 plugins with their install guides:
 
 - [Bellows](https://github.com/happy-dwarf-team/bellows): faster start-up and
-  simulation, without changing game files or game behaviour; also on the
+  simulation, without changing game files or rules; also on the
   [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170).
 - [Tongs](https://github.com/happy-dwarf-team/tongs): lets scripts and agents
   control a running game through a local pipe, with an MCP server; also on the
-  [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093)
-  (unlisted).
+  [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093).
 - [Hamweard](https://github.com/happy-dwarf-team/hamweard): back from a campaign
   to the main menu without restarting the game; also on the
   [Steam Workshop](https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792).
