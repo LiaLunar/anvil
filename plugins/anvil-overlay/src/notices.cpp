@@ -69,8 +69,36 @@ std::vector<Notice> start_notices(const StartFacts& facts) {
         notices.push_back(std::move(n));
     }
 
+    // A game update skips every plugin with addresses for the same reason: one
+    // notice that says so. anvil-game is among them, so there is no badge in the
+    // menu and no ready event, and this one must outlast the loading screen.
+    std::string unknown_build;
+    std::string skipped_by_build;
+    size_t skipped_count = 0;
+    for (const PluginRow& p : facts.plugins) {
+        if (p.state != "skipped" || (p.why.code != "build_unknown" && p.why.code != "build_unknown_gog")) continue;
+        unknown_build = p.why.code == "build_unknown_gog"
+                            ? p.reason_text()
+                            : std::string(tr("eu4.exe is not a build Anvil knows (EU4 updated?): plugins that need game "
+                                             "addresses are skipped, the others load."));
+        skipped_by_build += (skipped_by_build.empty() ? "" : ", ") + p.id;
+        ++skipped_count;
+    }
+    if (skipped_count != 0) {
+        Notice n;
+        n.id = "unknown-build";
+        n.kind = NoticeKind::Warning;
+        n.until_closed = true;
+        n.title = trf(skipped_count == 1 ? N_("{0} plugin was not loaded") : N_("{0} plugins were not loaded"),
+                      {std::to_string(skipped_count)});
+        n.lines = {unknown_build, skipped_by_build};
+        n.actions.push_back({NoticeAction::Type::OpenPanel, {}, tr("Details")});
+        notices.push_back(std::move(n));
+    }
+
     std::vector<std::string> lines;
     for (const PluginRow& p : facts.plugins) {
+        if (p.why.code == "build_unknown" || p.why.code == "build_unknown_gog") continue;
         if (p.state == "failed") {
             lines.push_back(trf("{0}: failed: {1}", {p.id, p.reason_text()}));
         } else if (p.state == "skipped" && !p.disabled && !p.awaiting_approval &&

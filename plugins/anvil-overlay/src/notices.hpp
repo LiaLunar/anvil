@@ -22,7 +22,7 @@ struct NoticeAction {
 };
 
 struct Notice {
-    std::string id;  // stable: "safe-mode", "crash", "not-loaded", "approvals", "ironman", "multiplayer"
+    std::string id;  // stable: "safe-mode", "crash", "unknown-build", "not-loaded", "approvals", "ironman", "multiplayer"
     NoticeKind kind = NoticeKind::Info;
     std::string title;
     std::vector<std::string> lines;
@@ -30,6 +30,9 @@ struct Notice {
     // Session notices stay while their session lasts and cannot be closed;
     // the others close after the notification time or on a click.
     bool lasting = false;
+    // Stays until the player closes it, whatever the notification time: it comes
+    // before the game's menu, when a timer would run out on the loading screen.
+    bool until_closed = false;
 };
 
 // Once per start, when the game is ready and every plugin was processed.

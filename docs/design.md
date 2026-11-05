@@ -239,7 +239,7 @@ label = "Panel key"
 
 ## 6. Game build identity
 
-Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", or in a GOG install (`goggame-2057001589.info` in the game folder) with "this GOG build of the game is unknown: update it to 1.37.5.2 in GOG Galaxy", and the overlay says so: it runs on every build. A plugin with `symbols` loads only on a build its file declares (§5.2).
+Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, CheckSum, entry point) and maps it to a build id from a compiled-in table. The full SHA-256 is checked off the critical path and cached. With an unknown build, plugins with `symbols` are skipped with "game build unknown (EU4 updated?)", or in a GOG install (`goggame-2057001589.info` in the game folder) with "this GOG build of the game is unknown: update it to 1.37.5.2 in GOG Galaxy", and the overlay says so: it runs on every build. `anvil-game` is skipped with the rest, so there is no badge in the menu and the notice starts with the first frame, on the loading screen; it is one notice for all those plugins and stays until the player closes it, whatever the notification time. A plugin with `symbols` loads only on a build its file declares (§5.2).
 
 | Build id | Store | `eu4.exe` SHA-256 |
 | --- | --- | --- |

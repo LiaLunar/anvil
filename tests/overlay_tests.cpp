@@ -74,6 +74,37 @@ int main() {
         if (many != nullptr) CHECK(many->lines.size() == 7 && many->lines.back() == "and 6 more");
     });
 
+    run("notices: an unknown game build gives one notice that stays", [] {
+        StartFacts facts;
+        for (const char* id : {"anvil-game", "bellows", "tongs"}) {
+            facts.plugins.push_back(row(id, "skipped", "game build unknown (EU4 updated?)"));
+            facts.plugins.back().why = anvil::i18n::Message("build_unknown", {});
+        }
+        facts.plugins.push_back(row("no-addresses", "loaded"));
+        facts.plugins.push_back(row("other", "skipped", "requires plugin 'b', which is not loaded"));
+        const auto notices = start_notices(facts);
+        CHECK(notices.size() == 2);
+        const Notice* n = find(notices, "unknown-build");
+        CHECK(n != nullptr);
+        if (n == nullptr) return;
+        CHECK(n->title == "3 plugins were not loaded");
+        CHECK(n->until_closed && !n->lasting && n->kind == NoticeKind::Warning);
+        CHECK(n->lines.size() == 2);
+        CHECK(n->lines[0].find("eu4.exe is not a build Anvil knows (EU4 updated?)") == 0);
+        CHECK(n->lines[1] == "anvil-game, bellows, tongs");
+        const Notice* rest = find(notices, "not-loaded");  // another reason keeps its own notice
+        CHECK(rest != nullptr && rest->lines.size() == 1 && rest->lines[0].find("other: requires") == 0 && !rest->until_closed);
+
+        // On GOG the reason says what to do.
+        StartFacts gog;
+        gog.plugins = {row("anvil-game", "skipped", "this GOG build of the game is unknown")};
+        gog.plugins[0].why = anvil::i18n::Message("build_unknown_gog", {});
+        const auto gog_notices = start_notices(gog);
+        const Notice* g = find(gog_notices, "unknown-build");
+        CHECK(gog_notices.size() == 1 && g != nullptr && g->title == "1 plugin was not loaded");
+        if (g != nullptr) CHECK(g->lines[0].find("GOG Galaxy") != std::string::npos && g->lines[1] == "anvil-game");
+    });
+
     run("notices: the previous crash offers to disable the plugins it was in", [] {
         StartFacts facts;
         facts.plugins = {row("tongs", "loaded"), row("bellows", "loaded")};

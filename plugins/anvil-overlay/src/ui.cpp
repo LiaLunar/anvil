@@ -206,6 +206,7 @@ void build_session_notices() {
 
 bool notice_alive(const ShownNotice& n, ULONGLONG now) {
     if (n.closed || !shared().notifications.load()) return false;
+    if (n.notice.until_closed) return true;
     const int64_t seconds = shared().notification_seconds.load();
     return seconds <= 0 || now - n.since < static_cast<ULONGLONG>(seconds) * 1000;
 }
