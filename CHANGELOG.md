@@ -1,5 +1,26 @@
 # Changelog
 
+## [1.11.0](https://github.com/happy-dwarf-team/anvil/compare/v1.10.1...v1.11.0) (2026-11-05)
+
+
+### Features
+
+* **api:** add plugin windows to the overlay ([#225](https://github.com/happy-dwarf-team/anvil/issues/225)) ([b8136b2](https://github.com/happy-dwarf-team/anvil/commit/b8136b2d8a3fc57ba9b6cc1001dab233c6c76f07))
+* **api:** read the world and hear the date in anvil-game ([#219](https://github.com/happy-dwarf-team/anvil/issues/219)) ([a6d5f12](https://github.com/happy-dwarf-team/anvil/commit/a6d5f12f96468f00bd22e4c631c055e90c799e59))
+* **api:** report wars in anvil-game ([#223](https://github.com/happy-dwarf-team/anvil/issues/223)) ([e76bb87](https://github.com/happy-dwarf-team/anvil/commit/e76bb878650f329ba7cf3e8088e15ef28be4f176))
+* **cli:** add anvil port to place symbols in a new game build ([#218](https://github.com/happy-dwarf-team/anvil/issues/218)) ([02c43e9](https://github.com/happy-dwarf-team/anvil/commit/02c43e93dba0fbf2f5898ab15908d57efcc2bcdd))
+
+
+### Bug Fixes
+
+* **overlay:** say once that the game build is unknown and keep it until closed ([#220](https://github.com/happy-dwarf-team/anvil/issues/220)) ([c8b1bd6](https://github.com/happy-dwarf-team/anvil/commit/c8b1bd6651fd10e7f41481881fc6937ee2885adf))
+* read a -userdir whose path alone is in quotes ([#222](https://github.com/happy-dwarf-team/anvil/issues/222)) ([0091a96](https://github.com/happy-dwarf-team/anvil/commit/0091a963d7747456c9feff1cfb057208227ddfee))
+
+
+### Build
+
+* **overlay:** update Dear ImGui to 1.93.0 ([#224](https://github.com/happy-dwarf-team/anvil/issues/224)) ([a419ef7](https://github.com/happy-dwarf-team/anvil/commit/a419ef78137367d345f17e31ef92150fae5d9f2a))
+
 ## [1.10.1](https://github.com/happy-dwarf-team/anvil/compare/v1.10.0...v1.10.1) (2026-11-04)
 
 
