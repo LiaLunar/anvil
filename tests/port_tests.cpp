@@ -267,6 +267,29 @@ void port_tests() {
         CHECK(contains(written, digest_of({0x48, 0x8B, 0x81, 0x08, 0x04, 0x00, 0x00, 0x48, 0x85, 0xC0})));
     });
 
+    run("port drops the is of a digest whose value moved, as a bytes file would allow it", [&] {
+        const std::string digest = digest_of({0x48, 0x8B, 0x81, 0x18, 0x04, 0x00, 0x00, 0x48, 0x85, 0xC0});
+        const std::string head = "build = \"old\"\n[symbol.speed]\nrva = 0x1020\nsha256 = \"" + digest + "\"\nsize = 10\nmemory = \"code\"\n";
+        const auto port = [&](const std::string& values) {
+            const PortReport report = fx.port(head + values);
+            CHECK(report.exit_code == kExitOk);
+            const PortedSymbol* speed = ported(report, "speed");
+            CHECK(speed != nullptr && speed->values_changed == std::vector<std::string>{"offset"});
+            const std::string out = read(fx.out);
+            CHECK(fx.verifies(out, "old", fx.old_exe));
+            CHECK(fx.verifies(out, "new", fx.new_exe));
+            CHECK(!contains(out, "0x418"));
+            return std::pair{report, out};
+        };
+        const auto [report, last] = port("values.offset = { at = 3, size = 4, is = 0x418 }  # kept\nvalues.prefix = { at = 0, size = 1, is = 0x48 }\n");
+        CHECK(contains(last, "values.offset = { at = 3, size = 4 }  # kept\n"));
+        CHECK(contains(last, "values.prefix = { at = 0, size = 1, is = 0x48 }\n"));
+        CHECK(contains(format_port_report(report, fx.symbols, Format::Json), "\"values_changed\": [\"offset\"]"));
+        CHECK(contains(format_port_report(report, fx.symbols, Format::Text), "1 value(s) differ in the new build"));
+        CHECK(contains(port("values.offset = { is = 0x418, at = 3, size = 4 }\n").second, "values.offset = { at = 3, size = 4 }\n"));
+        CHECK(contains(port("[symbol.speed.values.offset]\nat = 3\nsize = 4\nis = 0x418\n").second, "[symbol.speed.values.offset]\nat = 3\nsize = 4\n"));
+    });
+
     run("port keeps per-build tables and their style", [&] {
         const std::string text = "builds = [\"old\", \"other\"]\n\n[symbol.far_fn]\nbytes = \"" + hex_bytes(kFar) +
                                  "\"\nmemory = \"code\"\nbuild.\"old\" = { rva = 0x1000 }\nbuild.\"other\" = { rva = 0x1004 }\n\n"

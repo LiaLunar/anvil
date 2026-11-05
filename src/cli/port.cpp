@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <map>
 #include <sstream>
@@ -61,6 +62,14 @@ Keys code_keys(const SymbolPlacement& p) {
     }
     if (!any.empty()) keys.emplace_back("any", "[" + any + "]");
     return keys;
+}
+
+// A value in bytes at `rva`, as verification computes it.
+uint64_t value_at(const SymbolValue& v, uint32_t rva, const std::vector<uint8_t>& bytes) {
+    uint64_t raw = 0;
+    std::memcpy(&raw, bytes.data() + v.at, v.rip_relative != 0 ? 4 : v.size);
+    if (v.rip_relative == 0) return raw;
+    return static_cast<uint64_t>(static_cast<int64_t>(rva) + v.rip_relative + static_cast<int32_t>(static_cast<uint32_t>(raw)));
 }
 
 // Line edits of symbols.toml: everything it does not touch stays as it was,
@@ -144,6 +153,23 @@ void drop_key(TextEdit& edit, const toml::node& node) {
     }
 }
 
+// A value's `is` that goes away: from an inline table, or as a line of its own.
+void drop_value_is(TextEdit& edit, const toml::node& is) {
+    const auto& source = is.source();
+    std::string& text = edit.line(static_cast<uint32_t>(source.begin.line));
+    const size_t value_end = source.end.column - 1;
+    const size_t key = text.rfind("is", text.rfind('=', source.begin.column - 1));
+    const size_t before = key == 0 ? std::string::npos : text.find_last_not_of(" \t", key - 1);
+    if (before != std::string::npos && text[before] == ',') {
+        text.erase(before, value_end - before);
+    } else if (before != std::string::npos && text[before] == '{') {
+        const size_t next = text.find_first_not_of(", \t", value_end);
+        text.erase(key, (next == std::string::npos ? value_end : next) - key);
+    } else {
+        drop_key(edit, is);
+    }
+}
+
 // Adds `keys` to the build's table of the symbol, or writes that table.
 void add_to_build(TextEdit& edit, const toml::table& symbol, const std::string& name, const std::string& build, const Keys& keys) {
     const toml::table* builds = symbol["build"].as_table();
@@ -184,11 +210,12 @@ void add_to_build(TextEdit& edit, const toml::table& symbol, const std::string& 
 }
 
 // symbols.toml with the new build added: `placed` holds where each ported
-// symbol is, `manual` gets a comment at its table. nullopt with `error` when the
-// text does not parse as it did.
+// symbol is, `manual` gets a comment at its table, `moved` names the values that
+// lose their `is`. nullopt with `error` when the text does not parse as it did.
 std::optional<std::string> with_new_build(const std::string& text, const SymbolFile& file, const std::string& build,
                                           const std::map<std::string, SymbolPlacement>& placed,
-                                          const std::vector<ManualSymbol>& manual, std::string& error) {
+                                          const std::vector<ManualSymbol>& manual,
+                                          const std::map<std::string, std::vector<std::string>>& moved, std::string& error) {
     toml::table root;
     try {
         root = toml::parse(text);
@@ -280,6 +307,13 @@ std::optional<std::string> with_new_build(const std::string& text, const SymbolF
             if (!keys.empty()) add_to_build(edit, *table, s.name, id, keys);
         }
         if (!fresh.empty()) add_to_build(edit, *table, s.name, build, fresh);
+        if (const auto values = moved.find(s.name); values != moved.end()) {
+            // Right to left, as one line may hold several.
+            std::vector<const toml::node*> keys;
+            for (const std::string& value : values->second) keys.push_back((*table)["values"][value]["is"].node());
+            std::sort(keys.begin(), keys.end(), [](const toml::node* a, const toml::node* b) { return a->source().begin.column > b->source().begin.column; });
+            for (const toml::node* key : keys) drop_value_is(edit, *key);
+        }
     }
     return edit.text();
 }
@@ -474,6 +508,11 @@ PortReport port_symbols(const PortOptions& options) {
 
     // The checks of anvil check --exe on the new build, whatever Anvil knows about it yet.
     SymbolFile target = file;
+    // A digest cannot show a value, so the converter writes each one as `is`, also a
+    // field offset or an address, which a new build changes. Bytes declare the same
+    // values without promising them, so the two forms port alike: the value is no
+    // longer constant, and `anvil gen` reads it when the game loads.
+    std::map<std::string, std::vector<std::string>> moved;
     for (Symbol& s : target.symbols) {
         const auto found = placed.find(s.name);
         if (found != placed.end()) {
@@ -481,6 +520,12 @@ PortReport port_symbols(const PortOptions& options) {
             s.points_to = found->second.points_to;
             s.bytes = found->second.bytes;
             s.sha256 = found->second.sha256;
+            if (s.sha256.empty()) continue;
+            for (SymbolValue& v : s.values) {
+                if (!v.is || *v.is == value_at(v, *s.rva, s.bytes)) continue;
+                v.is.reset();
+                moved[s.name].push_back(v.name);
+            }
         } else if (s.export_name.empty() || s.absent || !old_problem[s.id].empty()) {
             s.absent = true;
         }
@@ -500,15 +545,19 @@ PortReport port_symbols(const PortOptions& options) {
         if (found == failed.end()) return false;
         report.manual.push_back({p.name, p.line, p.old_rva, "does not verify on the new build: " + found->second, p.rva});
         placed.erase(p.name);
+        moved.erase(p.name);
         return true;
     });
+    for (PortedSymbol& p : report.ported) {
+        if (const auto values = moved.find(p.name); values != moved.end()) p.values_changed = values->second;
+    }
     const auto by_line = [](const auto& a, const auto& b) { return a.line < b.line; };
     std::stable_sort(report.ported.begin(), report.ported.end(), by_line);
     std::stable_sort(report.manual.begin(), report.manual.end(), by_line);
     report.exit_code = report.manual.empty() ? kExitOk : kExitProblems;
 
     if (options.out.empty()) return report;
-    const auto written = with_new_build(text, file, options.build, placed, report.manual, error);
+    const auto written = with_new_build(text, file, options.build, placed, report.manual, moved, error);
     if (!written) return cannot("cannot rewrite symbols.toml: " + error);
     // Symbols left by hand fail the schema until they are placed, never the TOML.
     try {
@@ -562,7 +611,13 @@ std::string format_port_report(const PortReport& report, const std::filesystem::
             out += std::string(first ? "\n" : ",\n") + "    {\"name\": " + json_string(p.name) + ", \"line\": " + std::to_string(p.line) +
                    ", \"old_rva\": " + optional_hex(p.old_rva) + ", \"rva\": " + optional_hex(p.rva) + ", \"points_to\": " + optional_hex(p.points_to) +
                    ", \"method\": " + json_string(p.method) + ", \"bytes_changed\": " + (p.bytes_changed ? "true" : "false") +
-                   ", \"review\": " + (p.review.empty() ? "null" : json_string(p.review)) + "}";
+                   ", \"review\": " + (p.review.empty() ? "null" : json_string(p.review));
+            if (!p.values_changed.empty()) {
+                out += ", \"values_changed\": [";
+                for (size_t i = 0; i < p.values_changed.size(); ++i) out += (i == 0 ? "" : ", ") + json_string(p.values_changed[i]);
+                out += "]";
+            }
+            out += "}";
             first = false;
         }
         out += first ? "],\n" : "\n  ],\n";
@@ -587,15 +642,20 @@ std::string format_port_report(const PortReport& report, const std::filesystem::
     for (const auto& m : report.manual) {
         to_do.push_back({file, m.line, m.name + ": " + m.reason + (m.candidate ? " (look at " + hex(*m.candidate) + ")" : "")});
     }
-    size_t changed = 0;
+    size_t changed = 0, values = 0;
     for (const auto& p : report.ported) {
         if (p.bytes_changed) ++changed;
+        values += p.values_changed.size();
         if (!p.review.empty()) to_read.push_back({file, p.line, p.name + ": placed at " + hex(p.rva.value_or(0)) + ", but " + p.review});
     }
     std::string out = problem_lines(to_do, format, "error") + problem_lines(to_read, format, "warning");
     out += report.from_build + " -> " + report.build + ": " + std::to_string(report.ported.size()) + " of " + std::to_string(report.symbols) +
            " symbol(s) placed, " + std::to_string(changed) + " with other bytes; " + std::to_string(report.manual.size()) + " left by hand";
     out += report.written ? "; symbols.toml written\n" : "; nothing written\n";
+    if (values != 0) {
+        out += std::to_string(values) + " value(s) differ in the new build and lose their `is`: anvil gen reads them when the game loads, "
+                                        "so code that uses one as a constant stops compiling.\n";
+    }
     if (report.written && report.manual.empty()) {
         out += report.build_known ? "Next: anvil check <plugin-dir> --exe <the new eu4.exe>.\n"
                                   : "Next: anvil check <plugin-dir> --exe <the new eu4.exe>, once this Anvil knows the build.\n";

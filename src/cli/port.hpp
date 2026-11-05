@@ -30,6 +30,7 @@ struct PortedSymbol {
     std::string method;
     bool bytes_changed = false;  // the declared bytes differ in the new build
     std::string review;          // the place is certain, but look at this
+    std::vector<std::string> values_changed;  // of a digest: values whose `is` no longer holds, so it goes
 };
 
 // A symbol left for a person, and why. `candidate` is a place to look at.
