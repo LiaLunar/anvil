@@ -118,7 +118,7 @@ set_target_properties(version_dll PROPERTIES OUTPUT_NAME version)
 
 # anvil.exe = the command-line tool for plugin authors (design §16). Its
 # commands live in anvil_tool so the tests can run them in-process.
-add_library(anvil_tool STATIC src/cli/check.cpp src/cli/game.cpp src/cli/gen.cpp)
+add_library(anvil_tool STATIC src/cli/check.cpp src/cli/game.cpp src/cli/gen.cpp src/cli/port.cpp src/cli/port_match.cpp)
 target_link_libraries(anvil_tool PUBLIC anvil_core)
 add_executable(anvil src/cli/anvil_cli.cpp)
 target_link_libraries(anvil PRIVATE anvil_tool)
@@ -282,6 +282,9 @@ if(ANVIL_BUILD_TESTS)
     target_link_libraries(anvil_cli_tests PRIVATE anvil_tool)
     add_dependencies(anvil_cli_tests anvil)
     add_test(NAME anvil_cli_tests COMMAND anvil_cli_tests $<TARGET_FILE:anvil>)
+    add_executable(anvil_port_tests tests/port_tests.cpp)
+    target_link_libraries(anvil_port_tests PRIVATE anvil_tool)
+    add_test(NAME anvil_port_tests COMMAND anvil_port_tests)
 
     # The SDK from Anvil's sources in a plugin project with C++ only (#81):
     # configuring must not need the C language.
@@ -399,11 +402,12 @@ if(ANVIL_BUILD_TESTS)
     set_tests_properties(anvil_cli_version PROPERTIES PASS_REGULAR_EXPRESSION "^anvil ${PROJECT_VERSION}[\r\n]*$")
     add_test(NAME anvil_cli_help COMMAND anvil --help)
     set_tests_properties(anvil_cli_help PROPERTIES PASS_REGULAR_EXPRESSION "Usage: anvil <command>")
-    # gen and check without their arguments, like unknown commands, exit non-zero (2).
+    # gen, check and port without their arguments, like unknown commands, exit non-zero (2).
     add_test(NAME anvil_cli_gen COMMAND anvil gen)
     add_test(NAME anvil_cli_check COMMAND anvil check)
+    add_test(NAME anvil_cli_port COMMAND anvil port)
     add_test(NAME anvil_cli_unknown COMMAND anvil frobnicate)
-    set_tests_properties(anvil_cli_gen anvil_cli_check anvil_cli_unknown PROPERTIES WILL_FAIL TRUE)
+    set_tests_properties(anvil_cli_gen anvil_cli_check anvil_cli_port anvil_cli_unknown PROPERTIES WILL_FAIL TRUE)
 endif()
 
 # Release layout (cmake --install ... --component anvil): <prefix>/version.dll, <prefix>/anvil/...

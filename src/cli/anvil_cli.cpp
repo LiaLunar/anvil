@@ -6,6 +6,7 @@
 #include "cli/check.hpp"
 #include "cli/game.hpp"
 #include "cli/gen.hpp"
+#include "cli/port.hpp"
 
 #include <cstdio>
 #include <cstring>
@@ -51,6 +52,12 @@ void print_usage(std::FILE* out) {
                "      EU4's user folder enables (--user-dir, or the folder the game uses) are listed as\n"
                "      approved, update pending, pending, in conflict, shadowed or invalid; the approved\n"
                "      ones take part in the resolution.\n"
+               "  port <symbols.toml> --from <old eu4.exe> --to <new eu4.exe> --build <new id> [--out <file>]\n"
+               "       [--from-build <id>] [--format text|json|github]\n"
+               "      place every symbol in a new build of the game: reads each symbol's bytes from the old\n"
+               "      eu4.exe, compares the code of both builds (relative addresses aside) and writes the new\n"
+               "      build's tables to --out, keeping the rest of the file. Reads both eu4.exe files, never\n"
+               "      guesses: what has no certain place stays by hand, with the reason. Then run anvil check.\n"
                "\n"
                "Options:\n"
                "  -h, --help    show this help\n"
@@ -272,6 +279,52 @@ int run_check(const std::vector<std::wstring>& args) {
     return report.exit_code;
 }
 
+int run_port(const std::vector<std::wstring>& args) {
+    PortOptions options;
+    Format format = Format::Text;
+    std::vector<std::wstring> positional;
+    for (size_t i = 2; i < args.size(); ++i) {
+        const auto path_option = [&](std::wstring_view name, std::filesystem::path& out) {
+            const auto value = option_value(args, i, name);
+            if (value) out = *value;
+            return value.has_value() && !value->empty();
+        };
+        const auto text_option = [&](std::wstring_view name, std::string& out) {
+            const auto value = option_value(args, i, name);
+            if (value) out = utf8(*value);
+            return value.has_value() && !value->empty();
+        };
+        if (is_option(args[i], L"--from-build")) {
+            if (!text_option(L"--from-build", options.from_build)) return usage_error("port: --from-build needs a build id");
+        } else if (is_option(args[i], L"--from")) {
+            if (!path_option(L"--from", options.from)) return usage_error("port: --from needs the old eu4.exe");
+        } else if (is_option(args[i], L"--to")) {
+            if (!path_option(L"--to", options.to)) return usage_error("port: --to needs the new eu4.exe");
+        } else if (is_option(args[i], L"--build")) {
+            if (!text_option(L"--build", options.build)) return usage_error("port: --build needs the id of the new build");
+        } else if (is_option(args[i], L"--out")) {
+            if (!path_option(L"--out", options.out)) return usage_error("port: --out needs a file");
+        } else if (is_option(args[i], L"--format")) {
+            const auto text = option_value(args, i, L"--format");
+            const auto parsed = text ? parse_format(utf8(*text)) : std::nullopt;
+            if (!parsed) return usage_error("port: --format must be text, json or github");
+            format = *parsed;
+        } else if (args[i].starts_with(L"--")) {
+            return usage_error("port: unknown option " + utf8(args[i]));
+        } else {
+            positional.push_back(args[i]);
+        }
+    }
+    if (positional.size() != 1) return usage_error("port needs one <symbols.toml>");
+    if (options.from.empty() || options.to.empty() || options.build.empty()) {
+        return usage_error("port needs --from, --to and --build");
+    }
+    options.symbols = positional[0];
+    const PortReport report = port_symbols(options);
+    std::fputs(format_port_report(report, options.symbols, format).c_str(), stdout);
+    return report.exit_code;
+}
+
 // UTF-8 output, so paths and messages survive the console and pipes. The code
 // page belongs to the console, which outlives this process: restore it.
 class Utf8Console {
@@ -307,6 +360,7 @@ int run(const std::vector<std::wstring>& args) {
     }
     if (command == L"gen") return run_gen(args);
     if (command == L"check") return run_check(args);
+    if (command == L"port") return run_port(args);
     std::fprintf(stderr, "anvil: unknown command '%s'\n\n", utf8(command).c_str());
     print_usage(stderr);
     return kExitCannotCheck;

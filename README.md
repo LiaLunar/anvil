@@ -186,6 +186,8 @@ anvil gen settings.toml build\generated           # settings.gen.h and settings.
 anvil gen --lang rust symbols.toml out            # symbols.gen.rs (Rust plugins, anvil-sys)
 anvil check my-plugin --exe "C:\...\eu4.exe"     # verify against the game, write symbols.lock
 anvil check my-plugin --format github             # in CI, without the game: schemas and symbols.lock
+anvil port symbols.toml --from old\eu4.exe --to new\eu4.exe --build <new id> --out symbols.toml
+                                                  # a game update: place the symbols in the new build
 ```
 
 The Rust side (`sdk/rust/anvil-sys`, `examples/hello-rust`, see
