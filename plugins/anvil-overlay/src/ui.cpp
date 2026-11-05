@@ -43,8 +43,6 @@ struct Ui {
     bool was_visible = false;
     double font_scale = 0.0;  // the scale the font atlas was built for
     anvil::i18n::Language font_language = anvil::i18n::Language::English;  // and the language
-    bool atlas_uploaded = false;  // its pixels are in the texture: the CPU copy can go
-    ImVector<ImWchar> cjk_ranges;  // the CJK font's glyphs, which the atlas reads when it builds
     ImGuiStyle base_style;
 
     // The badge in the main menu: the status it shows, read once a second.
@@ -246,8 +244,6 @@ void build_fonts(double font_scale, anvil::i18n::Language language) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
     const auto started = std::chrono::steady_clock::now();
-    // Latin with Latin Extended-A and general punctuation (the log's dashes).
-    static const ImWchar ranges[] = {0x0020, 0x00FF, 0x0100, 0x017F, 0x2000, 0x206F, 0};
     wchar_t windows[MAX_PATH] = {};
     ImFont* font = nullptr;
     float size = static_cast<float>(17.0 * font_scale);
@@ -258,7 +254,7 @@ void build_fonts(double font_scale, anvil::i18n::Language language) {
             GetFileAttributesW(file.c_str()) != INVALID_FILE_ATTRIBUTES) {
             ImFontConfig config;
             config.OversampleH = 2;
-            font = io.Fonts->AddFontFromFileTTF(path, size, &config, ranges);
+            font = io.Fonts->AddFontFromFileTTF(path, size, &config);
         }
     }
     if (font == nullptr) {
@@ -267,17 +263,10 @@ void build_fonts(double font_scale, anvil::i18n::Language language) {
         config.SizePixels = size;
         io.Fonts->AddFontDefault(&config);
     }
-    // Chinese, Japanese and Korean: the glyphs of the catalog's characters
-    // from the language's font, merged into the Latin one (i18n/cjk_font.hpp).
-    Ui& u = ui();
-    u.cjk_ranges.clear();
+    // Chinese, Japanese and Korean: the language's font, merged into the Latin
+    // one (i18n/cjk_font.hpp). ImGui rasterizes a glyph when a text first needs it.
     const anvil::i18n::FontData cjk = anvil::i18n::cjk_font(language);
     if (cjk.size > 0) {
-        ImFontGlyphRangesBuilder builder;
-        for (const uint32_t c : anvil::i18n::catalog_characters(language)) {
-            if (c <= 0xFFFF) builder.AddChar(static_cast<ImWchar>(c));
-        }
-        builder.BuildRanges(&u.cjk_ranges);
         ImFontConfig config;
         config.MergeMode = true;
         config.FontDataOwnedByAtlas = false;  // the binary's resource
@@ -286,14 +275,12 @@ void build_fonts(double font_scale, anvil::i18n::Language language) {
         // Source Han Sans fills more of its height with its ascent and
         // descent than Segoe UI, so the same size draws smaller ideographs.
         config.GlyphOffset.y = static_cast<float>(1.0 * font_scale);
-        io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), size * 1.12f, &config,
-                                       u.cjk_ranges.Data);
+        io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), size * 1.12f, &config);
     }
-    io.Fonts->Build();
     const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     char line[160];
-    std::snprintf(line, sizeof(line), "font atlas for %s at scale %.2f: %dx%d, built in %.1f ms",
-                  anvil::i18n::language_code(language), font_scale, io.Fonts->TexWidth, io.Fonts->TexHeight, ms);
+    std::snprintf(line, sizeof(line), "fonts for %s at scale %.2f loaded in %.1f ms", anvil::i18n::language_code(language),
+                  font_scale, ms);
     log_info(line);
 }
 
@@ -336,7 +323,6 @@ bool ensure_imgui(IDirect3DDevice9* device) {
         ImGui::GetStyle().ScaleAllSizes(static_cast<float>(wanted));
         u.font_scale = wanted;
         u.font_language = language;
-        u.atlas_uploaded = false;
     }
     if (u.dx9_device != device) {
         if (u.dx9_device != nullptr) ImGui_ImplDX9_Shutdown();
@@ -1033,12 +1019,6 @@ void ui_frame(IDirect3DDevice9* device) {
         u.was_visible = true;
     }
     ImGui_ImplDX9_NewFrame();
-    // The texture now holds the atlas; its CPU copies (8 bits and 32 bits a
-    // pixel) go, and a device reset builds them again from the fonts.
-    if (!u.atlas_uploaded) {
-        ImGui::GetIO().Fonts->ClearTexData();
-        u.atlas_uploaded = true;
-    }
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     draw_notices(now);
@@ -1058,7 +1038,6 @@ void ui_invalidate(IDirect3DDevice9* device) {
     Ui& u = ui();
     if (u.dx9_device == device) {
         ImGui_ImplDX9_InvalidateDeviceObjects();
-        u.atlas_uploaded = false;
     }
 }
 

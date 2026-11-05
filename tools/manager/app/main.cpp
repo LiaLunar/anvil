@@ -90,14 +90,10 @@ ManagerApp* g_app = nullptr;
 float g_scale = 1.0f;
 bool g_fonts_dirty = true;
 anvil::i18n::Language g_fonts_language = anvil::i18n::Language::English;  // the atlas's
-ImVector<ImWchar> g_cjk_ranges;  // the CJK font's glyphs, read when the atlas builds
 
 void load_fonts(float scale) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
-    // Basic Latin, Latin-1 and Latin Extended-A (folder names such as "Gry" or "Spiele" with
-    // their accents), plus the punctuation the texts use.
-    static const ImWchar ranges[] = {0x0020, 0x00FF, 0x0100, 0x017F, 0x2013, 0x2014, 0x2018, 0x201E, 0x2022, 0x2026, 0x2212, 0x2212, 0};
     wchar_t windows[MAX_PATH] = {};
     GetWindowsDirectoryW(windows, MAX_PATH);
     const fs::path font = fs::path(windows) / "Fonts" / "segoeui.ttf";
@@ -106,23 +102,16 @@ void load_fonts(float scale) {
     std::error_code ec;
     const auto font_name = font.u8string();  // ImGui opens it as UTF-8
     if (!fs::is_regular_file(font, ec) ||
-        io.Fonts->AddFontFromFileTTF(reinterpret_cast<const char*>(font_name.c_str()), 17.0f * scale, &config, ranges) ==
-            nullptr) {
+        io.Fonts->AddFontFromFileTTF(reinterpret_cast<const char*>(font_name.c_str()), 17.0f * scale, &config) == nullptr) {
         ImFontConfig fallback;
         fallback.SizePixels = 13.0f * scale;
         io.Fonts->AddFontDefault(&fallback);
     }
-    // Chinese, Japanese and Korean: the glyphs of the catalog's characters
-    // from the language's font, merged into the Latin one (i18n/cjk_font.hpp).
+    // Chinese, Japanese and Korean: the language's font, merged into the Latin
+    // one (i18n/cjk_font.hpp). ImGui rasterizes a glyph when a text first needs it.
     g_fonts_language = anvil::i18n::language();
-    g_cjk_ranges.clear();
     const anvil::i18n::FontData cjk = anvil::i18n::cjk_font(g_fonts_language);
     if (cjk.size > 0) {
-        ImFontGlyphRangesBuilder builder;
-        for (const uint32_t c : anvil::i18n::catalog_characters(g_fonts_language)) {
-            if (c <= 0xFFFF) builder.AddChar(static_cast<ImWchar>(c));
-        }
-        builder.BuildRanges(&g_cjk_ranges);
         ImFontConfig merge;
         merge.MergeMode = true;
         merge.FontDataOwnedByAtlas = false;  // the exe's resource
@@ -132,7 +121,7 @@ void load_fonts(float scale) {
         // descent than Segoe UI, so the same size draws smaller ideographs.
         merge.GlyphOffset.y = 1.0f * scale;
         io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), 17.0f * 1.12f * scale,
-                                       &merge, g_cjk_ranges.Data);
+                                       &merge);
     }
     ImGui::GetStyle() = ImGuiStyle();
     ImGui::StyleColorsDark();
@@ -362,8 +351,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
             graphics.create_target();
         }
         if (g_fonts_dirty || g_fonts_language != anvil::i18n::language()) {
-            load_fonts(g_scale);
             ImGui_ImplDX11_InvalidateDeviceObjects();
+            load_fonts(g_scale);
             g_fonts_dirty = false;
         }
 

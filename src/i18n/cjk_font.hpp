@@ -25,7 +25,8 @@ struct FontData {
 FontData cjk_font(Language language);
 
 // The characters beyond Latin Extended-A that a language's catalog uses,
-// sorted: the glyphs the atlas needs from the CJK font.
+// sorted. Dear ImGui finds the glyphs itself, so only the tests use this: they
+// check that the font subset of each language has them.
 std::vector<uint32_t> catalog_characters(Language language);
 
 // The options of the overlay's `language` setting (plugins/anvil-overlay/
