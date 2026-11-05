@@ -174,6 +174,7 @@ GameReport check_game(const GameOptions& options) {
         gm.why = p.why.empty() ? i18n::Message(p.reason) : p.why;
         gm.hash = p.hash;
         if (p.manifest) gm.version = p.manifest->version.to_string();
+        gm.problem = p.problem;
         if (p.approval && p.bound) {
             gm.approved_version = p.approval->version;
             gm.approved_hash = p.approval->hash;
@@ -188,6 +189,10 @@ GameReport check_game(const GameOptions& options) {
         check.write_lock = false;
         check.build_of = options.build_of;
         gm.report = check_plugin(check);
+        if (p.state == ModPluginState::UpdatePending) {
+            check.plugin_dir = p.folder;
+            gm.update = check_plugin(check);
+        }
         gm.status = "skipped";
         report.mod_plugins.push_back(std::move(gm));
     }

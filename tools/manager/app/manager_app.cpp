@@ -743,7 +743,7 @@ void ManagerApp::draw_mods_tab() {
     for (const cli::GameModPlugin& p : report->mod_plugins) {
         ImGui::PushID((p.id + "/" + p.descriptor).c_str());
         ImGui::Separator();
-        const auto& m = p.report.manifest;
+        const auto& m = p.offered().manifest;
         ImGui::Text("%s %s", m && !m->name.empty() ? m->name.c_str() : p.id.c_str(), p.version.c_str());
         ImGui::SameLine();
         weak(trf("id {0}, {1}", {p.id, mod_source(p)}));
@@ -754,8 +754,7 @@ void ManagerApp::draw_mods_tab() {
         weak(p.why.empty() ? p.reason : i18n::text(p.why));
         if (!p.others.empty()) weak(trf("Other mods with this id: {0}", {join(p.others)}));
         for (const cli::Problem& problem : shown_problems(p.report)) colored_wrapped(kWarn, problem.message);
-        const bool approved_here = !p.approved_hash.empty() && p.approved_hash == p.hash;
-        const bool can_approve = p.state != "invalid" && p.state != "shadowed" && !p.hash.empty() && m && !approved_here;
+        const bool can_approve = can_approve_shown(p);
         ImGui::BeginDisabled(read_only());
         if (can_approve && ImGui::Button(p.state == "update-pending" ? tr("Approve the update...") : tr("Approve..."))) {
             approve_ = p;
@@ -786,7 +785,8 @@ void ManagerApp::draw_approve_modal() {
         return;
     }
     const cli::GameModPlugin& p = *approve_;
-    const Manifest& m = *p.report.manifest;
+    const cli::CheckReport& offered = p.offered();  // of an update, the new files and not the copy that loads
+    const Manifest& m = *offered.manifest;
     ImGui::Text("%s %s", m.name.empty() ? m.id.c_str() : m.name.c_str(), p.version.c_str());
     weak(m.authors.empty() ? trf("id {0}", {m.id}) : trf("id {0}, by {1}", {m.id, join(m.authors)}));
     weak(trf("from {0}", {mod_source(p)}));
@@ -802,13 +802,13 @@ void ManagerApp::draw_approve_modal() {
     } else {
         bullet(tr("It says it does not change the game (affects_gameplay = false)."));
     }
-    bullet(p.report.has_symbols ? trf("{0} game address(es) declared in symbols.toml", {std::to_string(p.report.symbols)})
-                                : std::string(tr("It declares no game addresses (no symbols.toml).")));
+    bullet(offered.has_symbols ? trf("{0} game address(es) declared in symbols.toml", {std::to_string(offered.symbols)})
+                               : std::string(tr("It declares no game addresses (no symbols.toml).")));
     bullet(trf("Hash of its files: {0}", {p.hash}));
     if (p.state == "update-pending") bullet(trf("It replaces the approved {0} from the next start.", {p.approved_version}));
     if (p.state == "conflict") bullet(tr("Other enabled mods have a plugin with this id; this approval picks this one."));
-    if (p.status == "skipped" && !p.report.skip_reason.empty()) {
-        colored_wrapped(kBad, trf("Anvil would still skip it: {0}", {i18n::text(p.report.skip_why)}));
+    if (!offered.skip_reason.empty()) {
+        colored_wrapped(kBad, trf("Anvil would still skip it: {0}", {i18n::text(offered.skip_why)}));
     }
     ImGui::Spacing();
     if (ImGui::Button(tr("Approve"))) {

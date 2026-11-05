@@ -59,6 +59,7 @@ struct GameModPlugin {
     i18n::Message why;        // `reason` by code, for the player's language (#158)
     std::string hash;         // of the folder in the mod; "" when it cannot be hashed
     std::string version;      // its plugin.toml's; "" when that is broken
+    std::string problem;      // why the folder in the mod cannot be approved; "" when it can
     // trust.toml's approval of the id for this mod; empty when there is none.
     std::string approved_version, approved_hash, approved_date;
     std::string loads_from;   // the approved copy for approved and update-pending; "" otherwise
@@ -71,6 +72,12 @@ struct GameModPlugin {
     // copy is not made), or for the others the mod's folder, as `anvil check
     // <folder> --exe <eu4.exe>` sees it.
     CheckReport report;
+    // update-pending: the folder in the mod, checked the same way, since `report`
+    // is the approved copy that still loads.
+    std::optional<CheckReport> update;
+
+    // The files an approval would approve.
+    const CheckReport& offered() const { return update ? *update : report; }
 };
 
 // Two plugins that will load together declare code ranges that overlap.

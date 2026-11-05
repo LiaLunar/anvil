@@ -9,6 +9,12 @@ namespace anvil::manager {
 
 namespace fs = std::filesystem;
 
+bool can_approve_shown(const cli::GameModPlugin& shown) {
+    const bool approved_here = !shown.approved_hash.empty() && shown.approved_hash == shown.hash;
+    return shown.state != "invalid" && shown.state != "shadowed" && shown.problem.empty() && !shown.hash.empty() &&
+           shown.offered().manifest && !approved_here;
+}
+
 bool approve_shown_plugin(const fs::path& game_dir, const fs::path& user_dir, const cli::GameReport& report,
                           const cli::GameModPlugin& shown, std::string& error) {
     std::set<std::string> local_ids;

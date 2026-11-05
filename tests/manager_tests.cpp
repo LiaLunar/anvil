@@ -691,6 +691,47 @@ int main(int argc, char** argv) {
         CHECK(!fs::exists(game / "anvil" / "data" / "anvil" / "approved" / "probe"));
     });
 
+    run("plugins from mods: an update is shown by its new files, and only what can be approved is offered", [] {
+        TempDir temp("mod-update");
+        const fs::path game = make_game(temp.dir / "game");
+        const fs::path user = temp.dir / "user";
+        fs::create_directories(game / "anvil" / "plugins");
+        const fs::path folder = user / "mod" / "m" / "anvil" / "probe";
+        write(folder / "plugin.toml", plugin_toml("probe"));
+        write(folder / "probe.dll", "MZ");
+        write(user / "mod" / "m.mod", "name=\"M\"\npath=\"mod/m\"\n");
+        write(user / "dlc_load.json", "{\"enabled_mods\":[\"mod/m.mod\"]}");
+        cli::GameOptions options;
+        options.game_dir = game;
+        options.user_dir = user;
+        cli::GameReport report = cli::check_game(options);
+        CHECK(report.mod_plugins[0].state == "pending" && can_approve_shown(report.mod_plugins[0]));
+        CHECK(!report.mod_plugins[0].update && !report.mod_plugins[0].offered().manifest->affects_gameplay);
+        std::string error;
+        CHECK(approve_shown_plugin(game, user, report, report.mod_plugins[0], error));
+        report = cli::check_game(options);
+        CHECK(report.mod_plugins[0].state == "approved" && !can_approve_shown(report.mod_plugins[0]));
+
+        // The update changes the game: the copy that still loads says otherwise.
+        std::string changed = plugin_toml("probe", "", "2.0.0");
+        changed.replace(changed.find("affects_gameplay = false"), 24, "affects_gameplay = true");
+        write(folder / "plugin.toml", changed);
+        report = cli::check_game(options);
+        cli::GameModPlugin shown = report.mod_plugins[0];
+        CHECK(shown.state == "update-pending" && shown.status == "loaded" && can_approve_shown(shown));
+        CHECK(shown.report.manifest && !shown.report.manifest->affects_gameplay);
+        CHECK(shown.update && shown.offered().manifest && shown.offered().manifest->affects_gameplay);
+        CHECK(shown.offered().manifest->version.to_string() == "2.0.0" && shown.version == "2.0.0");
+
+        // A broken update still loads the copy, but is refused, so it is not offered.
+        write(folder / "plugin.toml", "id = ");
+        report = cli::check_game(options);
+        shown = report.mod_plugins[0];
+        CHECK(shown.state == "update-pending" && !shown.problem.empty() && !can_approve_shown(shown));
+        CHECK(shown.report.manifest && !shown.offered().manifest);
+        CHECK(!approve_shown_plugin(game, user, report, shown, error) && contains(error, "cannot be approved"));
+    });
+
     manager_benchmark_tests();
     manager_runner_tests();
     manager_report_tests();

@@ -7,6 +7,10 @@
 
 namespace anvil::manager {
 
+// Whether the Manager offers to approve the shown plugin: only what
+// approve_shown_plugin would take, and not what this mod already has approved.
+bool can_approve_shown(const cli::GameModPlugin& shown);
+
 // Approves the plugin from a mod that the Manager showed (an entry of
 // `report`, which check_game made for `game_dir` and `user_dir`): the
 // playset is read again, and the approval goes through only when the same
