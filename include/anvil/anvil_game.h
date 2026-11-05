@@ -174,6 +174,28 @@ typedef struct AnvilGamePlayerChange {
     uint64_t session; /* AnvilGameSession.number */
 } AnvilGamePlayerChange;
 
+/* A war started or ended, after the outer frame of the day it happened. The
+ * wars are compared once a game day, so a war that starts and ends within one
+ * day is not reported. Not for the wars a session starts with, and no ENDED
+ * for those still running when it ends: at a session's start ask war_ids.
+ * Payload const AnvilGameWarChange*, with its name, valid for the handler. */
+#define ANVIL_GAME_EVENT_WAR "anvil-game.war"
+
+typedef enum AnvilGameWarChangeKind {
+    ANVIL_GAME_WAR_STARTED = 1,
+    ANVIL_GAME_WAR_ENDED = 2
+} AnvilGameWarChangeKind;
+
+typedef struct AnvilGameWarChange {
+    uint32_t size;   /* sizeof(AnvilGameWarChange) as known by anvil-game */
+    uint32_t change; /* AnvilGameWarChangeKind */
+    uint64_t war;    /* the id of AnvilGameWar: no longer valid for ENDED */
+    AnvilGameTag attacker;
+    AnvilGameTag defender;
+    const char *name; /* UTF-8, as the game names the war */
+    uint64_t session; /* AnvilGameSession.number */
+} AnvilGameWarChange;
+
 /* AnvilGameProvince.flags */
 #define ANVIL_GAME_PROVINCE_LAND 0x1u      /* not a sea or a lake */
 #define ANVIL_GAME_PROVINCE_WASTELAND 0x2u
@@ -216,6 +238,18 @@ typedef struct AnvilGameCountry {
     int32_t monthly_income; /* x 1000: the income total of the economy view, before expenses, as of the last
                              * monthly update */
 } AnvilGameCountry;
+
+typedef struct AnvilGameWar {
+    uint32_t size;
+    uint32_t reserved;
+    uint64_t id;           /* stays the same while the war runs; the game's address, so a later war may reuse it */
+    AnvilGameTag attacker; /* who started it */
+    AnvilGameTag defender; /* whom it was declared on */
+} AnvilGameWar;
+
+/* AnvilGameWorldService.war_side */
+#define ANVIL_GAME_WAR_ATTACKERS 0u
+#define ANVIL_GAME_WAR_DEFENDERS 1u
 
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
@@ -266,6 +300,14 @@ typedef struct AnvilGameWorldService {
     AnvilResult (*country)(const char *tag, AnvilGameCountry *out);
     /* The IDs of the provinces it owns, in the game's order. */
     AnvilResult (*country_provinces)(const char *tag, int32_t *ids, uint32_t capacity, uint32_t *count);
+    /* The ids of the running wars. ANVIL_ERROR_NOT_DECLARED for all four war
+     * calls when a port declared the war symbols absent. */
+    AnvilResult (*war_ids)(uint64_t *ids, uint32_t capacity, uint32_t *count);
+    /* ANVIL_ERROR_NOT_FOUND for an id that is not a running war. */
+    AnvilResult (*war)(uint64_t id, AnvilGameWar *out);
+    AnvilResult (*war_name)(uint64_t id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* The countries on one side now, ANVIL_GAME_WAR_ATTACKERS or _DEFENDERS. */
+    AnvilResult (*war_side)(uint64_t id, uint32_t side, AnvilGameTag *out, uint32_t capacity, uint32_t *count);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

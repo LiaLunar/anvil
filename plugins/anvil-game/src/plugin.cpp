@@ -11,7 +11,8 @@
 //   3. the main menu: outside a session, whether the front end is in its
 //      main-menu state, published when it changes;
 //   4. the work queued with run_on_main_thread;
-//   5. the date's and the player's events, by comparing them with the last frame;
+//   5. the date's, the player's and, on a new day, the wars' events, by comparing
+//      them with the last frame;
 //   6. the frame event.
 // Frames drawn inside a game update or a save load (outer = 0) and frames on
 // any other thread are passed on untouched; anvil-game only counts the
@@ -54,6 +55,8 @@ using anvil_game::DateTracker;
 using anvil_game::SessionChanges;
 using anvil_game::SessionTracker;
 using anvil_game::SessionView;
+using anvil_game::WarSeen;
+using anvil_game::WarTracker;
 using anvil_game::WorkQueue;
 using anvil_game::WorldLayout;
 using anvil_game::kUnsetDate;
@@ -91,6 +94,7 @@ std::atomic<int> g_nested_frames{0};
 WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
 DateTracker g_dates;       // main thread only
+WarTracker g_wars;         // main thread only
 
 // The world: false when a symbol of it is absent on this build.
 WorldLayout g_world;
@@ -193,6 +197,45 @@ void publish_player(std::uint64_t session) {
     publish(ANVIL_GAME_EVENT_PLAYER, &change);
 }
 
+// The running wars of this day; those already seen keep what was read when they
+// began. A read that fails skips the day, so nothing looks ended.
+void publish_wars(std::uint64_t session) {
+    std::vector<std::uint64_t> ids;
+    if (anvil_game::read_war_ids(g_world, ids) != ANVIL_OK) return;
+    std::vector<WarSeen> seen;
+    seen.reserve(ids.size());
+    for (const std::uint64_t id : ids) {
+        if (const WarSeen* known = g_wars.find(session, id)) {
+            seen.push_back(*known);
+            continue;
+        }
+        AnvilGameWar war{};
+        WarSeen entry;
+        if (anvil_game::read_war(g_world, id, war) != ANVIL_OK ||
+            anvil_game::read_war_name(g_world, id, entry.name) != ANVIL_OK) {
+            return;
+        }
+        entry.id = id;
+        entry.attacker = war.attacker;
+        entry.defender = war.defender;
+        seen.push_back(std::move(entry));
+    }
+    const WarTracker::Changes changes = g_wars.update(session, std::move(seen));
+    const auto tell = [session](const WarSeen& w, std::uint32_t change) {
+        AnvilGameWarChange event{};
+        event.size = sizeof(event);
+        event.change = change;
+        event.war = w.id;
+        event.attacker = w.attacker;
+        event.defender = w.defender;
+        event.name = w.name.c_str();
+        event.session = session;
+        publish(ANVIL_GAME_EVENT_WAR, &event);
+    };
+    for (const WarSeen& w : changes.ended) tell(w, ANVIL_GAME_WAR_ENDED);
+    for (const WarSeen& w : changes.started) tell(w, ANVIL_GAME_WAR_STARTED);
+}
+
 void after_frame_body(std::uint64_t number) {
     const anvil::Host host;
     if (!g_ready.load(std::memory_order_relaxed) && *g_layout.ready_flag == 1) {
@@ -242,8 +285,13 @@ void after_frame_body(std::uint64_t number) {
     g_work.run();
     g_frame_number.store(number, std::memory_order_release);
     const bool running = view.running && g_tracker.active();
-    publish_date(g_dates.update(running, g_tracker.current().number, view.date));
-    if (running && g_world_available) publish_player(g_tracker.current().number);
+    const DateEvents dates = g_dates.update(running, g_tracker.current().number, view.date);
+    publish_date(dates);
+    if (running && g_world_available) {
+        publish_player(g_tracker.current().number);
+        // The first frame of a session has no day yet: that is the wars' baseline.
+        if (dates.day || !g_wars.known(g_tracker.current().number)) publish_wars(g_tracker.current().number);
+    }
     AnvilGameFrame frame{};
     frame.size = sizeof(frame);
     frame.number = number;
@@ -450,9 +498,68 @@ AnvilResult world_country_provinces(const char* tag, std::int32_t* ids, std::uin
     }
 }
 
+AnvilResult world_war_ids(std::uint64_t* ids, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && ids == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<std::uint64_t> list;
+        const AnvilResult r = anvil_game::read_war_ids(g_world, list);
+        if (r == ANVIL_OK) give_list(list, ids, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_war(std::uint64_t id, AnvilGameWar* out) {
+    if (out == nullptr || out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        AnvilGameWar war{};
+        const AnvilResult r = anvil_game::read_war(g_world, id, war);
+        return r == ANVIL_OK ? give(out, war) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_war_name(std::uint64_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && utf8 == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string name;
+        const AnvilResult r = anvil_game::read_war_name(g_world, id, name);
+        if (r != ANVIL_OK) return r;
+        if (capacity != 0) {
+            const std::size_t fits = anvil_game::fit_utf8(name, capacity);
+            std::memcpy(utf8, name.data(), fits);
+            utf8[fits] = '\0';
+        }
+        if (length != nullptr) *length = static_cast<std::uint32_t>(name.size());
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_war_side(std::uint64_t id, std::uint32_t side, AnvilGameTag* out, std::uint32_t capacity,
+                           std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<AnvilGameTag> tags;
+        const AnvilResult r = anvil_game::read_war_side(g_world, id, side, tags);
+        if (r == ANVIL_OK) give_list(tags, out, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
+    world_war_ids,                 world_war,            world_war_name,       world_war_side,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -521,11 +628,24 @@ void load_world(anvil::Host& host) {
     if (host.present(sym::country_prestige)) l.prestige = sym::country_prestige.prestige;
     if (host.present(sym::country_manpower)) l.manpower = sym::country_manpower.manpower;
     if (host.present(sym::country_monthly_income)) l.monthly_income = sym::country_monthly_income.monthly_income;
+    if (host.present(sym::war_list) && host.present(sym::war_attacker) && host.present(sym::war_defender) &&
+        host.present(sym::war_attackers) && host.present(sym::war_defenders)) {
+        l.wars = sym::war_list.wars;
+        l.war_count = sym::war_list.war_count;
+        l.war_name = sym::war_list.name;
+        l.war_attacker = sym::war_attacker.attacker;
+        l.war_defender = sym::war_defender.defender;
+        l.war_attackers = sym::war_attackers.begin;
+        l.war_attackers_end = sym::war_attackers.end;
+        l.war_defenders = sym::war_defenders.begin;
+        l.war_defenders_end = sym::war_defenders.end;
+    }
     g_world = l;
     g_world_available = true;
     host.register_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION, kWorldService);
-    host.info("service {} v{}; events {}, {}, {}, {}", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
-              ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER);
+    host.info("service {} v{}; events {}, {}, {}, {}, {}", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
+              ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER,
+              ANVIL_GAME_EVENT_WAR);
 }
 
 struct AnvilGame : anvil::Plugin {

@@ -423,3 +423,53 @@ values.monthly_income = { at = 4, size = 4 }
 note = "CCountry::MonthlyUpdateSerial: _vEstimatedMonthlyIncome at +0xE38 is set to 0, summed and clamped there, once a month: the economy view's income total"
 build."eu4-1.37.5-steam-win64" = { rva = 0x2F75F7 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x2F75A7 }
+
+# --- wars (anvil-game.world) ----------------------------------------------------------
+
+[symbol.war_list]
+bytes = """
+48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 57 41 56 41 57 48 83 EC 20
+48 8B 99 30 1E 00 00 48 8B FA 48 63 81 3C 1E 00 00 4C 8B F9 48 8D 34 C3
+48 3B DE 74 43 48 8B 6A 18 4C 8B 72 10 0F 1F 00 48 8B 0B 48 8B D7 48 83 C1 28
+"""
+memory = "code"
+values.wars = { at = 27, size = 4 }
+values.war_count = { at = 37, size = 4 }
+values.name = { at = 73, size = 1 }
+note = "CGameState::DoesWarNameExist: the running wars, CWar*[] at root+0x1E30, count at root+0x1E3C, and each war's name, a std::string at +0x28"
+build."eu4-1.37.5-steam-win64" = { rva = 0x75F540 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x75E700 }
+
+[symbol.war_attacker]
+bytes = "48 8B 81 50 01 00 00 48 89 02 48 8B C2 C3"
+memory = "code"
+values.attacker = { at = 3, size = 4 }
+note = "CWar::GetOriginalAttacker: a tag at +0x150"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A000 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A030 }
+
+[symbol.war_defender]
+bytes = "48 8B 81 58 01 00 00 48 89 02 48 8B C2 C3"
+memory = "code"
+values.defender = { at = 3, size = 4 }
+note = "CWar::GetOriginalDefender: a tag at +0x158"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD0290 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD02C0 }
+
+[symbol.war_attackers]
+bytes = "4C 8B 41 50 48 8B 41 48"
+memory = "code"
+values.end = { at = 3, size = 1 }
+values.begin = { at = 7, size = 1 }
+note = "CWar::IsAttacker: the attackers, a std::vector of tags at +0x48"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD891A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD87950 }
+
+[symbol.war_defenders]
+bytes = "4C 8B 81 80 00 00 00 48 8B 41 78"
+memory = "code"
+values.end = { at = 3, size = 4 }
+values.begin = { at = 10, size = 1 }
+note = "CWar::IsDefender: the defenders, a std::vector of tags at +0x78"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD89170 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD87920 }

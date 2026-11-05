@@ -11,6 +11,8 @@ namespace {
 constexpr std::size_t kMaxCores = 1024;        // a longer core vector is taken as garbage
 constexpr std::int32_t kMaxBucketTags = 4096;  // likewise a bucket
 constexpr std::size_t kMaxText = 65536;        // likewise a string
+constexpr std::int32_t kMaxWars = 4096;        // likewise the running wars
+constexpr std::size_t kMaxWarSide = 1024;      // likewise one side of a war
 
 bool read_raw(std::uintptr_t address, void* out, std::size_t size) {
     __try {
@@ -121,6 +123,17 @@ AnvilResult country_at(const WorldLayout& l, std::string_view text, std::uintptr
     }
     if (!read(country + l.country_tag, own) || !same_tag(own, text, 3)) return ANVIL_ERROR_INTERNAL;
     return ANVIL_OK;
+}
+
+// `id` among the running wars: an id from a plugin is never read before this.
+AnvilResult war_at(const WorldLayout& l, std::uint64_t id) {
+    std::vector<std::uint64_t> ids;
+    const AnvilResult r = read_war_ids(l, ids);
+    if (r != ANVIL_OK) return r;
+    for (const std::uint64_t each : ids) {
+        if (each == id) return ANVIL_OK;
+    }
+    return ANVIL_ERROR_NOT_FOUND;
 }
 
 // A UTF-8 sequence's length at `at`, 0 when none starts there.
@@ -305,6 +318,56 @@ AnvilResult read_country_provinces(const WorldLayout& l, std::string_view tag, s
     }
     out.resize(static_cast<std::size_t>(n));
     if (n > 0 && !read_raw(owned, out.data(), out.size() * sizeof(std::int32_t))) return ANVIL_ERROR_INTERNAL;
+    return ANVIL_OK;
+}
+
+AnvilResult read_war_ids(const WorldLayout& l, std::vector<std::uint64_t>& out) {
+    if (l.wars == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t root = 0, wars = 0;
+    std::int32_t count = 0;
+    if (!read_root(l, root) || !read(root + l.wars, wars) || !read(root + l.war_count, count) || count < 0 ||
+        count > kMaxWars || (count > 0 && wars == 0)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.resize(static_cast<std::size_t>(count));
+    if (count > 0 && !read_raw(wars, out.data(), out.size() * sizeof(std::uint64_t))) return ANVIL_ERROR_INTERNAL;
+    return ANVIL_OK;
+}
+
+AnvilResult read_war(const WorldLayout& l, std::uint64_t id, AnvilGameWar& out) {
+    if (const AnvilResult r = war_at(l, id); r != ANVIL_OK) return r;
+    std::uint64_t attacker = 0, defender = 0;
+    if (!read(id + l.war_attacker, attacker) || !read(id + l.war_defender, defender)) return ANVIL_ERROR_INTERNAL;
+    out.id = id;
+    out.attacker = tag_text(attacker, l);
+    out.defender = tag_text(defender, l);
+    return ANVIL_OK;
+}
+
+AnvilResult read_war_name(const WorldLayout& l, std::uint64_t id, std::string& utf8) {
+    if (const AnvilResult r = war_at(l, id); r != ANVIL_OK) return r;
+    std::string name;
+    if (!read_string(id + l.war_name, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_war_side(const WorldLayout& l, std::uint64_t id, std::uint32_t side, std::vector<AnvilGameTag>& out) {
+    if (side != ANVIL_GAME_WAR_ATTACKERS && side != ANVIL_GAME_WAR_DEFENDERS) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (const AnvilResult r = war_at(l, id); r != ANVIL_OK) return r;
+    const bool attackers = side == ANVIL_GAME_WAR_ATTACKERS;
+    std::uintptr_t begin = 0, end = 0;
+    if (!read(id + (attackers ? l.war_attackers : l.war_defenders), begin) ||
+        !read(id + (attackers ? l.war_attackers_end : l.war_defenders_end), end)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    if (end < begin || (end - begin) % 8 != 0 || (end - begin) / 8 > kMaxWarSide) return ANVIL_ERROR_INTERNAL;
+    out.clear();
+    for (std::uintptr_t at = begin; at < end; at += 8) {
+        std::uint64_t tag = 0;
+        if (!read(at, tag)) return ANVIL_ERROR_INTERNAL;
+        out.push_back(tag_text(tag, l));
+    }
     return ANVIL_OK;
 }
 

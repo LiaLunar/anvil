@@ -68,6 +68,17 @@ struct WorldLayout {
     std::uint32_t prestige = 0;
     std::uint32_t manpower = 0;
     std::uint32_t monthly_income = 0;
+
+    // Wars: `wars` 0 when absent on this build.
+    std::uint32_t wars = 0;           // root: CWar*[]
+    std::uint32_t war_count = 0;      // root: int32
+    std::uint32_t war_name = 0;       // war: std::string
+    std::uint32_t war_attacker = 0;   // war: tag
+    std::uint32_t war_defender = 0;   // war: tag
+    std::uint32_t war_attackers = 0;  // war: std::vector of tags, its begin
+    std::uint32_t war_attackers_end = 0;
+    std::uint32_t war_defenders = 0;
+    std::uint32_t war_defenders_end = 0;
 };
 
 // Main thread only, after an outer frame, in a session: the service checks.
@@ -78,6 +89,11 @@ AnvilResult read_province_cores(const WorldLayout& l, std::int32_t id, std::vect
 AnvilResult read_country(const WorldLayout& l, std::string_view tag, AnvilGameCountry& out);
 AnvilResult read_country_provinces(const WorldLayout& l, std::string_view tag, std::vector<std::int32_t>& out);
 AnvilResult read_player(const WorldLayout& l, AnvilGameTag& out);
+
+AnvilResult read_war_ids(const WorldLayout& l, std::vector<std::uint64_t>& out);
+AnvilResult read_war(const WorldLayout& l, std::uint64_t id, AnvilGameWar& out);
+AnvilResult read_war_name(const WorldLayout& l, std::uint64_t id, std::string& utf8);
+AnvilResult read_war_side(const WorldLayout& l, std::uint64_t id, std::uint32_t side, std::vector<AnvilGameTag>& out);
 
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
 std::uint32_t tag_bucket(std::string_view tag, std::uint32_t mask);

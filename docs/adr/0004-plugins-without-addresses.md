@@ -95,7 +95,7 @@ The maintainer's assumption was that this is mainly interface work. **For provin
 | --- | --- | --- | --- | --- |
 | `anvil-game.day`, `.month`, `.year` | the date `anvil-game` already reads, compared after the outer frame | 0 | No code in the tick. Only reads. | v1 |
 | `anvil-game.player` | `player()` compared after the outer frame | 0 beyond the world | Local to each machine by nature | v1 |
-| `anvil-game.war` (started, ended) | `_CurrentWars` at `root+0x1E28`, `CPdxArray<CWar*>` [pdb], compared by pointer at each `day`; names and sides from `CWar` | about 2 [hypothesis] | No code in the tick. O(wars) a day. | after a check on Steam and in the game |
+| `anvil-game.war` (started, ended) | `_CurrentWars` at `root+0x1E28`, `CPdxArray<CWar*>` [pdb], compared by pointer at each `day`; names and sides from `CWar` | 5 (the first estimate of about 2 was wrong: the list, two leaders and two sides each need a site) | No code in the tick. O(wars) a day. | built in anvil-game 1.11, checked on Steam and GOG |
 | The player's event | `_PendingEvents` at `root+0x1E98` compared [pdb], or Tongs' pop-up read | 1–2 [hypothesis] | No code in the tick | open: `CEventManager::TriggerEvent` adds to it [pdb], but under which condition is not read yet |
 | Any country's event | a hook of `CEventManager::TriggerEvent`, called from `DailyUpdateSerial` and effects [pdb] | 1 and a change | A callback in the middle of a day, with half-applied state | no |
 | Any country's tag | a hook of `CGameState::ChangeTags`, or a pass over all countries | 1 and a change | The same | no |
@@ -192,7 +192,7 @@ So the first useful step, when it comes, is a small service that posts a short l
 | Unlocks | Stage 2's example, campaign statistics, Tongs on one reader | War logs | Plugins with no mod | Gameplay plugins that keep MP |
 | Risk | Low. Reads only; a wrong read costs an answer. The five values are not yet checked live | Low to medium: Steam's offset unchecked | Low; the ImGui upgrade touches the Manager too | High |
 | Effort [hypothesis] | One release, a stand-in world, one live check | One PR and a live check | The ImGui upgrade, one release and a budget line | Research first; unknown |
-| New symbols, so addresses at each new EU4 version | 18 (`absent` when a port needs it) | About 2 | 0 | Unknown; at least 2, plus each command's layout |
+| New symbols, so addresses at each new EU4 version | 18 (`absent` when a port needs it) | 5 | 0 | Unknown; at least 2, plus each command's layout |
 
 ## Considered options
 
@@ -206,7 +206,7 @@ So the first useful step, when it comes, is a small service that posts a short l
 
 ## Consequences
 
-- `anvil-game` grows from 16 to 34 symbols, and `tests/anvil_game_plugin_tests.cpp` needs a stand-in world.
+- `anvil-game` grows from 16 to 39 symbols, and `tests/anvil_game_plugin_tests.cpp` needs a stand-in world.
 - The recipes on anvil.happydwarf.dev follow the first release: a plugin with no addresses can now read the campaign.
 - `design.md` §4, §13.1 and §15 are updated by the pull request that builds each stage, not by this ADR.
 - Tongs' pipe does not change. Its ADR 0002 keeps `tongs.events` for what the player's windows show.

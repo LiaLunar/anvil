@@ -240,6 +240,11 @@ struct FakeWorld {
     alignas(8) uint8_t db[0x800] = {};
     std::vector<uint64_t> bucket_tags[64];
     std::string long_name = "S\xE3o Tom\xE9 and a name long enough for the heap";
+    alignas(8) uint8_t war_a[0x218] = {};
+    alignas(8) uint8_t war_b[0x218] = {};
+    uintptr_t wars[2] = {};
+    uint64_t attackers[2] = {game_tag("RUS", 0), game_tag("O00", 2, 7)};
+    uint64_t defenders[1] = {game_tag("TUR", 1)};
 
     template <class T>
     static void set(void* at, size_t offset, T value) {
@@ -308,6 +313,26 @@ struct FakeWorld {
             set(db, 0x154 + n * 0x18, static_cast<int32_t>(bucket_tags[n].size()));
         }
         image.put_pointer(kCountriesDb, reinterpret_cast<uintptr_t>(db));
+        // The Great War: RUS and O00 against TUR.
+        set(war_a, 0x28 + 0x10, uint64_t{9});
+        set(war_a, 0x28 + 0x18, uint64_t{15});
+        std::memcpy(war_a + 0x28, "Great War", 9);
+        set(war_a, 0x150, game_tag("RUS", 0));
+        set(war_a, 0x158, game_tag("TUR", 1));
+        set(war_a, 0x48, reinterpret_cast<uintptr_t>(attackers));
+        set(war_a, 0x50, reinterpret_cast<uintptr_t>(attackers + 2));
+        set(war_a, 0x78, reinterpret_cast<uintptr_t>(defenders));
+        set(war_a, 0x80, reinterpret_cast<uintptr_t>(defenders + 1));
+        // A second one, ready to start.
+        set(war_b, 0x28 + 0x10, uint64_t{5});
+        set(war_b, 0x28 + 0x18, uint64_t{15});
+        std::memcpy(war_b + 0x28, "Small", 5);
+        set(war_b, 0x150, game_tag("TUR", 1));
+        set(war_b, 0x158, game_tag("RUS", 0));
+        wars[0] = reinterpret_cast<uintptr_t>(war_a);
+        wars[1] = reinterpret_cast<uintptr_t>(war_b);
+        set(root, 0x1E30, reinterpret_cast<uintptr_t>(wars));
+        set(root, 0x1E3C, int32_t{1});
     }
 };
 
@@ -318,6 +343,12 @@ void listen_campaign(const char* event, const void* payload, void* context) {
     if (name == ANVIL_GAME_EVENT_PLAYER) {
         const auto* p = static_cast<const AnvilGamePlayerChange*>(payload);
         heard->push_back(std::string("player ") + p->previous.text + " " + p->tag.text);
+        return;
+    }
+    if (name == ANVIL_GAME_EVENT_WAR) {
+        const auto* w = static_cast<const AnvilGameWarChange*>(payload);
+        heard->push_back(std::string(w->change == ANVIL_GAME_WAR_STARTED ? "war started " : "war ended ") + w->name + " " +
+                         w->attacker.text + " " + w->defender.text);
         return;
     }
     const auto* c = static_cast<const AnvilGameDateChange*>(payload);
@@ -477,6 +508,25 @@ int main(int argc, char** argv) {
               anvil_game::tag_bucket("rus", 0x3F) == anvil_game::tag_bucket("RUS", 0x3F));
     });
 
+    run("anvil-game: the wars' changes", [] {
+        const auto war = [](uint64_t id, const char* name) {
+            anvil_game::WarSeen w;
+            w.id = id;
+            w.name = name;
+            return w;
+        };
+        anvil_game::WarTracker t;
+        CHECK(t.find(1, 1) == nullptr);
+        auto c = t.update(1, {war(1, "a")});  // the baseline
+        CHECK(c.started.empty() && c.ended.empty() && t.find(1, 1) != nullptr && t.find(2, 1) == nullptr);
+        c = t.update(1, {war(1, "a"), war(2, "b")});
+        CHECK(c.started.size() == 1 && c.started[0].name == "b" && c.ended.empty());
+        c = t.update(1, {war(2, "b")});
+        CHECK(c.ended.size() == 1 && c.ended[0].name == "a" && c.started.empty());
+        c = t.update(2, {war(3, "c")});  // another session: a new baseline
+        CHECK(c.started.empty() && c.ended.empty());
+    });
+
     run("anvil-game: the work queue", [] {
         anvil_game::WorkQueue q;
         static std::vector<int> ran;
@@ -522,7 +572,8 @@ int main(int argc, char** argv) {
     bus.register_service("anvil", ANVIL_BENCHMARK_SERVICE, ANVIL_BENCHMARK_SERVICE_VERSION, bench.service());
     Heard& heard = *new Heard;
     std::vector<std::string>& campaign = *new std::vector<std::string>;
-    for (const char* event : {ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER}) {
+    for (const char* event : {ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER,
+                              ANVIL_GAME_EVENT_WAR}) {
         bus.subscribe("listener", event, listen_campaign, &campaign);
     }
     bus.subscribe("listener", ANVIL_GAME_EVENT_FRAME, run_in_frame_handler, nullptr);
@@ -562,7 +613,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 34);
+        CHECK(reason.empty() && verified.symbols.size() == 39);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -586,7 +637,7 @@ int main(int argc, char** argv) {
         CHECK(contains(log, "anvil-game: frame hook staged; events anvil-game.ready, anvil-game.frame, "
                             "anvil-game.session, anvil-game.main_menu; service anvil-game.game v1"));
         CHECK(contains(log, "anvil-game: service anvil-game.world v1; events anvil-game.day, anvil-game.month, "
-                            "anvil-game.year, anvil-game.player"));
+                            "anvil-game.year, anvil-game.player, anvil-game.war"));
         g_service = service;
     });
     if (plugin == nullptr || service == nullptr) {
@@ -872,7 +923,7 @@ int main(int argc, char** argv) {
         const auto* world = static_cast<const AnvilGameWorldService*>(
             bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
         CHECK(world != nullptr && world->size == sizeof(AnvilGameWorldService) &&
-              ANVIL_GAME_WORLD_HAS(world, country_provinces));
+              ANVIL_GAME_WORLD_HAS(world, country_provinces) && ANVIL_GAME_WORLD_HAS(world, war_side));
         if (world == nullptr) return;
         FakeWorld& fake = *new FakeWorld;
         fake.install(game.root, image);
@@ -979,6 +1030,22 @@ int main(int argc, char** argv) {
             int32_t ids[4] = {};
             CHECK(world->country_provinces("RUS", ids, 4, &count) == ANVIL_OK && count == 2 && ids[0] == 1 && ids[1] == 3);
             CHECK(world->country_provinces("TUR", nullptr, 0, &count) == ANVIL_OK && count == 0);
+
+            uint64_t war_ids[4] = {};
+            CHECK(world->war_ids(war_ids, 4, &count) == ANVIL_OK && count == 1 &&
+                  war_ids[0] == reinterpret_cast<uintptr_t>(fake.war_a));
+            AnvilGameWar war{};
+            war.size = sizeof(war);
+            CHECK(world->war(war_ids[0], &war) == ANVIL_OK && war.id == war_ids[0] &&
+                  std::strcmp(war.attacker.text, "RUS") == 0 && std::strcmp(war.defender.text, "TUR") == 0);
+            CHECK(world->war(0x1000, &war) == ANVIL_ERROR_NOT_FOUND && world->war(war_ids[0], nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->war_name(war_ids[0], name, sizeof(name), &length) == ANVIL_OK && std::strcmp(name, "Great War") == 0);
+            CHECK(world->war_name(0x1000, name, sizeof(name), &length) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->war_side(war_ids[0], ANVIL_GAME_WAR_ATTACKERS, cores, 4, &count) == ANVIL_OK && count == 2 &&
+                  std::strcmp(cores[1].text, "O00") == 0);
+            CHECK(world->war_side(war_ids[0], ANVIL_GAME_WAR_DEFENDERS, cores, 4, &count) == ANVIL_OK && count == 1 &&
+                  std::strcmp(cores[0].text, "TUR") == 0);
+            CHECK(world->war_side(war_ids[0], 2, cores, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT);
         };
         frame(game.app, 1);
         CHECK(ran);
@@ -1017,6 +1084,8 @@ int main(int argc, char** argv) {
         l.countries = 0x118, l.country_index_shift = 32, l.country_tag = 0x20, l.tag_kind = 6, l.tag_valid = 7;
         l.observer_kind = 7, l.capital = 0x14B8, l.owned_count = 0x1344;
         l.treasury = 0xBB0;
+        std::vector<uint64_t> no_wars;
+        CHECK(anvil_game::read_war_ids(l, no_wars) == ANVIL_ERROR_NOT_DECLARED);
         AnvilGameCountry partial{};
         CHECK(anvil_game::read_country(l, "RUS", partial) == ANVIL_OK && partial.values == ANVIL_GAME_VALUE_TREASURY &&
               partial.treasury == 123456 && partial.stability == 0);
@@ -1042,6 +1111,23 @@ int main(int argc, char** argv) {
         frame(game.app, 1);
         CHECK((campaign == std::vector<std::string>{"day 1 1720.1.1", "month 1 1720.1.1", "year 1 1720.1.1"}));
 
+        // Wars: the Great War ran from the start; a new one is told on the next day, once.
+        auto& fake_wars = *reinterpret_cast<int32_t*>(game.root + 0x1E3C);
+        campaign.clear();
+        fake_wars = 2;
+        frame(game.app, 1);
+        CHECK(campaign.empty());  // no new day: the wars are not read
+        game.set_date(k31Dec + 2 * kDay);
+        frame(game.app, 1);
+        CHECK((campaign == std::vector<std::string>{"day 1 1720.1.2", "war started Small TUR RUS"}));
+        game.set_date(k31Dec + 3 * kDay);
+        frame(game.app, 1);
+        CHECK(campaign.size() == 3);
+        fake_wars = 1;
+        game.set_date(k31Dec + 4 * kDay);
+        frame(game.app, 1);
+        CHECK(campaign.size() == 5 && campaign[4] == "war ended Small TUR RUS");
+
         // The player's country: formed, observed, then a new session starts a new baseline.
         campaign.clear();
         FakeWorld::set(game.root, 0x1E60, game_tag("TUR", 1));
@@ -1057,9 +1143,11 @@ int main(int argc, char** argv) {
         const auto set_session = reinterpret_cast<void (*)(void*, void*)>(image.address(0x756A30));
         FakeWorld::set(game.root, 0x1E60, game_tag("TUR", 1));
         game.set_date(k31Dec - 100 * kDay);
+        fake_wars = 2;
         set_session(game.root, game.session);
         frame(game.app, 1);
         CHECK(campaign.empty());
+        fake_wars = 1;
     });
 
     run("anvil-game: a benchmark start quits on the core's event, on the main thread", [&] {

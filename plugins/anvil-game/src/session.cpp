@@ -1,5 +1,7 @@
 #include "session.hpp"
 
+#include <utility>
+
 namespace anvil_game {
 
 namespace {
@@ -53,6 +55,37 @@ DateEvents DateTracker::update(bool running, std::uint64_t session, std::int32_t
     out.year = out.change.date.year != out.change.previous.year;
     out.month = out.year || out.change.date.month != out.change.previous.month;
     return out;
+}
+
+WarTracker::Changes WarTracker::update(std::uint64_t session, std::vector<WarSeen> seen) {
+    Changes out;
+    const bool same = known_ && session == session_;
+    if (same) {
+        const auto has = [](const std::vector<WarSeen>& list, std::uint64_t id) {
+            for (const WarSeen& w : list) {
+                if (w.id == id) return true;
+            }
+            return false;
+        };
+        for (const WarSeen& w : wars_) {
+            if (!has(seen, w.id)) out.ended.push_back(w);
+        }
+        for (const WarSeen& w : seen) {
+            if (!has(wars_, w.id)) out.started.push_back(w);
+        }
+    }
+    known_ = true;
+    session_ = session;
+    wars_ = std::move(seen);
+    return out;
+}
+
+const WarSeen* WarTracker::find(std::uint64_t session, std::uint64_t id) const {
+    if (!known_ || session != session_) return nullptr;
+    for (const WarSeen& w : wars_) {
+        if (w.id == id) return &w;
+    }
+    return nullptr;
 }
 
 SessionChanges SessionTracker::update(const SessionView& view) {

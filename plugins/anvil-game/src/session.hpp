@@ -4,6 +4,8 @@
 #include <anvil/anvil_game.h>
 
 #include <cstdint>
+#include <string>
+#include <vector>
 
 namespace anvil_game {
 
@@ -49,6 +51,35 @@ private:
     bool known_ = false;
     std::uint64_t session_ = 0;
     std::int32_t hours_ = 0;
+};
+
+// A running war as the tracker keeps it, for the event when it ends.
+struct WarSeen {
+    std::uint64_t id = 0;
+    AnvilGameTag attacker{};
+    AnvilGameTag defender{};
+    std::string name;
+};
+
+// Compares the running wars day by day. The first list of a session is the
+// baseline; a war is reported once when it appears and once when it goes.
+class WarTracker {
+public:
+    struct Changes {
+        std::vector<WarSeen> started;
+        std::vector<WarSeen> ended;
+    };
+    // `seen` is the running wars; a session that ended forgets the baseline.
+    Changes update(std::uint64_t session, std::vector<WarSeen> seen);
+    // Whether this session has its baseline.
+    bool known(std::uint64_t session) const { return known_ && session == session_; }
+    // Whether the tracker already knows this war, so its details need no reading.
+    const WarSeen* find(std::uint64_t session, std::uint64_t id) const;
+
+private:
+    bool known_ = false;
+    std::uint64_t session_ = 0;
+    std::vector<WarSeen> wars_;
 };
 
 // The session events one view causes, in order: at most an ENDED and a STARTED.
