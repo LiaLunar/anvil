@@ -753,7 +753,7 @@ void ManagerApp::draw_mods_tab() {
                         mod_state_text(p));
         weak(p.why.empty() ? p.reason : i18n::text(p.why));
         if (!p.others.empty()) weak(trf("Other mods with this id: {0}", {join(p.others)}));
-        for (const cli::Problem& problem : shown_problems(p.report)) colored_wrapped(kWarn, problem.message);
+        for (const cli::Problem& problem : shown_problems(p.offered())) colored_wrapped(kWarn, problem.message);
         const bool can_approve = can_approve_shown(p);
         ImGui::BeginDisabled(read_only());
         if (can_approve && ImGui::Button(p.state == "update-pending" ? tr("Approve the update...") : tr("Approve..."))) {
