@@ -17,6 +17,7 @@ struct PortOptions {
     std::filesystem::path out;      // empty: nothing is written
     std::string build;              // the id of the new build
     std::string from_build;         // empty: from the hash of `from`
+    bool unknown_build = false;     // --unknown-build: do not hold `to` and `build` to the table of builds
 };
 
 // A symbol that needs no hand: where it is in the new build.
@@ -53,7 +54,14 @@ struct PortReport {
     std::vector<PortedSymbol> ported;
     std::vector<ManualSymbol> manual;
     bool written = false;
+    bool build_known = false;  // this Anvil knows the new build, so `anvil check` can run now
 };
+
+// What is wrong with --build and --to, "" when nothing is. A file with an id
+// the table of builds does not have never loads, so the id comes from the
+// table; --unknown-build leaves the table out, for a build it does not have yet
+// or a trial on a pair of known builds, and the id must then have the form of one.
+std::string port_build_problem(const PortOptions& options);
 
 // `anvil port` (design §16): carries symbols.toml over to a new game build.
 // Reads both eu4.exe files and writes only options.out.

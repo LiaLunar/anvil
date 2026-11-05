@@ -187,6 +187,7 @@ anvil check my-plugin --exe "C:\...\eu4.exe"     # verify against the game, writ
 anvil check my-plugin --format github             # in CI, without the game: schemas and symbols.lock
 anvil port symbols.toml --from old\eu4.exe --to new\eu4.exe --build <new id> --out symbols.toml
                                                   # a game update: place the symbols in the new build
+                                                  # (--unknown-build for a build this anvil.exe does not know yet)
 ```
 
 The Rust side (`sdk/rust/anvil-sys`, `examples/hello-rust`, see

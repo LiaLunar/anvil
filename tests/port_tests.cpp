@@ -374,6 +374,31 @@ void port_tests() {
         CHECK(contains(port_symbols(options).cannot_port, "--from-build"));
     });
 
+    run("port: --build comes from the table of builds, or says it does not", [&] {
+        PortOptions options;
+        options.symbols = fx.symbols;
+        options.from = fx.old_exe;
+        options.to = fx.new_exe;
+        options.build = "eu4-9.9.9-gog-win64";
+        CHECK(contains(port_build_problem(options), "--to is not a build this Anvil knows"));
+        CHECK(contains(port_build_problem(options), "--unknown-build"));
+        options.unknown_build = true;
+        CHECK(port_build_problem(options).empty());
+        for (const char* id : {"eu4-1.38-steam-win64", "eu4-1.38.0.1-gog-win64"}) {
+            options.build = id;
+            CHECK(port_build_problem(options).empty());
+        }
+        for (const char* id : {"new", "not a build id!", "eu4-1.38-win64", "eu4--steam-win64", "eu4-1.38.-steam-win64",
+                               "eu4-1.38-Steam-win64", "eu4-1.38-steam-win32", "eu4-v1.38-steam-win64"}) {
+            options.build = id;
+            CHECK(contains(port_build_problem(options), "--build must have the form"));
+        }
+        // A file it cannot read is for the port to report.
+        options.to = fx.root / "nothing.exe";
+        options.unknown_build = false;
+        CHECK(port_build_problem(options).empty());
+    });
+
     run("port without --out writes nothing", [&] {
         const PortReport report = fx.port(placeable(), false);
         CHECK(report.exit_code == kExitOk && !report.written);

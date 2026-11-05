@@ -53,11 +53,13 @@ void print_usage(std::FILE* out) {
                "      approved, update pending, pending, in conflict, shadowed or invalid; the approved\n"
                "      ones take part in the resolution.\n"
                "  port <symbols.toml> --from <old eu4.exe> --to <new eu4.exe> --build <new id> [--out <file>]\n"
-               "       [--from-build <id>] [--format text|json|github]\n"
+               "       [--from-build <id>] [--unknown-build] [--format text|json|github]\n"
                "      place every symbol in a new build of the game: reads each symbol's bytes from the old\n"
                "      eu4.exe, compares the code of both builds (relative addresses aside) and writes the new\n"
                "      build's tables to --out, keeping the rest of the file. Reads both eu4.exe files, never\n"
                "      guesses: what has no certain place stays by hand, with the reason. Then run anvil check.\n"
+               "      --build must be the id this Anvil has for --to; for a build it does not know yet,\n"
+               "      --unknown-build takes an id of the form eu4-<version>-<store>-win64.\n"
                "\n"
                "Options:\n"
                "  -h, --help    show this help\n"
@@ -302,6 +304,8 @@ int run_port(const std::vector<std::wstring>& args) {
             if (!path_option(L"--to", options.to)) return usage_error("port: --to needs the new eu4.exe");
         } else if (is_option(args[i], L"--build")) {
             if (!text_option(L"--build", options.build)) return usage_error("port: --build needs the id of the new build");
+        } else if (args[i] == L"--unknown-build") {
+            options.unknown_build = true;
         } else if (is_option(args[i], L"--out")) {
             if (!path_option(L"--out", options.out)) return usage_error("port: --out needs a file");
         } else if (is_option(args[i], L"--format")) {
@@ -320,7 +324,15 @@ int run_port(const std::vector<std::wstring>& args) {
         return usage_error("port needs --from, --to and --build");
     }
     options.symbols = positional[0];
-    const PortReport report = port_symbols(options);
+    PortReport report;
+    if (const std::string problem = port_build_problem(options); !problem.empty()) {
+        report.build = options.build;
+        report.exit_code = kExitCannotCheck;
+        report.cannot_port = problem;
+    } else {
+        report = port_symbols(options);
+        report.build_known = !options.unknown_build;
+    }
     std::fputs(format_port_report(report, options.symbols, format).c_str(), stdout);
     return report.exit_code;
 }

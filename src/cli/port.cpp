@@ -286,6 +286,43 @@ std::optional<std::string> with_new_build(const std::string& text, const SymbolF
 
 }  // namespace
 
+namespace {
+
+bool version_digits(std::string_view text) {
+    if (text.empty() || text.front() == '.' || text.back() == '.') return false;
+    return std::all_of(text.begin(), text.end(), [](char c) { return c == '.' || (c >= '0' && c <= '9'); });
+}
+
+// eu4-<version>-<store>-win64
+bool valid_build_id(std::string_view id) {
+    constexpr std::string_view prefix = "eu4-", suffix = "-win64";
+    if (!id.starts_with(prefix) || !id.ends_with(suffix) || id.size() <= prefix.size() + suffix.size()) return false;
+    const std::string_view middle = id.substr(prefix.size(), id.size() - prefix.size() - suffix.size());
+    const size_t dash = middle.find('-');
+    if (dash == std::string_view::npos) return false;
+    const std::string_view store = middle.substr(dash + 1);
+    return version_digits(middle.substr(0, dash)) && !store.empty() &&
+           std::all_of(store.begin(), store.end(), [](char c) { return c >= 'a' && c <= 'z'; });
+}
+
+}  // namespace
+
+std::string port_build_problem(const PortOptions& options) {
+    if (options.unknown_build) {
+        if (valid_build_id(options.build)) return {};
+        return "--build must have the form eu4-<version>-<store>-win64, as eu4-1.37.5.2-gog-win64 has";
+    }
+    const std::string sha256 = sha256_file(options.to);
+    if (sha256.empty()) return {};  // port_symbols says why it cannot read the file
+    const KnownBuild* known = find_known_build_by_sha256(sha256);
+    if (known == nullptr) {
+        return "--to is not a build this Anvil knows, so a plugin ported to it cannot load: add its row to the table of "
+               "builds and use that anvil.exe, or pass --unknown-build to port it before that";
+    }
+    if (options.build == known->id) return {};
+    return "--to is " + std::string(known->id) + ", not " + options.build;
+}
+
 PortReport port_symbols(const PortOptions& options) {
     PortReport report;
     report.build = options.build;
@@ -559,7 +596,10 @@ std::string format_port_report(const PortReport& report, const std::filesystem::
     out += report.from_build + " -> " + report.build + ": " + std::to_string(report.ported.size()) + " of " + std::to_string(report.symbols) +
            " symbol(s) placed, " + std::to_string(changed) + " with other bytes; " + std::to_string(report.manual.size()) + " left by hand";
     out += report.written ? "; symbols.toml written\n" : "; nothing written\n";
-    if (report.written && report.manual.empty()) out += "Next: anvil check <plugin-dir> --exe <the new eu4.exe>, once this Anvil knows the build.\n";
+    if (report.written && report.manual.empty()) {
+        out += report.build_known ? "Next: anvil check <plugin-dir> --exe <the new eu4.exe>.\n"
+                                  : "Next: anvil check <plugin-dir> --exe <the new eu4.exe>, once this Anvil knows the build.\n";
+    }
     if (report.written && !report.manual.empty()) out += "The file does not parse until each symbol marked 'anvil port:' is placed by hand or declared absent.\n";
     return out;
 }
