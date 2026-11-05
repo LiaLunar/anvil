@@ -197,6 +197,9 @@ int main() {
         // As Node's spawn quotes an argument with a space (Etch), and the lab's bare ones.
         CHECK(named(L"\"C:\\My Games\\eu4.exe\" -continue=a.eu4 \"-userdir=C:/Jan Kowalski/p/\"") == L"C:/Jan Kowalski/p/");
         CHECK(named(L"eu4.exe -userdir=C:/Jan Kowalski/p/ -debug") == L"C:/Jan Kowalski/p/");
+        // Only the path in quotes, as a player writes it in Steam's launch options.
+        CHECK(named(L"eu4.exe -userdir=\"D:/EU4 -data/p/\" -debug") == L"D:/EU4 -data/p/");
+        CHECK(named(L"eu4.exe -userdir=\"\" -debug") == L"");
         CHECK(named(L"eu4.exe -userdir=C:/p/ continue=a.eu4") == L"C:/p/");
         CHECK(named(L"eu4.exe -userdir=C:/p/ +x") == L"C:/p/");
         CHECK(named(L"eu4.exe -userdir= -debug") == L"");

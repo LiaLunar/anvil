@@ -17,7 +17,8 @@ std::filesystem::path eu4_user_dir(const std::filesystem::path& game_dir);
 
 // The folder `-userdir=<path>` names on eu4.exe's command line, which the game
 // prefers to userdir.txt; nullopt without one. The whole argument may be in
-// quotes, as Node's spawn passes a path with a space. Without quotes it ends
+// quotes, as Node's spawn passes a path with a space, or only the path, as a
+// player writes it in Steam's launch options. Without quotes it ends
 // where the game ends an argument, at a space before -, + or /, or at a bare
 // ` continue=`.
 std::optional<std::filesystem::path> user_dir_argument(std::wstring_view command_line);
