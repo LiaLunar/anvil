@@ -41,10 +41,12 @@ add_library(anvil_manager_core STATIC
     src/plugin_zip.cpp
     src/problem_report.cpp
     src/release_check.cpp
+    src/start_menu.cpp
     src/zip.cpp)
 target_include_directories(anvil_manager_core PUBLIC src)
 # wbemuuid, ole32, oleaut32: the antivirus names from Security Center (WMI).
-target_link_libraries(anvil_manager_core PUBLIC anvil_tool anvil_i18n PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32)
+# shell32, uuid: the Start menu shortcut.
+target_link_libraries(anvil_manager_core PUBLIC anvil_tool anvil_i18n PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32 shell32 uuid)
 if(MSVC)
     target_compile_options(anvil_manager_core PRIVATE /W4 /WX)
 endif()

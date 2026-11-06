@@ -13,11 +13,14 @@
 #include "core/trust.hpp"
 #include "plugin_zip.hpp"
 #include "release_check.hpp"
+#include "start_menu.hpp"
 #include "test_image.hpp"
 #include "test_support.hpp"
 #include "zip.hpp"
 
 #include <windows.h>
+
+#include <objbase.h>
 
 #include <cstdio>
 #include <filesystem>
@@ -524,6 +527,39 @@ int main(int argc, char** argv) {
         fs::remove_all(game / "anvil");
         CHECK(!refusal({{"plugin.toml", "id = \"a\"\nbroken = \n"}}).empty());
         CHECK(!fs::exists(game / "anvil"));
+    });
+
+    run("start menu: a shortcut to the copy in the game folder, read back and removed", [] {
+        CHECK(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED) >= 0);
+        const fs::path folder = fs::temp_directory_path() / L"anvil-start-menu-test \u0105\u0107";
+        std::error_code ec;
+        fs::remove_all(folder, ec);
+        fs::create_directories(folder, ec);
+        const fs::path link = folder / "Anvil Manager.lnk";
+        const fs::path exe = folder / "game" / "AnvilManager.exe";
+        const fs::path other = folder / "other" / "AnvilManager.exe";
+        write(exe, "x");
+        write(other, "x");
+        CHECK(start_menu_link().filename() == "Anvil Manager.lnk");
+        CHECK(!link_starts(link, exe));  // none yet
+
+        std::string error;
+        CHECK(write_link(link, other, error));
+        CHECK(link_starts(link, other));
+        CHECK(!link_starts(link, exe));
+        remove_link(link, exe);  // another game's shortcut stays
+        CHECK(fs::exists(link));
+        CHECK(write_link(link, exe, error));  // and the button moves it to this game
+        CHECK(link_starts(link, exe));
+        CHECK(link_target(link).filename() == "AnvilManager.exe");
+        remove_link(link, exe);
+        CHECK(!fs::exists(link));
+
+        CHECK(!write_link(folder / "no folder" / "x.lnk", exe, error));
+        CHECK(!error.empty());
+        CHECK(!write_link({}, exe, error));
+        fs::remove_all(folder, ec);
+        CoUninitialize();
     });
 
     run("release check: the latest release, a link only to the repository", [] {

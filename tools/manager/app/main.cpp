@@ -11,6 +11,7 @@
 #include "i18n/translate.hpp"
 #include "manager_app.hpp"
 #include "platform.hpp"
+#include "ui/imgui_colors.hpp"
 
 #include <windows.h>
 #include <d3d11.h>
@@ -124,7 +125,7 @@ void load_fonts(float scale) {
                                        &merge);
     }
     ImGui::GetStyle() = ImGuiStyle();
-    ImGui::StyleColorsDark();
+    anvil::ui::use_dark_colors();
     ImGuiStyle& style = ImGui::GetStyle();
     style.WindowPadding = ImVec2(14, 12);
     style.FramePadding = ImVec2(8, 4);

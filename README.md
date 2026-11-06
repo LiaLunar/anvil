@@ -93,7 +93,8 @@ Anvil and a plugin can do on your computer.
 **With Anvil Manager (`AnvilManager.exe`).** Run it, and it finds the game
 through Steam or GOG (or lets you pick the folder that contains `eu4.exe`).
 "Install Anvil" copies `version.dll`, the standard plugins and the Manager
-into that folder; from then on, start the Manager there.
+into that folder; from then on, start the Manager there. "Add to the Start
+menu" on its Anvil tab makes that one click, and uninstalling removes the entry.
 - It shows which plugins will load and why, and turns plugins on and off.
 - Its Catalog tab lists the team's plugins (Bellows, Tongs, Hamweard, Mei) and
   installs or updates one with a click (Anvil 1.9 and later): the Manager

@@ -10,6 +10,7 @@
 #include "i18n/translate.hpp"
 #include "mods.hpp"
 #include "problem_report.hpp"
+#include "start_menu.hpp"
 #include "ui.hpp"
 
 #include <imgui.h>
@@ -417,6 +418,22 @@ void ManagerApp::draw_anvil_tab() {
     weak_wrapped(trf("Copies version.dll, the standard plugins ({0}) and this Manager into the game folder. Your anvil.toml, "
              "plugins and their settings stay.",
              {join(package_->standard_plugins)}));
+    if (inst.manager_copy) {
+        if (start_menu_game_ != game_) {  // read once per game, and again after a change here
+            start_menu_game_ = game_;
+            in_start_menu_ = link_starts(start_menu_link(), game_ / kManagerExe);
+        }
+        if (in_start_menu_) {
+            weak(tr("Anvil Manager is in the Start menu."));
+        } else if (ImGui::Button(tr("Add to the Start menu"))) {
+            std::string error;
+            if (write_link(start_menu_link(), game_ / kManagerExe, error)) {
+                in_start_menu_ = true;
+            } else {
+                failed(tr("The Start menu entry was not added"), error, false);
+            }
+        }
+    }
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -1211,6 +1228,10 @@ void ManagerApp::run_plan() {
                                                : std::string()),
                result.access_denied);
         return;
+    }
+    if (pending.uninstall) {
+        remove_link(start_menu_link(), game_ / kManagerExe);
+        start_menu_game_.clear();
     }
     if (!pending.uninstall) {
         show_message(tr("Done"), trf("Anvil {0} is installed. Start the game to load your plugins.", {package_->version}));

@@ -4,6 +4,7 @@
 #include "i18n/cjk_font.hpp"
 #include "notices.hpp"
 #include "overlay.hpp"
+#include "ui/imgui_colors.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx9.h>
@@ -374,7 +375,7 @@ bool ensure_imgui(IDirect3DDevice9* device) {
         platform.Platform_GetClipboardTextFn = get_clipboard;
         platform.Platform_SetImeDataFn = nullptr;  // IME calls could block on the window's thread
         platform.Platform_OpenInShellFn = nullptr;
-        ImGui::StyleColorsDark();
+        anvil::ui::use_dark_colors();
         ImGuiStyle& style = ImGui::GetStyle();
         style.WindowRounding = 6.0f;
         style.FrameRounding = 4.0f;

@@ -112,6 +112,9 @@ private:
     bool running_ = false;
     std::chrono::steady_clock::time_point running_checked_{};
 
+    std::filesystem::path start_menu_game_;  // the game in_start_menu_ was read for
+    bool in_start_menu_ = false;             // the shortcut starts that game's copy of the Manager
+
     std::optional<PendingPlan> plan_;
     bool replace_foreign_dll_ = false;
     bool remove_everything_ = false;
