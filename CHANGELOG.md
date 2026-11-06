@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.13.0](https://github.com/happy-dwarf-team/anvil/compare/v1.12.0...v1.13.0) (2026-11-06)
+
+
+### Features
+
+* **manager:** add a Start menu shortcut and bring back the dark background ([#239](https://github.com/happy-dwarf-team/anvil/issues/239)) ([b91ec3d](https://github.com/happy-dwarf-team/anvil/commit/b91ec3d918d0cd2b2744d71bca752d4779d899bb))
+
 ## [1.12.0](https://github.com/happy-dwarf-team/anvil/compare/v1.11.0...v1.12.0) (2026-11-06)
 
 
