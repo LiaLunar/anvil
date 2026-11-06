@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.12.0](https://github.com/happy-dwarf-team/anvil/compare/v1.11.0...v1.12.0) (2026-11-06)
+
+
+### Features
+
+* **cli:** make anvil port take --build from the table of builds ([#232](https://github.com/happy-dwarf-team/anvil/issues/232)) ([f6e2cce](https://github.com/happy-dwarf-team/anvil/commit/f6e2cce527048b7262983def2a2de13802b6efc5))
+
+
+### Bug Fixes
+
+* **cli:** port a digest whose value moved instead of leaving it by hand ([#236](https://github.com/happy-dwarf-team/anvil/issues/236)) ([2911a02](https://github.com/happy-dwarf-team/anvil/commit/2911a02b7ded7461a8b0d0d1a41d10fb6d0b4b6c))
+* **i18n:** say that a plugin does not support the game version yet ([#235](https://github.com/happy-dwarf-team/anvil/issues/235)) ([0750ac2](https://github.com/happy-dwarf-team/anvil/commit/0750ac2a1742191efa141136df3457b6a251d2a6))
+* limit what is read of a plugin, and warn when a mod presents itself as a catalog plugin ([#233](https://github.com/happy-dwarf-team/anvil/issues/233)) ([ecea7e2](https://github.com/happy-dwarf-team/anvil/commit/ecea7e23aa93459f16f4eb93fb6e7797c637f737))
+* **manager:** show an update's own files in the approve dialog ([#226](https://github.com/happy-dwarf-team/anvil/issues/226)) ([7c62d0d](https://github.com/happy-dwarf-team/anvil/commit/7c62d0d3a8de61dbfb8ecdecf02953a0a760ef56))
+* **manager:** show an update's own problems on the Mods tab ([#229](https://github.com/happy-dwarf-team/anvil/issues/229)) ([f610229](https://github.com/happy-dwarf-team/anvil/commit/f610229043f6866191574000bf0754278f788892))
+* **overlay:** say in one notice that stays which plugins wait for this game version ([#231](https://github.com/happy-dwarf-team/anvil/issues/231)) ([7435ca3](https://github.com/happy-dwarf-team/anvil/commit/7435ca3529b09254903db6a3c923f616a76822b4))
+
+
+### Build
+
+* **manager:** build anvil-log-throttle before the package ([#230](https://github.com/happy-dwarf-team/anvil/issues/230)) ([b47d17a](https://github.com/happy-dwarf-team/anvil/commit/b47d17ae50e750271ddb56e0a901fb261b02a320))
+
 ## [1.11.0](https://github.com/happy-dwarf-team/anvil/compare/v1.10.1...v1.11.0) (2026-11-05)
 
 
