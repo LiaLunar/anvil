@@ -8,7 +8,7 @@
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
-      "version": "1.2.0",
+      "version": "1.3.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": false,
       "builds": [
@@ -16,9 +16,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.2.0/bellows-windows-x64.zip",
-        "size": 1131841,
-        "sha256": "1d24abc9b9d582193de3df0147450570fb9aef9e8562610b84f9f19c5c809fa5"
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.3.0/bellows-windows-x64.zip",
+        "size": 1145543,
+        "sha256": "386c09f662f3ec1a795ca3321c7ba7552324c2b3db5b0bacbb8eb19dcdf2cc56"
       }
     },
     {
@@ -48,17 +48,17 @@
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
-      "version": "1.1.4",
+      "version": "1.2.0",
       "anvil": ">=1.9.0",
-      "affects_gameplay": true,
+      "affects_gameplay": false,
       "builds": [
         "eu4-1.37.5-steam-win64",
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.1.4/hamweard-windows-x64.zip",
-        "size": 198404,
-        "sha256": "97c27e902b83974ded9fdf2ab6e035f56bae236aabe5cd871d59b53fd548c6bd"
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.2.0/hamweard-windows-x64.zip",
+        "size": 198832,
+        "sha256": "6d073f6ade743b27a87e628a392ba22836dcaab572c1b98ab2142bdaf2088b20"
       }
     },
     {
