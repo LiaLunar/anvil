@@ -134,6 +134,19 @@ delete `version.dll`, `AnvilManager.exe` and the `anvil` folder.
 `eu4.exe` is never changed, so Steam updates and "Verify integrity of game
 files" keep working. Without `version.dll` the game starts vanilla.
 
+## Help and bug reports
+
+- [Troubleshooting](https://anvil.happydwarf.dev/docs/troubleshooting/) covers
+  the log, skipped plugins, crash reports and safe mode.
+- Questions go to the `#help-and-bugs` forum on the team's
+  [Discord server](https://discord.happydwarf.dev/) (English; tag the project).
+- Bugs go to an [issue](https://github.com/happy-dwarf-team/anvil/issues/new/choose):
+  **Copy a problem report** on the Manager's **Log** tab fills in what the form
+  asks for. A problem in one plugin belongs to that plugin's tracker, the
+  `issues` link in its manifest. What the team confirms on Discord ends up in
+  an issue too.
+- Security problems: report them privately, as [SECURITY.md](SECURITY.md) says.
+
 ## Plugins
 
 The [plugin catalog](https://anvil.happydwarf.dev/plugins/) lists released
