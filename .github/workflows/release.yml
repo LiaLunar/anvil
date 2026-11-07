@@ -145,3 +145,13 @@ jobs:
       tag: ${{ needs.release-please.outputs.tag_name }}
     secrets:
       WEBSITE_DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
+
+  # Posts the release to the team's Discord server once it is public.
+  notify-discord:
+    needs: [release-please, publish]
+    uses: happy-dwarf-team/.github/.github/workflows/discord-release.yml@14db4f9e98bdc130c5d6e8dde9035ee1cabf30a6 # main
+    permissions: {}
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      DISCORD_RELEASES_WEBHOOK: ${{ secrets.DISCORD_RELEASES_WEBHOOK }}
