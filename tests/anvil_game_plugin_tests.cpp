@@ -73,8 +73,8 @@ struct FakeEu4 {
     FakeEu4() {
         base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSize, MEM_RESERVE, PAGE_NOACCESS));
         commit(0x0, PAGE_READWRITE);
-        for (uint32_t page : {0x205000u, 0x6E9000u, 0x6EA000u, 0x756000u, 0x802000u, 0x848000u, 0x1432000u,
-                              0x10DB000u, 0x14C2000u, 0x1732000u, 0x1746000u, 0x1761000u}) {
+        for (uint32_t page : {0x205000u, 0x6E9000u, 0x6EA000u, 0x742000u, 0x756000u, 0x7E0000u, 0x802000u, 0x815000u, 0x848000u,
+                              0x1432000u, 0x10DB000u, 0x14C2000u, 0x1732000u, 0x1746000u, 0x1761000u}) {
             commit(page, PAGE_EXECUTE_READWRITE);
         }
         commit(0x1CB8000, PAGE_READWRITE);
@@ -104,6 +104,9 @@ struct FakeEu4 {
         put(0x848976, {0x48, 0x8B, 0x05, 0xFB, 0x74, 0xAF, 0x01, 0x48, 0x8B, 0xD9, 0x48, 0x8B, 0x88, 0x00, 0x1E,
                        0x00, 0x00, 0x48, 0x8B, 0x01, 0xFF, 0x90, 0x00, 0x01, 0x00, 0x00});
         put(0x8024D0, {0x48, 0x8B, 0x81, 0x18, 0x04, 0x00, 0x00, 0xC3});
+        put(0x815730, {0x49, 0x8B, 0x8D, 0xD8, 0x04, 0x00, 0x00, 0x48, 0x85, 0xC9, 0x74, 0x09});
+        put(0x742D18, {0x41, 0x80, 0x7C, 0x24, 0x08, 0x00, 0x75, 0x17});
+        put(0x7E04AC, {0x44, 0x88, 0x7F, 0x19, 0x45, 0x84, 0xFF});
         // set_session: the declared bytes (it stores the session at root+0x1E00), then
         // add rsp,20h; pop rdi; mov rbp,[rsp+10h]; mov rsi,[rsp+18h]; ret.
         put(0x756A30, {0x48, 0x89, 0x6C, 0x24, 0x10, 0x48, 0x89, 0x74, 0x24, 0x18, 0x57, 0x48, 0x83, 0xEC, 0x20,
@@ -195,8 +198,9 @@ struct FakeEu4 {
 struct GameObjects {
     alignas(16) uint8_t app[0x400] = {};
     alignas(16) uint8_t root[0x2500] = {};
-    alignas(16) uint8_t session[0x420] = {};
+    alignas(16) uint8_t session[0x4E0] = {};
     alignas(16) uint8_t speed[0x60] = {};
+    alignas(16) uint8_t oos_handler[0x50] = {};
     alignas(16) uint8_t frontend[0x910] = {};
 
     uint64_t frame_counter() const {
@@ -392,6 +396,10 @@ void listen(const char* event, const void* payload, void* context) {
                             " mp=" + std::to_string(s->multiplayer));
     } else if (name == ANVIL_GAME_EVENT_MAIN_MENU) {
         h->events.push_back("main menu " + std::to_string(g_service->main_menu()));
+    } else if (name == ANVIL_GAME_EVENT_OOS) {
+        const auto* o = static_cast<const AnvilGameOosChange*>(payload);
+        h->events.push_back("oos " + std::to_string(o->previous) + " to " + std::to_string(o->flags) + " in " +
+                            std::to_string(o->session));
     }
 }
 
@@ -515,6 +523,18 @@ int main(int argc, char** argv) {
             w.name = name;
             return w;
         };
+        anvil_game::OosTracker oos;
+        CHECK(!oos.update(false, 0, 3).changed && oos.flags() == 0);  // no session
+        CHECK(!oos.update(true, 1, 0).changed);
+        const auto detected = oos.update(true, 1, ANVIL_GAME_OOS_DETECTED);
+        CHECK(detected.changed && detected.event.size == sizeof(AnvilGameOosChange) &&
+              detected.event.flags == ANVIL_GAME_OOS_DETECTED && detected.event.previous == 0 && detected.event.session == 1);
+        CHECK(!oos.update(true, 1, ANVIL_GAME_OOS_DETECTED).changed);  // once per change
+        const auto next = oos.update(true, 2, ANVIL_GAME_OOS_DETECTED);  // a new session starts from 0
+        CHECK(next.changed && next.event.previous == 0 && next.event.session == 2);
+        CHECK(!oos.update(true, 2, ANVIL_GAME_OOS_DETECTED).changed);
+        CHECK(!oos.update(false, 0, 0).changed && oos.flags() == 0);  // its end says nothing
+
         anvil_game::WarTracker t;
         CHECK(t.find(1, 1) == nullptr);
         auto c = t.update(1, {war(1, "a")});  // the baseline
@@ -578,7 +598,7 @@ int main(int argc, char** argv) {
     }
     bus.subscribe("listener", ANVIL_GAME_EVENT_FRAME, run_in_frame_handler, nullptr);
     for (const char* event : {ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION,
-                              ANVIL_GAME_EVENT_MAIN_MENU}) {
+                              ANVIL_GAME_EVENT_MAIN_MENU, ANVIL_GAME_EVENT_OOS}) {
         bus.subscribe("listener", event, listen, &heard);
     }
     volatile uint8_t* const ready_flag = image.base + 0x233FF4E;
@@ -613,7 +633,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 39);
+        CHECK(reason.empty() && verified.symbols.size() == 42);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -903,6 +923,56 @@ int main(int argc, char** argv) {
         frame(game.app, 1);
         CHECK(heard.events.size() == 3 && heard.events[0].starts_with("session started") && heard.events[1] == "main menu 0");
         CHECK(service->main_menu() == 0);
+    });
+
+    run("anvil-game: out of sync from the handler and the game-speed object", [&] {
+        CHECK(ANVIL_GAME_HAS(service, out_of_sync));
+        const auto oos_events = [&] {
+            return std::count_if(heard.events.begin(), heard.events.end(), [](const std::string& e) { return e.starts_with("oos"); });
+        };
+        const uintptr_t root = reinterpret_cast<uintptr_t>(game.root);
+        std::memcpy(image.base + 0x233FE78, &root, sizeof(root));
+        game.set_session(game.session);
+        game.set_date(58'860'240);
+        frame(game.app, 1);
+        AnvilGameSession s{};
+        CHECK(service->session(&s) == 1);
+        const std::string number = std::to_string(s.number);
+        heard.events.clear();
+
+        // The session has no handler yet, then one in sync.
+        CHECK(service->out_of_sync() == 0);
+        const uintptr_t handler = reinterpret_cast<uintptr_t>(game.oos_handler);
+        std::memcpy(game.session + 0x4D8, &handler, sizeof(handler));
+        frame(game.app, 1);
+        CHECK(service->out_of_sync() == 0 && oos_events() == 0);
+
+        game.oos_handler[8] = 1;
+        frame(game.app, 1);
+        CHECK(service->out_of_sync() == ANVIL_GAME_OOS_DETECTED);
+        CHECK(contains(heard.events, "oos 0 to 1 in " + number) && oos_events() == 1);
+        CHECK(contains(log, "anvil-game: out of sync: detected true, paused false (session " + number + ")"));
+        frame(game.app, 1);
+        CHECK(oos_events() == 1);
+
+        game.speed[0x19] = 1;
+        frame(game.app, 1);
+        CHECK(service->out_of_sync() == (ANVIL_GAME_OOS_DETECTED | ANVIL_GAME_OOS_PAUSED));
+        CHECK(contains(heard.events, "oos 1 to 3 in " + number));
+
+        // The session ends with the flags up: the service says 0 and no event comes.
+        heard.events.clear();
+        alignas(16) static uint8_t other_session[0x4E0] = {};
+        game.set_session(other_session);
+        frame(game.app, 1);
+        CHECK(service->out_of_sync() == 0 && service->session(nullptr) == 0 && oos_events() == 0);
+
+        game.oos_handler[8] = 0;
+        game.speed[0x19] = 0;
+        std::memset(game.session + 0x4D8, 0, sizeof(handler));
+        game.set_session(game.session);
+        frame(game.app, 1);
+        CHECK(service->session(nullptr) == 1 && service->out_of_sync() == 0);
     });
 
     run("anvil-game: only anvil-game publishes its events", [&] {

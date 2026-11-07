@@ -54,6 +54,7 @@ using anvil_game::DateEvents;
 using anvil_game::DateTracker;
 using anvil_game::SessionChanges;
 using anvil_game::SessionTracker;
+using anvil_game::OosTracker;
 using anvil_game::SessionView;
 using anvil_game::WarSeen;
 using anvil_game::WarTracker;
@@ -76,6 +77,10 @@ struct Layout {
     sym::Types::is_multiplayer::Pointer is_multiplayer = nullptr;
     std::uintptr_t frontend_vtable = 0;  // the front end's class (the root's session outside a game)
     std::uint32_t frontend_state = 0;    // frontend+: uint32 state, 0 = the main menu
+    bool oos = false;                    // false when these symbols are absent on this build
+    std::uint32_t oos_handler = 0;       // session+: the out-of-sync handler, may be null
+    std::uint32_t oos_flag = 0;          // handler+: byte, a checksum mismatch
+    std::uint32_t oos_paused = 0;        // speed object+: byte, paused because of that
 };
 
 Layout g_layout;
@@ -95,6 +100,9 @@ WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
 DateTracker g_dates;       // main thread only
 WarTracker g_wars;         // main thread only
+OosTracker g_oos;          // main thread only
+// The flags as the service reports them to any thread.
+std::atomic<std::uint32_t> g_oos_flags{0};
 
 // The world: false when a symbol of it is absent on this build.
 WorldLayout g_world;
@@ -124,13 +132,21 @@ void read_session_unguarded(SessionView& view) {
     if (root == 0) return;
     const std::uintptr_t session = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
     if (session == 0 || *reinterpret_cast<const std::uintptr_t*>(session) != g_layout.session_vtable) return;
-    if (*reinterpret_cast<const std::uintptr_t*>(session + g_layout.speed) == 0) return;
+    const std::uintptr_t speed = *reinterpret_cast<const std::uintptr_t*>(session + g_layout.speed);
+    if (speed == 0) return;
     const std::int32_t date = *reinterpret_cast<const std::int32_t*>(root + g_layout.date);
     if (date == kUnsetDate) return;
     view.session = session;
     view.date = date;
     view.ironman = *reinterpret_cast<const std::uint8_t*>(root + g_layout.ironman) != 0;
     view.multiplayer = g_layout.is_multiplayer(reinterpret_cast<void*>(session));
+    if (g_layout.oos) {
+        const std::uintptr_t handler = *reinterpret_cast<const std::uintptr_t*>(session + g_layout.oos_handler);
+        if (handler != 0 && *reinterpret_cast<const std::uint8_t*>(handler + g_layout.oos_flag) != 0) {
+            view.oos |= ANVIL_GAME_OOS_DETECTED;
+        }
+        if (*reinterpret_cast<const std::uint8_t*>(speed + g_layout.oos_paused) != 0) view.oos |= ANVIL_GAME_OOS_PAUSED;
+    }
     view.running = true;
 }
 
@@ -292,6 +308,16 @@ void after_frame_body(std::uint64_t number) {
         // The first frame of a session has no day yet: that is the wars' baseline.
         if (dates.day || !g_wars.known(g_tracker.current().number)) publish_wars(g_tracker.current().number);
     }
+    // A view that faulted says nothing, so the flags stay.
+    if (view.readable) {
+        const OosTracker::Change oos = g_oos.update(running, g_tracker.current().number, view.oos);
+        g_oos_flags.store(g_oos.flags(), std::memory_order_release);
+        if (oos.changed) {
+            host.info("out of sync: detected {}, paused {} (session {})", (oos.event.flags & ANVIL_GAME_OOS_DETECTED) != 0,
+                      (oos.event.flags & ANVIL_GAME_OOS_PAUSED) != 0, oos.event.session);
+            publish(ANVIL_GAME_EVENT_OOS, &oos.event);
+        }
+    }
     AnvilGameFrame frame{};
     frame.size = sizeof(frame);
     frame.number = number;
@@ -402,9 +428,11 @@ int service_main_menu() {
     return g_main_menu.load(std::memory_order_acquire) && g_nested_frames.load(std::memory_order_acquire) == 0 ? 1 : 0;
 }
 
+std::uint32_t service_out_of_sync() { return g_oos_flags.load(std::memory_order_acquire); }
+
 constexpr AnvilGameService kService = {
     sizeof(AnvilGameService), service_ready, service_main_thread_id, service_frame_number, service_run_on_main_thread,
-    service_session,          service_date,  service_main_menu,
+    service_session,          service_date,  service_main_menu,    service_out_of_sync,
 };
 
 // ---- the world service ------------------------------------------------------
@@ -668,6 +696,16 @@ struct AnvilGame : anvil::Plugin {
         g_layout.frontend_vtable = reinterpret_cast<std::uintptr_t>(host.address(sym::frontend_vtable));
         // The front end is 0x10 bytes shorter before its state in the GOG build.
         g_layout.frontend_state = static_cast<std::uint32_t>(host.value(sym::frontend_state, "state"));
+        // A port may declare these absent on a new build: out_of_sync() then stays 0.
+        if (host.present(sym::oos_handler) && host.present(sym::oos_flag) && host.present(sym::oos_pause)) {
+            // The session is 0x10 bytes shorter before the handler in the GOG build.
+            g_layout.oos_handler = static_cast<std::uint32_t>(host.value(sym::oos_handler, "handler"));
+            g_layout.oos_flag = sym::oos_flag.flag;
+            g_layout.oos_paused = sym::oos_pause.paused;
+            g_layout.oos = true;
+        } else {
+            host.info("the out-of-sync symbols are absent on this build: out_of_sync() stays 0");
+        }
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);
         load_world(host);

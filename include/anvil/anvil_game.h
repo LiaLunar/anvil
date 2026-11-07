@@ -124,11 +124,42 @@ typedef struct AnvilGameService {
      * front-end screens, in a game, and while a frame is drawn inside a game
      * update or a save load (the loading screen). Callable from any thread. */
     int (*main_menu)(void);
+
+    /* Since anvil-game 1.14.0; check with ANVIL_GAME_HAS(service, out_of_sync). */
+
+    /* The session's ANVIL_GAME_OOS_* flags as of the last frame of the main
+     * loop; 0 in sync, with no session, or on a game build without these
+     * symbols. Callable from any thread. */
+    uint32_t (*out_of_sync)(void);
 } AnvilGameService;
 
 /* Nonzero when `service` provides `field`. */
 #define ANVIL_GAME_HAS(service, field) \
     ((service)->size >= offsetof(AnvilGameService, field) + sizeof((service)->field))
+
+/* --- Since anvil-game 1.14.0: out of sync ----------------------------------
+ *
+ * A multiplayer game whose machines no longer agree. Read-only.
+ *
+ * DETECTED: this game's checksums differed from the host's. Only a client
+ * compares them, so the host never has this flag.
+ * PAUSED: the game is paused because a machine went out of sync.
+ *
+ * ANVIL_GAME_EVENT_OOS comes after the outer frame in which the flags changed,
+ * while a session runs. A session starts from 0, and its end publishes nothing:
+ * ANVIL_GAME_EVENT_SESSION says that. Payload AnvilGameOosChange. */
+#define ANVIL_GAME_OOS_DETECTED 0x1u
+#define ANVIL_GAME_OOS_PAUSED 0x2u
+
+#define ANVIL_GAME_EVENT_OOS "anvil-game.oos"
+
+typedef struct AnvilGameOosChange {
+    uint32_t size;     /* sizeof(AnvilGameOosChange) as known by anvil-game */
+    uint32_t flags;    /* ANVIL_GAME_OOS_* now */
+    uint32_t previous; /* ANVIL_GAME_OOS_* before */
+    uint32_t reserved;
+    uint64_t session;  /* AnvilGameSession.number */
+} AnvilGameOosChange;
 
 /* --- Since anvil-game 1.11.0: the campaign ---------------------------------
  *

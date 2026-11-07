@@ -31,6 +31,27 @@ AnvilGameDate decode_date(std::int32_t hours) {
     return out;
 }
 
+OosTracker::Change OosTracker::update(bool running, std::uint64_t session, std::uint32_t flags) {
+    Change out;
+    if (!running) {
+        session_ = 0;
+        flags_ = 0;
+        return out;
+    }
+    if (session != session_) {
+        session_ = session;
+        flags_ = 0;
+    }
+    if (flags == flags_) return out;
+    out.changed = true;
+    out.event.size = sizeof(AnvilGameOosChange);
+    out.event.flags = flags;
+    out.event.previous = flags_;
+    out.event.session = session;
+    flags_ = flags;
+    return out;
+}
+
 DateEvents DateTracker::update(bool running, std::uint64_t session, std::int32_t hours) {
     DateEvents out;
     if (!running) {

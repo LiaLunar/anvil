@@ -136,6 +136,40 @@ note = "multiplayer check through session vtable slot 0x318, as the console regi
 build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }        # CEU3Idler::IsMultiplayerWithPlayers
 
+# --- out of sync ---
+# Read each frame of a session, never written. Only multiplayer sets them. A port
+# may declare all three absent. Bytes matched between GOG and Steam; not seen
+# true in a real desync, which takes two computers.
+
+[symbol.oos_handler]
+memory = "code"
+values.handler = { at = 3, size = 4 }
+note = "the game loop's local check: the session's pointer to its out-of-sync handler, which may be null"
+
+[symbol.oos_handler.build."eu4-1.37.5-steam-win64"]
+rva = 0x815730
+bytes = "49 8B 8D D8 04 00 00 48 85 C9 74 09"      # mov rcx,[r13+4D8h]; test rcx,rcx; je
+
+[symbol.oos_handler.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x814A90                                     # CInGameIdler::Idle
+bytes = "49 8B 8D C8 04 00 00 48 85 C9 74 09"      # mov rcx,[r13+4C8h]; test rcx,rcx; je
+
+[symbol.oos_flag]
+bytes = "41 80 7C 24 08 00 75 17"                  # cmp byte [r12+8],0; jne
+memory = "code"
+values.flag = { at = 4, size = 1 }
+note = "end of the client's checksum compare: the handler's flag, 1 from the first mismatch; the host never runs this"
+build."eu4-1.37.5-steam-win64" = { rva = 0x742D18 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x741F48 }        # COOSHandler::MakeSyncCheck
+
+[symbol.oos_pause]
+bytes = "44 88 7F 19 45 84 FF"                     # mov [rdi+19h],r15b; test r15b,r15b
+memory = "code"
+values.paused = { at = 3, size = 1 }
+note = "the game-speed object's byte that says a pause is due to going out of sync"
+build."eu4-1.37.5-steam-win64" = { rva = 0x7E04AC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DF81C }        # CGameSpeed::Pause
+
 # --- the main menu ---
 # Outside a game the root's session (root+0x1E00) is the front end, whose state
 # machine shows the main menu in state 0 (the nation selection is state 3).

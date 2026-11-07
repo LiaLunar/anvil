@@ -21,6 +21,7 @@ struct SessionView {
     // loaded from the game menu puts the same session object back, inside one
     // frame of the main loop, so only this count tells the two sessions apart.
     std::uint64_t installs = 0;
+    std::uint32_t oos = 0;  // ANVIL_GAME_OOS_*
 };
 
 // 1 January of year 1: the date of a root without a running game, or of a
@@ -51,6 +52,22 @@ private:
     bool known_ = false;
     std::uint64_t session_ = 0;
     std::int32_t hours_ = 0;
+};
+
+// Compares the out-of-sync flags frame by frame. Each session starts from 0;
+// without a session the flags are 0 and nothing changes. Main thread only.
+class OosTracker {
+public:
+    struct Change {
+        bool changed = false;
+        AnvilGameOosChange event{};
+    };
+    Change update(bool running, std::uint64_t session, std::uint32_t flags);
+    std::uint32_t flags() const { return flags_; }
+
+private:
+    std::uint64_t session_ = 0;
+    std::uint32_t flags_ = 0;
 };
 
 // A running war as the tracker keeps it, for the event when it ends.
