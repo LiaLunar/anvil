@@ -7,6 +7,7 @@ body:
       value: |
         Thanks for reporting. Problems inside one plugin belong in that plugin's repository; security problems go through [private reporting](https://github.com/happy-dwarf-team/anvil/security/advisories/new).
         Before reporting, check whether the problem also happens with `enabled = false` in `anvil/anvil.toml` (Anvil loaded, no plugins; the `ANVIL_DISABLE=1` environment variable does the same for one start).
+        No `anvil/anvil.log` after a start means Anvil did not run at all: go through [If Anvil does not run at all](https://anvil.happydwarf.dev/docs/troubleshooting/#if-anvil-does-not-run-at-all) first. If you still report it, write "no log" in the fields that ask for the log, and give the Anvil version from the Manager's **About** tab.
   - type: textarea
     id: what-happened
     attributes:
@@ -28,7 +29,7 @@ body:
     id: anvil-version
     attributes:
       label: Anvil version
-      description: First line of `anvil/anvil.log`, e.g. `Anvil 1.10.0 (plugin API 2)`.
+      description: First line of `anvil/anvil.log`, e.g. `Anvil 1.10.0 (plugin API 2)`. Without a log, the version on the Manager's **About** tab.
     validations:
       required: true
   - type: input
@@ -78,7 +79,7 @@ body:
     id: log
     attributes:
       label: anvil/anvil.log
-      description: The whole file from the start where the problem happened (`anvil.prev.log` holds the start before). Check it for anything you do not want to share, such as your Windows user name in paths.
+      description: The whole file from the start where the problem happened (`anvil.prev.log` holds the start before), or "no log" if there is none. Check it for anything you do not want to share, such as your Windows user name in paths.
       render: text
     validations:
       required: true

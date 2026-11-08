@@ -137,7 +137,10 @@ files" keep working. Without `version.dll` the game starts vanilla.
 ## Help and bug reports
 
 - [Troubleshooting](https://anvil.happydwarf.dev/docs/troubleshooting/) covers
-  the log, skipped plugins, crash reports and safe mode.
+  the log, skipped plugins, crash reports and safe mode. No badge and no
+  `anvil/anvil.log` after a start means Windows did not load Anvil's
+  `version.dll`: see
+  [If Anvil does not run at all](https://anvil.happydwarf.dev/docs/troubleshooting/#if-anvil-does-not-run-at-all).
 - Questions go to the `#help-and-bugs` forum on the team's
   [Discord server](https://discord.happydwarf.dev/) (English; tag the project).
 - Bugs go to an [issue](https://github.com/happy-dwarf-team/anvil/issues/new/choose):
