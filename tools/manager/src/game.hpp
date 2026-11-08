@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 #include <string>
@@ -74,6 +75,23 @@ bool same_file(const std::filesystem::path& a, const std::filesystem::path& b);
 // runs whose path cannot be read (it may be this one). While the game runs,
 // the Manager changes nothing in its folder (design §5.3).
 bool game_running(const std::filesystem::path& game_dir);
+
+// The eu4.exe processes as seen from `game_dir` (issue #253).
+struct GameProcesses {
+    bool here = false;          // game_running(game_dir)
+    uint64_t here_started = 0;  // creation time (FILETIME) of the newest one from game_dir; 0 when not known
+    std::vector<std::filesystem::path> elsewhere;  // the folders of those that run from another folder
+};
+GameProcesses game_processes(const std::filesystem::path& game_dir);
+
+// The last write of `file` as a FILETIME; nullopt when it is missing.
+std::optional<uint64_t> file_written(const std::filesystem::path& file);
+
+// True when a game that started at `game_started` (FILETIME) ended without
+// Anvil: anvil.log, which Anvil opens first thing once Windows loads its
+// version.dll, is missing (`log_written` nullopt) or was last written before
+// that start. False when the start is not known (0).
+bool anvil_missed_game(std::optional<uint64_t> log_written, uint64_t game_started);
 
 // When AnvilManager.exe runs from inside `game_dir` (the copy install puts
 // there, design §3).

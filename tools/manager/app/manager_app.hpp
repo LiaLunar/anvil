@@ -61,6 +61,7 @@ private:
     void refresh();
     void poll();
     bool read_only() const;
+    bool anvil_installed() const;  // the snapshot found Anvil's version.dll in game_
 
     void draw_game_bar();
     void draw_anvil_tab();
@@ -111,6 +112,9 @@ private:
     std::future<Snapshot> pending_;
     bool running_ = false;
     std::chrono::steady_clock::time_point running_checked_{};
+    uint64_t running_started_ = 0;  // when the game that runs from game_ started (FILETIME), 0 when not known
+    std::vector<std::filesystem::path> running_elsewhere_;  // folders of an eu4.exe that is not game_'s (issue #253)
+    bool anvil_missed_ = false;     // the last game from game_ ended without writing anvil.log
 
     std::filesystem::path start_menu_game_;  // the game in_start_menu_ was read for
     bool in_start_menu_ = false;             // the shortcut starts that game's copy of the Manager

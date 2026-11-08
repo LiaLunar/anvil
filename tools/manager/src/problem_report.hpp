@@ -34,6 +34,14 @@ struct ProblemReportInput {
     std::string gog_version;                    // GOG's name for it, or empty
     const cli::GameReport* game = nullptr;      // `anvil check --game`; nullptr without an anvil folder
     std::optional<CrashSummary> newest_crash;
+    // The game folders the Manager found and which one the report is about
+    // (issue #253), as counts: their paths stay out of the report.
+    size_t steam_folders = 0;          // the folders Steam's libraries have the game in
+    bool gog_folder = false;           // GOG's registry names a folder with eu4.exe
+    std::optional<size_t> chosen_steam;  // the game folder is Steam's folder number n (0-based)
+    bool chosen_gog = false;           // the game folder is GOG's
+    size_t running_elsewhere = 0;      // eu4.exe processes that run from other folders
+    bool anvil_missed = false;         // the last game from this folder ended without anvil.log written during it
     std::string log_name;  // "anvil.log"
     std::string log_tail;  // its last lines (read_text_tail)
     std::vector<PrivateFolder> folders;

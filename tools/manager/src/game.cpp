@@ -278,28 +278,58 @@ bool same_file(const fs::path& a, const fs::path& b) {
     return x && y && x->volume == y->volume && x->high == y->high && x->low == y->low;
 }
 
-bool game_running(const fs::path& game_dir) {
+bool game_running(const fs::path& game_dir) { return game_processes(game_dir).here; }
+
+GameProcesses game_processes(const fs::path& game_dir) {
+    GameProcesses out;
     const fs::path exe = game_dir / "eu4.exe";
     const HANDLE snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
-    if (snapshot == INVALID_HANDLE_VALUE) return false;
+    if (snapshot == INVALID_HANDLE_VALUE) return out;
     PROCESSENTRY32W entry{};
     entry.dwSize = sizeof(entry);
-    bool running = false;
-    for (BOOL more = Process32FirstW(snapshot, &entry); more && !running; more = Process32NextW(snapshot, &entry)) {
+    for (BOOL more = Process32FirstW(snapshot, &entry); more; more = Process32NextW(snapshot, &entry)) {
         if (_wcsicmp(entry.szExeFile, L"eu4.exe") != 0) continue;
         const HANDLE process = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, entry.th32ProcessID);
         if (process == nullptr) {
-            running = true;  // cannot tell which game it is
+            out.here = true;  // cannot tell which game it is
             continue;
         }
         wchar_t path[MAX_PATH * 4] = {};
         DWORD size = static_cast<DWORD>(std::size(path));
         const bool known = QueryFullProcessImageNameW(process, 0, path, &size) != 0;
+        FILETIME created{}, exited{}, kernel{}, user{};
+        const uint64_t started = GetProcessTimes(process, &created, &exited, &kernel, &user) != 0
+                                     ? (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime
+                                     : 0;
         CloseHandle(process);
-        running = !known || same_file(path, exe);
+        if (!known) {
+            out.here = true;
+        } else if (same_file(path, exe)) {
+            out.here = true;
+            out.here_started = std::max(out.here_started, started);
+        } else {
+            const fs::path folder = fs::path(path).parent_path().lexically_normal();
+            if (std::none_of(out.elsewhere.begin(), out.elsewhere.end(), [&](const fs::path& known_folder) {
+                    return _wcsicmp(known_folder.c_str(), folder.c_str()) == 0;
+                })) {
+                out.elsewhere.push_back(folder);
+            }
+        }
     }
     CloseHandle(snapshot);
-    return running;
+    return out;
+}
+
+std::optional<uint64_t> file_written(const fs::path& file) {
+    WIN32_FILE_ATTRIBUTE_DATA data{};
+    if (GetFileAttributesExW(file.c_str(), GetFileExInfoStandard, &data) == 0) return std::nullopt;
+    if ((data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) return std::nullopt;
+    return (static_cast<uint64_t>(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
+}
+
+bool anvil_missed_game(std::optional<uint64_t> log_written, uint64_t game_started) {
+    if (game_started == 0) return false;
+    return !log_written || *log_written < game_started;
 }
 
 bool runs_from(const fs::path& exe, const fs::path& game_dir) {

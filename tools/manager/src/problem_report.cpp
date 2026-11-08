@@ -124,6 +124,19 @@ void plugin_rows(std::string& out, const cli::GameReport& game) {
     }
 }
 
+// "Steam 2, GOG 1; this is Steam's folder 1 of 2".
+std::string game_folders(const ProblemReportInput& input) {
+    std::string out = "Steam " + std::to_string(input.steam_folders) + ", GOG " + (input.gog_folder ? "1" : "0") + "; ";
+    if (input.chosen_gog) {
+        out += "this is GOG's folder";
+    } else if (input.chosen_steam && *input.chosen_steam < input.steam_folders) {
+        out += "this is Steam's folder " + std::to_string(*input.chosen_steam + 1) + " of " + std::to_string(input.steam_folders);
+    } else {
+        out += "this folder is neither Steam's nor GOG's";
+    }
+    return out;
+}
+
 }  // namespace
 
 std::string redact_paths(std::string_view text, const std::vector<PrivateFolder>& folders, std::string_view user_name) {
@@ -176,6 +189,11 @@ std::string problem_report(const ProblemReportInput& input) {
     out += "| Game build | " + cell(input.build.empty() ? "unknown to this Anvil" : "`" + input.build + "`") + " |\n";
     if (input.gog) out += "| Store | " + cell(input.gog_version.empty() ? "GOG" : "GOG " + input.gog_version) + " |\n";
     out += "| eu4.exe SHA-256 | " + cell(input.exe_sha256.empty() ? "" : "`" + input.exe_sha256 + "`") + " |\n";
+    out += "| Game folders found | " + cell(game_folders(input)) + " |\n";
+    if (input.running_elsewhere > 0) {
+        out += "| eu4.exe running | from " + std::to_string(input.running_elsewhere) + " other folder(s) |\n";
+    }
+    if (input.anvil_missed) out += "| Last game from this folder | it ran, but Anvil did not load (no anvil.log written during it) |\n";
     if (const cli::GameReport* game = input.game) {
         std::string toml = game->enabled ? "plugins enabled" : "all plugins disabled (`enabled = false`)";
         if (!game->disabled_plugins.empty()) toml += "; disabled_plugins: " + join(game->disabled_plugins);

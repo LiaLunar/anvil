@@ -97,6 +97,8 @@ const char* step_text(Step::Kind kind) {
     return "";
 }
 
+constexpr const char* kTroubleshootingUrl = "https://anvil.happydwarf.dev/docs/troubleshooting/#if-anvil-does-not-run-at-all";
+
 std::string megabytes(uint64_t bytes) {
     char text[32];
     std::snprintf(text, sizeof(text), "%.1f", static_cast<double>(bytes) / (1 << 20));
@@ -142,6 +144,9 @@ void ManagerApp::choose_game(const fs::path& dir) {
     crash_text_.clear();
     log_text_.clear();
     running_checked_ = {};
+    running_started_ = 0;
+    running_elsewhere_.clear();
+    anvil_missed_ = false;
     launcher_opened_ = false;
     if (settings_.game_folder != game_) {
         settings_.game_folder = game_;
@@ -195,8 +200,22 @@ void ManagerApp::poll() {
     if (!game_.empty() && now - running_checked_ > 1500ms) {
         running_checked_ = now;
         const bool was = running_;
-        running_ = game_running(game_);
-        if (running_) launcher_opened_ = false;  // the note did its job
+        GameProcesses processes = game_processes(game_);
+        running_ = processes.here;
+        running_elsewhere_ = std::move(processes.elsewhere);
+        if (running_) {
+            launcher_opened_ = false;  // the note did its job
+            anvil_missed_ = false;
+            if (processes.here_started != 0) running_started_ = processes.here_started;
+        }
+        if (was && !running_) {
+            // Anvil opens anvil.log first thing once Windows loads its version.dll: a game that ended without
+            // writing it ran without Anvil (issue #253). A benchmark series starts the game itself.
+            const bool benchmark = benchmark_.busy() || benchmark_busy_;
+            anvil_missed_ = !benchmark && anvil_installed() &&
+                            anvil_missed_game(file_written(game_ / "anvil" / "anvil.log"), running_started_);
+            running_started_ = 0;
+        }
         // The game may have written logs and crash reports; a benchmark series
         // is read once it ends, not between its starts.
         if (was && !running_ && !benchmark_.busy()) refresh();
@@ -206,6 +225,10 @@ void ManagerApp::poll() {
 }
 
 bool ManagerApp::read_only() const { return running_ || pending_.valid(); }
+
+bool ManagerApp::anvil_installed() const {
+    return snapshot_ && snapshot_->installation && snapshot_->installation->dll == Installation::Dll::Anvil;
+}
 
 void ManagerApp::draw() {
     poll();
@@ -321,6 +344,18 @@ void ManagerApp::draw_game_bar() {
     } else if (running_) {
         colored_wrapped(kWarn, tr("EU4 is running from this folder. Close the game to change Anvil, plugins or "
                                   "settings; until then the Manager only shows them."));
+    } else if (!running_elsewhere_.empty() && anvil_installed()) {
+        // Steam starts its own copy whatever folder the Manager shows (issue #253).
+        const fs::path& other = running_elsewhere_.front();
+        colored_wrapped(kWarn, trf("EU4 is running from {0}, not from the folder Anvil is installed in.", {u8(other)}));
+        if (ImGui::SmallButton(tr("Switch to that folder"))) {
+            const fs::path chosen = other;  // choose_game clears running_elsewhere_
+            choose_game(chosen);
+        }
+    }
+    if (anvil_missed_ && !running_ && !benchmark_.busy()) {
+        colored_wrapped(kWarn, tr("The game ran, but Anvil did not load."));
+        if (ImGui::SmallButton(tr("What to check"))) open_url(kTroubleshootingUrl);
     }
 }
 
@@ -1143,6 +1178,14 @@ std::string ManagerApp::make_problem_report() const {
     if (!snapshot_->crashes.empty()) input.newest_crash = load_crash_summary(game_ / "anvil" / "crashes", snapshot_->crashes.front());
     input.log_name = "anvil.log";
     input.log_tail = read_text_tail(game_ / "anvil" / "anvil.log", kProblemReportLogLines, kProblemReportLogBytes);
+    input.steam_folders = steam_games_.size();
+    input.gog_folder = gog_game_.has_value();
+    for (size_t i = 0; i < steam_games_.size(); ++i) {
+        if (same_file(steam_games_[i], game_)) input.chosen_steam = i;
+    }
+    input.chosen_gog = gog_game_ && same_file(*gog_game_, game_);
+    input.running_elsewhere = running_elsewhere_.size();
+    input.anvil_missed = anvil_missed_;
 
     const auto environment = [](const wchar_t* name) {
         wchar_t value[512];

@@ -122,5 +122,29 @@ void manager_report_tests() {
         CHECK(contains(out, "| Newest crash report | none |"));
         CHECK(!contains(out, "#### Plugins"));
         CHECK(contains(out, "anvil.log is empty or missing"));
+        CHECK(contains(out, "| Game folders found | Steam 0, GOG 0; this folder is neither Steam's nor GOG's |"));
+        CHECK(!contains(out, "| eu4.exe running |"));
+        CHECK(!contains(out, "| Last game from this folder |"));
+    });
+
+    run("problem report: the game folders found and a game that ran without Anvil (issue #253)", [] {
+        ProblemReportInput input;
+        input.manager_version = "1.9.0";
+        input.installation = Installation{};
+        input.log_name = "anvil.log";
+        input.steam_folders = 2;
+        input.chosen_steam = 1;
+        input.running_elsewhere = 1;
+        input.anvil_missed = true;
+        std::string out = problem_report(input);
+        CHECK(contains(out, "| Game folders found | Steam 2, GOG 0; this is Steam's folder 2 of 2 |"));
+        CHECK(contains(out, "| eu4.exe running | from 1 other folder(s) |"));
+        CHECK(contains(out, "| Last game from this folder | it ran, but Anvil did not load"));
+
+        input.chosen_steam.reset();
+        input.gog_folder = true;
+        input.chosen_gog = true;
+        out = problem_report(input);
+        CHECK(contains(out, "| Game folders found | Steam 2, GOG 1; this is GOG's folder |"));
     });
 }
