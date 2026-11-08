@@ -12,7 +12,7 @@ restart = false
 type = "bool"
 default = true
 label = "Show notifications"
-description = "Notices about skipped plugins, the previous crash and safe mode when the game is ready. The ironman and multiplayer notices are always shown."
+description = "Notices about skipped plugins, the previous crash and safe mode when the game is ready. The ironman notice is always shown; the multiplayer notice too, until you close it."
 restart = false
 
 [setting.notification_seconds]

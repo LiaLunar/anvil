@@ -27,9 +27,12 @@ struct Notice {
     std::string title;
     std::vector<std::string> lines;
     std::vector<NoticeAction> actions;
-    // Session notices stay while their session lasts and cannot be closed;
-    // the others close after the notification time or on a click.
+    // Session notices stay while their session lasts; the others close after
+    // the notification time or on a click.
     bool lasting = false;
+    // A lasting notice the player may close for the rest of its session (the
+    // multiplayer hash, once compared). The ironman notice cannot be closed (§13).
+    bool closable = false;
     // Stays until the player closes it, whatever the notification time: it comes
     // before the game's menu, when a timer would run out on the loading screen.
     bool until_closed = false;

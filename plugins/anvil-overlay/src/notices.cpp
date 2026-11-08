@@ -227,6 +227,9 @@ std::vector<Notice> session_notices(const SessionFacts& facts) {
         n.id = "multiplayer";
         n.kind = NoticeKind::Info;
         n.lasting = true;
+        // It sits over the top right corner of the game for the whole session,
+        // so the player can close it once the hash is compared.
+        n.closable = true;
         n.title = tr("Multiplayer");
         if (facts.gameplay_active == 0) {
             n.lines.push_back(tr("No plugin that changes the game acts in this game."));

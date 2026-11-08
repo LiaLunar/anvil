@@ -349,11 +349,13 @@ int main() {
         facts.gameplay_active = 1;
         auto notices = session_notices(facts);
         CHECK(notices.size() == 1 && notices[0].id == "ironman" && notices[0].lasting);
+        CHECK(!notices[0].closable);  // §13: permanent while a gameplay plugin acts by opt-in
         facts.ironman = false;
         facts.multiplayer = true;
         facts.gameplay_hash = "ABCD-EF01-2345-6789";
         notices = session_notices(facts);
         CHECK(notices.size() == 1 && notices[0].id == "multiplayer" && notices[0].lasting);
+        CHECK(notices[0].closable);  // it covers the top right corner for the whole session
         CHECK(notices[0].lines[0].find("ABCD-EF01-2345-6789 (1 active)") != std::string::npos);
         facts.gameplay_active = 0;
         CHECK(session_notices(facts)[0].lines[0].find("No plugin") == 0);

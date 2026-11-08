@@ -59,6 +59,7 @@ struct Ui {
     bool start_built = false;
     std::vector<ShownNotice> start;
     std::vector<Notice> session;
+    std::vector<bool> session_closed;  // per session notice: closed by the player in this session
 
     // Panel caches
     ULONGLONG refreshed = 0;
@@ -207,6 +208,12 @@ void build_session_notices() {
     facts.gameplay_active = status.gameplay_active;
     facts.gameplay_hash = status.gameplay_hash;
     ui().session = session_notices(facts);
+    ui().session_closed.assign(ui().session.size(), false);  // a new session shows them again
+}
+
+bool session_notice_shown(size_t index) {
+    const Ui& u = ui();
+    return index < u.session.size() && !(index < u.session_closed.size() && u.session_closed[index]);
 }
 
 bool notice_alive(const ShownNotice& n, ULONGLONG now) {
@@ -220,7 +227,8 @@ bool notice_alive(const ShownNotice& n, ULONGLONG now) {
 bool content_visible(ULONGLONG now) {
     const Shared& s = shared();
     const Ui& u = ui();
-    bool any = !u.session.empty() || s.panel_open.load() || s.recording_key.load() || s.panels.any_shown();
+    bool any = s.panel_open.load() || s.recording_key.load() || s.panels.any_shown();
+    for (size_t i = 0; i < u.session.size(); ++i) any = any || session_notice_shown(i);
     for (const ShownNotice& n : u.start) any = any || notice_alive(n, now);
     return any;
 }
@@ -581,7 +589,13 @@ void draw_notices(ULONGLONG now) {
     Ui& u = ui();
     float y = 12.0f * scale();
     int index = 0;
-    for (const Notice& n : u.session) draw_notice(n, nullptr, y, index++);
+    for (size_t i = 0; i < u.session.size(); ++i) {
+        if (!session_notice_shown(i)) continue;
+        const Notice& n = u.session[i];
+        bool closed = false;
+        draw_notice(n, n.closable ? &closed : nullptr, y, index++);
+        if (closed && i < u.session_closed.size()) u.session_closed[i] = true;
+    }
     for (ShownNotice& n : u.start) {
         if (notice_alive(n, now)) draw_notice(n.notice, &n.closed, y, index++);
     }
