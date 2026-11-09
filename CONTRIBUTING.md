@@ -125,6 +125,15 @@ Releases are automated with
    (`website.yml`, which can also be run by hand). If the build or the upload
    fails, the draft stays a draft: rerun the failed jobs, or publish it by hand
    once its files are attached.
+4. Once the release is public, `mirror.yml` copies `AnvilManager.exe` and
+   `SHA256SUMS.txt` from it to the download mirror on Cloudflare R2,
+   `https://dl.happydwarf.dev/anvil/<x.y.z>/` and `…/anvil/latest/`, for
+   players who cannot reach GitHub Releases. It downloads the copies back
+   through `dl.happydwarf.dev` and fails unless their SHA-256 matches the
+   release. It needs the `R2_ACCESS_KEY_ID` and `R2_SECRET_ACCESS_KEY`
+   repository secrets (an R2 token with Object Read & Write on the
+   `happydwarf-dl` bucket only) and warns without them. Run it by hand with a
+   tag to mirror an earlier release; `latest/` moves only for the latest one.
 
 The first version of `anvil-sdk` is published by hand, after a game test of
 the Rust examples and the maintainer's explicit approval; until it is on

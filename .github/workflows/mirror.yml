@@ -1,0 +1,135 @@
+name: mirror
+
+# Copies AnvilManager.exe and SHA256SUMS.txt of a published release to the
+# download mirror on Cloudflare R2 (bucket happydwarf-dl, custom domain
+# dl.happydwarf.dev), for players who cannot reach GitHub Releases, mostly in
+# mainland China (eu4-engine-lab#91, #95):
+#
+#   https://dl.happydwarf.dev/anvil/<version>/AnvilManager.exe   (version without the v)
+#   https://dl.happydwarf.dev/anvil/latest/AnvilManager.exe      (only for the latest release)
+#
+# The files come from the GitHub release itself, and the job then downloads them
+# back through dl.happydwarf.dev and fails unless their SHA-256 equals the
+# release's. GitHub Releases stays the source; the mirror only repeats it.
+# release.yml calls this once the release is public; run it by hand with a tag to
+# mirror an earlier release or to repeat a failed upload.
+#
+# Needs the R2_ACCESS_KEY_ID and R2_SECRET_ACCESS_KEY secrets: an R2 API token with
+# Object Read & Write on the happydwarf-dl bucket only. Without them the job warns
+# and mirrors nothing.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: The published release tag
+        type: string
+        required: true
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: false
+      R2_SECRET_ACCESS_KEY:
+        required: false
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to mirror (vX.Y.Z)
+        type: string
+        required: true
+
+permissions: {}
+
+jobs:
+  mirror:
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: mirror
+      cancel-in-progress: false
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ inputs.tag }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: auto
+      # R2 does not take the checksums newer AWS CLI versions send by default.
+      AWS_REQUEST_CHECKSUM_CALCULATION: when_required
+      AWS_RESPONSE_CHECKSUM_VALIDATION: when_required
+      # The account ID is not a secret; the token is.
+      R2_ENDPOINT: https://e3c697b3d2be7d32a12d08b7ae12398b.r2.cloudflarestorage.com
+      BUCKET: happydwarf-dl
+      MIRROR: https://dl.happydwarf.dev
+    steps:
+      - name: Skip the mirror (no R2 secrets)
+        if: env.AWS_ACCESS_KEY_ID == '' || env.AWS_SECRET_ACCESS_KEY == ''
+        run: echo "::warning::R2_ACCESS_KEY_ID or R2_SECRET_ACCESS_KEY is not set; ${TAG} was not copied to ${MIRROR}"
+
+      - name: Download the release files
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
+        run: |
+          case "$TAG" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::${TAG} is not a vX.Y.Z tag"; exit 1 ;;
+          esac
+          if [ "$(gh release view "$TAG" --json isDraft --jq .isDraft)" != false ]; then
+            echo "::error::${TAG} is not a published release"
+            exit 1
+          fi
+          mkdir dist
+          gh release download "$TAG" --dir dist --pattern AnvilManager.exe --pattern SHA256SUMS.txt
+          # The release's own checksum file must agree with the exe it lists.
+          (cd dist && grep ' AnvilManager.exe$' SHA256SUMS.txt | sha256sum --check --strict)
+          echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+          latest="$(gh release view --json tagName --jq .tagName)"
+          if [ "$latest" = "$TAG" ]; then
+            echo "LATEST=true" >> "$GITHUB_ENV"
+          else
+            echo "::notice::${TAG} is not the latest release (${latest}); anvil/latest/ stays as it is"
+            echo "LATEST=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Upload to R2
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
+        working-directory: dist
+        run: |
+          put() { # <file> <key> <content type> <cache control>
+            aws s3api put-object --endpoint-url "$R2_ENDPOINT" --bucket "$BUCKET" \
+              --key "$2" --body "$1" --content-type "$3" --cache-control "$4" > /dev/null
+            echo "uploaded ${MIRROR}/$2"
+          }
+          versioned='public, max-age=31536000, immutable'
+          put AnvilManager.exe "anvil/${VERSION}/AnvilManager.exe" application/octet-stream "$versioned"
+          put SHA256SUMS.txt "anvil/${VERSION}/SHA256SUMS.txt" 'text/plain; charset=utf-8' "$versioned"
+          if [ "$LATEST" = true ]; then
+            put AnvilManager.exe anvil/latest/AnvilManager.exe application/octet-stream 'public, max-age=300'
+            put SHA256SUMS.txt anvil/latest/SHA256SUMS.txt 'text/plain; charset=utf-8' 'public, max-age=300'
+          fi
+
+      # Through the public domain, as a player downloads it. The query string skips
+      # a copy of the previous latest/ file still in the Cloudflare cache.
+      - name: Check the mirror against GitHub
+        if: env.AWS_ACCESS_KEY_ID != '' && env.AWS_SECRET_ACCESS_KEY != ''
+        working-directory: dist
+        run: |
+          dirs="$VERSION"
+          if [ "$LATEST" = true ]; then dirs="$dirs latest"; fi
+          failed=0
+          for dir in $dirs; do
+            for file in AnvilManager.exe SHA256SUMS.txt; do
+              url="${MIRROR}/anvil/${dir}/${file}"
+              curl -fsSL --retry 5 --retry-delay 10 --retry-all-errors \
+                -A 'happy-dwarf-team/anvil mirror workflow' \
+                -o mirrored "${url}?check=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+              want="$(sha256sum < "$file" | cut -d' ' -f1)"
+              got="$(sha256sum < mirrored | cut -d' ' -f1)"
+              if [ "$want" = "$got" ]; then
+                echo "ok ${url} ${got}"
+              else
+                echo "::error::${url} has SHA-256 ${got}, the GitHub release has ${want}"
+                failed=1
+              fi
+            done
+          done
+          rm -f mirrored
+          exit "$failed"

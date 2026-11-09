@@ -167,6 +167,19 @@ jobs:
     secrets:
       WEBSITE_DISPATCH_TOKEN: ${{ secrets.WEBSITE_DISPATCH_TOKEN }}
 
+  # Copies AnvilManager.exe and SHA256SUMS.txt to dl.happydwarf.dev once the
+  # release is public, and checks the copies against the release (mirror.yml).
+  mirror:
+    needs: [release-please, publish]
+    uses: ./.github/workflows/mirror.yml
+    permissions:
+      contents: read
+    with:
+      tag: ${{ needs.release-please.outputs.tag_name }}
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+
   # Posts the release to the team's Discord server once it is public.
   notify-discord:
     needs: [release-please, publish]
