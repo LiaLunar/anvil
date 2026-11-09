@@ -112,6 +112,7 @@ const char* step_text(Step::Kind kind) {
     case Step::Kind::RemoveTree: return tr("remove the folder {0}");
     case Step::Kind::RemoveIfEmpty: return tr("remove {0} if empty");
     case Step::Kind::RemoveManager: return tr("remove {0}");
+    case Step::Kind::Move: return tr("move {0} to {1}");
     }
     return "";
 }
@@ -475,8 +476,19 @@ void ManagerApp::draw_anvil_tab() {
                                   : tr("Anvil is not installed. The game starts as usual (vanilla)."));
         break;
     case Installation::Dll::Foreign:
-        colored_wrapped(kWarn, tr("version.dll in the game folder is not Anvil's. Another mod or tool may use it: "
-                                  "Anvil replaces it only if you say so."));
+        if (inst.legacy_over_anvil()) {
+            // Its instructions may say to install it again (lab#104).
+            colored_wrapped(kWarn, trf("{0} replaced Anvil's version.dll. Your plugins and settings are still in the anvil "
+                                       "folder: replace {0} again to bring Anvil back.",
+                                       {inst.legacy_name()}));
+        } else if (!inst.legacy.empty()) {
+            colored_wrapped(kWarn, trf("{0} is installed in this folder. Anvil replaces it: its files move to {1}, and "
+                                       "uninstalling Anvil can put them back.",
+                                       {inst.legacy_name(), kLegacyBackup}));
+        } else {
+            colored_wrapped(kWarn, tr("version.dll in the game folder is not Anvil's. Another mod or tool may use it: "
+                                      "Anvil replaces it only if you say so."));
+        }
         break;
     case Installation::Dll::Anvil:
         if (inst.dll_version != version) {
@@ -506,14 +518,14 @@ void ManagerApp::draw_anvil_tab() {
 
     ImGui::Spacing();
     ImGui::BeginDisabled(read_only());
-    std::string label = inst.dll != Installation::Dll::Anvil ? trf("Install Anvil {0}", {version})
+    std::string label = !inst.legacy.empty()                 ? trf("Replace {0}", {inst.legacy_name()})
+                        : inst.dll != Installation::Dll::Anvil ? trf("Install Anvil {0}", {version})
                         : inst.dll_version != version         ? trf("Install this Anvil {0}", {version})
                                                               : std::string(tr("Repair"));
-    if (inst.dll == Installation::Dll::Foreign) {
-        ImGui::Checkbox(tr("Replace the other version.dll"), &replace_foreign_dll_);
-    }
+    const bool unknown_dll = inst.dll == Installation::Dll::Foreign && inst.legacy.empty();
+    if (unknown_dll) ImGui::Checkbox(tr("Replace the other version.dll"), &replace_foreign_dll_);
     const bool nothing = inst.intact() && inst.dll_version == version && inst.manager_current;
-    ImGui::BeginDisabled(nothing || (inst.dll == Installation::Dll::Foreign && !replace_foreign_dll_));
+    ImGui::BeginDisabled(nothing || (unknown_dll && !replace_foreign_dll_));
     if (ImGui::Button((label + "###install").c_str())) start_plan(false);
     ImGui::EndDisabled();
     if (nothing) {
@@ -546,6 +558,12 @@ void ManagerApp::draw_anvil_tab() {
     ImGui::Spacing();
     ImGui::BeginDisabled(read_only() || (inst.dll != Installation::Dll::Anvil && !inst.anvil_folder && !inst.manager_copy));
     ImGui::Checkbox(tr("Also remove my plugins, their settings and data, crash reports and logs"), &remove_everything_);
+    if (inst.backup) {
+        ImGui::Checkbox(trf("Restore {0} from the backup", {inst.backup->name}).c_str(), &restore_backup_);
+        if (restore_backup_ && inst.backup->name != "version.dll") {
+            weak_wrapped(trf("Saves made with Mei may show garbled text in {0}.", {inst.backup->name}));
+        }
+    }
     if (ImGui::Button(tr("Uninstall Anvil"))) start_plan(true);
     ImGui::EndDisabled();
     weak(tr("Without version.dll the game starts vanilla at once."));
@@ -1336,7 +1354,7 @@ void ManagerApp::start_plan(bool uninstall) {
     const Installation& inst = *snapshot_->installation;
     PendingPlan pending;
     pending.uninstall = uninstall;
-    pending.plan = uninstall ? plan_uninstall(*package_, inst, remove_everything_)
+    pending.plan = uninstall ? plan_uninstall(*package_, inst, remove_everything_, restore_backup_ && inst.backup)
                              : plan_install(*package_, inst, game_, exe_, replace_foreign_dll_);
     plan_ = std::move(pending);
     open_plan_ = true;
@@ -1520,7 +1538,7 @@ void ManagerApp::draw_plan_modal() {
     if (plan.steps.empty() && plan.refused.empty()) wrapped(tr("Nothing to change."));
     if (!plan.steps.empty() &&
         ImGui::TreeNode("changes", "%s", trf("{0} change(s) in {1}", {std::to_string(plan.steps.size()), u8(game_)}).c_str())) {
-        for (const Step& step : plan.steps) ImGui::BulletText("%s", i18n::format(step_text(step.kind), {step.path}).c_str());
+        for (const Step& step : plan.steps) ImGui::BulletText("%s", i18n::format(step_text(step.kind), {step.path, step.to}).c_str());
         ImGui::TreePop();
     }
     ImGui::Spacing();

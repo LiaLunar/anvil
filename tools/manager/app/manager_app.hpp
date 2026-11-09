@@ -137,6 +137,7 @@ private:
     std::optional<PendingPlan> plan_;
     bool replace_foreign_dll_ = false;
     bool remove_everything_ = false;
+    bool restore_backup_ = false;  // uninstall: put the newest legacy backup back (lab#104)
 
     std::optional<ZipArchive> zip_;
     std::string zip_name_;

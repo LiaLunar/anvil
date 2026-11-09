@@ -38,6 +38,10 @@ _Avoid_: store, marketplace, plugin registry
 The release a catalog entry names, with the zip's URL, size and SHA-256; the Manager installs a downloaded zip only when it matches the pin.
 _Avoid_: lock (taken by `symbols.lock`)
 
+**Legacy text patch**:
+EU4DLL or EU4 Unicode Patch: a `version.dll` loader with its files in the game folder, which Anvil replaces. The Manager recognizes one by its files, moves them to `anvil-legacy-backup/` and can put them back when Anvil is uninstalled.
+_Avoid_: old loader, foreign DLL (for a recognized one), EU4DLL (for both)
+
 **Game session**:
 One loaded save or new game while it runs, from the moment it is playable until the player leaves it or loads another; it is ironman, multiplayer, both or neither.
 _Avoid_: game (for this), campaign, match

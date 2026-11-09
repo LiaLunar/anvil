@@ -129,9 +129,15 @@ menu" on its Anvil tab makes that one click, and uninstalling removes the entry.
   Anvil. The game folder, your user folder and Windows user name are left
   out. Nothing is uploaded.
 - "Repair" puts back Anvil's own files.
+- It recognizes EU4DLL and EU4 Unicode Patch, which Anvil replaces (Mei
+  shows Chinese, Japanese and Korean text instead): "Replace EU4DLL" moves
+  their files to `anvil-legacy-backup/` in the game folder and installs
+  Anvil. Another mod's `version.dll` is replaced only if you tick the box,
+  and also goes to that folder rather than being overwritten.
 - "Uninstall Anvil" removes `version.dll`, the standard plugins and the
   Manager, and keeps your plugins, their settings and `anvil/anvil.toml`.
-  Tick "Also remove my plugins…" to remove the `anvil` folder too.
+  Tick "Also remove my plugins…" to remove the `anvil` folder too, and
+  "Restore … from the backup" to put back what Anvil replaced.
 - To update Anvil, run the Manager of the newer release.
 - While the game runs, the Manager only shows. From Anvil 1.14 it also says
   when the game runs from another folder than the one Anvil is installed in
