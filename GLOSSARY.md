@@ -72,6 +72,20 @@ _Avoid_: mid hook (for this; a mid hook lets the original code run), code cave, 
 The ordered changes of several plugins at one address, each passing control or the previous value to the next.
 _Avoid_: stack, hook list
 
+### Map modes
+
+**Plugin mode**:
+A map mode that a plugin registers with the service `anvil-map.modes`, known by its id `<plugin-id>.<name>`; the plugin gives its colours and tooltip lines, and the game shows its button on the minimap's list.
+_Avoid_: custom map mode, user map mode, mapmode (as one word in prose)
+
+**Borrowed number**:
+A value of the game's map mode enum that `anvil-map` has lent to one plugin mode for the whole process; the game's own mode under that number is not shown while it runs, not even from the console.
+_Avoid_: slot, map mode id (the id is the text), enum value (for a lent one)
+
+**Number pool**:
+The 13 values of the game's map mode enum that `anvil-map` may lend: 80–83 first, then the debug modes 50, 57–60, 66, 68, 71 and 84.
+_Avoid_: slots, free modes
+
 ### When the game crashes
 
 **Crash report**:
