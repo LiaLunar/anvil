@@ -3,6 +3,7 @@
 #include "core/plugin_settings.hpp"
 #include "core/settings.hpp"
 #include "test_support.hpp"
+#include "ui/settings_order.hpp"
 
 #include <windows.h>
 
@@ -12,6 +13,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace {
@@ -134,6 +136,24 @@ void settings_tests() {
         CHECK(key.id == 5 && key.default_value.integer == (kKeyCtrl | kKeyShift | 0x7B));
         CHECK(f.get(6) == nullptr && f.find("nope") == nullptr);
         CHECK(parse_settings_text("").file->settings.empty());  // a plugin may declare none
+    });
+
+    run("settings: the overlay and the Manager show each group once", [] {
+        using Order = std::vector<std::size_t>;
+        using anvil::ui::settings_display_order;
+        CHECK(settings_display_order({}).empty());
+        CHECK(settings_display_order({"", "", ""}) == (Order{0, 1, 2}));
+        CHECK(settings_display_order({"A", "A", "A"}) == (Order{0, 1, 2}));
+        // Interleaved groups: each once, in the order of its first setting; file order inside a group.
+        CHECK(settings_display_order({"Start-up", "Loading", "Start-up", "Simulation", "Loading", "Simulation", "Start-up"}) ==
+              (Order{0, 2, 6, 1, 4, 3, 5}));
+        // Ungrouped settings come first, wherever they stand in the file.
+        CHECK(settings_display_order({"A", "", "B", "A", ""}) == (Order{1, 4, 0, 3, 2}));
+        // The schema's groups: RAM prefetch (budget_mb), after the ungrouped ones.
+        const SettingsFile f = schema();
+        std::vector<std::string_view> groups;
+        for (const Setting& s : f.settings) groups.emplace_back(s.group);
+        CHECK(settings_display_order(groups) == (Order{0, 2, 3, 4, 5, 1}));
     });
 
     run("settings: the schema refuses what it does not know", [] {

@@ -12,6 +12,7 @@
 #include "problem_report.hpp"
 #include "start_menu.hpp"
 #include "ui.hpp"
+#include "ui/settings_order.hpp"
 
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -19,6 +20,8 @@
 #include <algorithm>
 #include <cstdio>
 #include <span>
+#include <string_view>
+#include <vector>
 
 namespace anvil::manager {
 namespace {
@@ -975,8 +978,11 @@ void ManagerApp::draw_settings_tab() {
     for (const std::string& warning : editor.warnings) colored_wrapped(kWarn, trf("Ignored in your file: {0}", {warning}));
     ImGui::Spacing();
     ImGui::BeginDisabled(read_only());
+    std::vector<std::string_view> groups;
+    for (const Setting& setting : editor.schema.settings) groups.emplace_back(setting.group);
     std::string group;
-    for (const Setting& setting : editor.schema.settings) {
+    for (const std::size_t position : anvil::ui::settings_display_order(groups)) {
+        const Setting& setting = editor.schema.settings[position];
         SettingValue& value = editor.values[setting.id];
         std::string& text = editor.texts[setting.id];
         if (setting.group != group) {

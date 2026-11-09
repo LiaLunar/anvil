@@ -6,6 +6,7 @@
 #include "overlay.hpp"
 #include "release.hpp"
 #include "ui/imgui_colors.hpp"
+#include "ui/settings_order.hpp"
 
 #include <imgui.h>
 #include <backends/imgui_impl_dx9.h>
@@ -26,7 +27,9 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 IMGUI_IMPL_API LRESULT ImGui_ImplWin32_WndProcHandler(HWND window, UINT message, WPARAM wparam, LPARAM lparam);
@@ -1227,15 +1230,21 @@ void draw_settings() {
     ImGui::SameLine();
     if (ImGui::BeginChild("editor", ImVec2(0.0f, -footer), ImGuiChildFlags_Borders)) {
         const uint32_t count = control.setting_count(u.selected_plugin);
-        std::string group;
+        std::vector<std::pair<AnvilSetting, AnvilControlSetting>> settings;
+        std::vector<std::string_view> groups;
         for (AnvilSetting id = 0; id < count; ++id) {
             const auto info = control.setting_info(u.selected_plugin, id);
             if (!info) continue;
-            if (info->group != nullptr && group != info->group) {
-                group = info->group;
-                if (!group.empty()) ImGui::SeparatorText(group.c_str());
+            settings.emplace_back(id, *info);
+            groups.emplace_back(info->group != nullptr ? info->group : "");
+        }
+        std::string_view group;
+        for (const std::size_t i : anvil::ui::settings_display_order(groups)) {
+            if (groups[i] != group) {
+                group = groups[i];
+                ImGui::SeparatorText(std::string(group).c_str());
             }
-            draw_setting(u.selected_plugin, id, *info);
+            draw_setting(u.selected_plugin, settings[i].first, settings[i].second);
         }
         for (const std::string& w : control.setting_warnings(u.selected_plugin)) ImGui::TextColored(kAmber, "%s", w.c_str());
     }
