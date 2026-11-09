@@ -13,9 +13,9 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
 > Status: Anvil 1.x with plugin API 2 — see
 > [Releases](https://github.com/happy-dwarf-team/anvil/releases) and
 > [CHANGELOG.md](CHANGELOG.md). Supported game builds: EU4 1.37.5 (Steam,
-> Windows 64-bit) and, from Anvil 1.7, the GOG build 1.37.5.2; a plugin that uses
-> game addresses loads only on the builds its `symbols.toml` lists (`anvil-game`
-> lists both), and on other builds only plugins that use no game addresses load. Design:
+> Windows 64-bit), from Anvil 1.7 the GOG build 1.37.5.2 and, from the next release, the
+> GOG build 1.37.5.0; a plugin that uses game addresses loads only on the builds its
+> `symbols.toml` lists (`anvil-game` lists all three), and on other builds only plugins that use no game addresses load. Design:
 > [docs/design.md](docs/design.md). Plugin API 2:
 > [include/anvil/anvil_plugin.h](include/anvil/anvil_plugin.h) (C) and
 > [include/anvil/anvil.hpp](include/anvil/anvil.hpp) (C++20 wrapper); examples:

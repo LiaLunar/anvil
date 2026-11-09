@@ -1,11 +1,12 @@
 # The game code and data anvil-game reads, for EU4 1.37.5 (Steam and GOG
-# 1.37.5.2, win64). Every offset it uses is a value taken from verified bytes,
+# 1.37.5.2 and 1.37.5.0, win64). Every offset it uses is a value taken from verified bytes,
 # so a different build or a changed function skips the plugin instead of
 # misreading memory. Sources: EU4 engine lab, docs/reverse-engineering.md, and
 # Tongs (the frame hook, the session and the ironman/multiplayer gate, checked
 # live there on Steam). The GOG addresses were found by the Steam bytes and
-# named by the eu4.pdb GOG ships next to eu4.exe (anvil#160).
-builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
+# named by the eu4.pdb GOG ships next to eu4.exe (anvil#160); GOG 1.37.5.0 has every
+# symbol at the GOG 1.37.5.2 address, with the same bytes (anvil port, anvil#187).
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64", "eu4-1.37.5.0-gog-win64"]
 
 # --- the main loop ---
 
@@ -17,6 +18,7 @@ signature = "uintptr_t (void* app, uint8_t outer)"
 note = "one frame: outer = 1 from the main loop (and the first-start language loop), 0 for frames drawn inside a game update or a save load"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14C25A0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC400 }       # CApplication::UpdateOneFrame
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BC400 }
 
 [symbol.frame_counter]
 bytes = "48 FF 87 20 03 00 00"                    # inc qword [rdi+320h]
@@ -25,6 +27,7 @@ values.counter = { at = 3, size = 4 }
 note = "inside the frame function: the frame counter app+0x320, once per frame"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14C2A23 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC87D }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BC87D }
 
 [symbol.main_loop_frame]
 bytes = "B2 01 48 8B CE E8 88 F7 FF FF 44 38 B6 83 00 00 00"   # mov dl,1; mov rcx,rsi; call frame; cmp [rsi+83h],r14b
@@ -33,6 +36,7 @@ values.quit = { at = 13, size = 4 }
 note = "main loop: frame(app, 1), then the quit flag app+0x83"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14C2E0E }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BCC6E }       # CApplication::Run
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BCC6E }
 
 [symbol.main_loop_quit]
 bytes = "44 38 B6 F8 02 00 00 75 48"              # cmp [rsi+2F8h],r14b; jne exit
@@ -41,6 +45,7 @@ values.quit_request = { at = 3, size = 4 }
 note = "main loop: the second quit flag app+0x2F8, checked before each frame"
 build."eu4-1.37.5-steam-win64" = { rva = 0x14C2DD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BCC30 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BCC30 }
 
 # --- readiness ---
 
@@ -56,6 +61,10 @@ bytes = "48 89 1D 0C 36 14 02 C6 05 53 A0 13 02 01"   # mov [2349500h],rbx; mov 
 [symbol.ready_store.build."eu4-1.37.5.2-gog-win64"]
 rva = 0x205EAD                                     # CEU4Application::InitGame
 bytes = "48 89 1D CC 74 12 02 C6 05 13 DF 11 02 01"   # mov [232D380h],rbx; mov byte [2323DCEh],1
+
+[symbol.ready_store.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x205EAD
+bytes = "48 89 1D CC 74 12 02 C6 05 13 DF 11 02 01"
 
 # --- the session ---
 
@@ -73,6 +82,10 @@ bytes = "48 8B 05 75 DC F0 00 8B 98 D0 1D 00 00"   # mov rax,[233FE78h]; mov ebx
 rva = 0x142C19C                                    # CTopbarGui::RefreshSpeedControlsWindow
 bytes = "48 8B 05 55 7B EF 00 8B 98 D0 1D 00 00"   # mov rax,[2323CF8h] (CCurrentGameState::_pInstance); mov ebx,[rax+1DD0h]
 
+[symbol.root_and_date.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x142C19C
+bytes = "48 8B 05 55 7B EF 00 8B 98 D0 1D 00 00"
+
 [symbol.session_of_root]
 memory = "code"
 values.session = { at = 13, size = 4 }
@@ -87,11 +100,16 @@ bytes = "48 8B 05 FB 74 AF 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01
 rva = 0x847CD6                                     # CPauseGame::Execute
 bytes = "48 8B 05 1B C0 AD 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
 
+[symbol.session_of_root.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x847CD6
+bytes = "48 8B 05 1B C0 AD 01 48 8B D9 48 8B 88 00 1E 00 00 48 8B 01 FF 90 00 01 00 00"
+
 [symbol.session_speed_slot]
 memory = "read"
 note = "slot 0x100 of the game session's vtable; in the menu and while loading the session has another class"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1CB8560, points_to = 0x8024D0 }   # vtable 0x1CB8460
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CA1188, points_to = 0x801850 }   # CInGameIdler::`vftable' 0x1CA1088
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1CA1188, points_to = 0x801850 }
 
 [symbol.speed_object]
 memory = "code"
@@ -106,6 +124,10 @@ bytes = "48 8B 81 18 04 00 00 C3"                  # mov rax,[rcx+418h]; ret
 rva = 0x801850                                     # CInGameIdler::AccessGameSpeed
 bytes = "48 8B 81 08 04 00 00 C3"                  # mov rax,[rcx+408h]; ret
 
+[symbol.speed_object.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x801850
+bytes = "48 8B 81 08 04 00 00 C3"
+
 [symbol.set_session]
 # mov [rsp+10h],rbp; mov [rsp+18h],rsi; push rdi; sub rsp,20h; mov [rcx+1E00h],rdx
 bytes = "48 89 6C 24 10 48 89 74 24 18 57 48 83 EC 20 48 89 91 00 1E 00 00"
@@ -114,6 +136,7 @@ signature = "void (void* root, void* session)"
 note = "puts a session into the root (root+0x1E00) and hands it to every country; called while a save or a new game loads, also from the game menu, where the same session object comes back"
 build."eu4-1.37.5-steam-win64" = { rva = 0x756A30 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x755BF0 }        # CGameState::SetGraphicsOwner
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x755BF0 }
 
 [symbol.ironman_gate]
 memory = "code"
@@ -128,6 +151,10 @@ bytes = "48 8B 0D 49 6D C5 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 D1 18 00 00 48
 rva = 0x6E8B08                                     # CEU3Idler::RestoreDeviceObjects
 bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
 
+[symbol.ironman_gate.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x6E8B08
+bytes = "48 8B 0D E9 B1 C3 01 C6 40 18 01 48 8B 89 00 1E 00 00 E8 B1 18 00 00 48 8B 0D D2 B1 C3 01 0F B6 D8 0F B6 B9 D0 24 00 00"
+
 [symbol.is_multiplayer]
 bytes = "48 89 5C 24 08 57 48 83 EC 20 48 8B 01 48 8B F9 FF 90 18 03 00 00"
 memory = "code"
@@ -135,6 +162,7 @@ signature = "bool (void* session)"
 note = "multiplayer check through session vtable slot 0x318, as the console registration calls it"
 build."eu4-1.37.5-steam-win64" = { rva = 0x6EAA10 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA3D0 }        # CEU3Idler::IsMultiplayerWithPlayers
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6EA3D0 }
 
 # --- out of sync ---
 # Read each frame of a session, never written. Only multiplayer sets them. A port
@@ -154,6 +182,10 @@ bytes = "49 8B 8D D8 04 00 00 48 85 C9 74 09"      # mov rcx,[r13+4D8h]; test rc
 rva = 0x814A90                                     # CInGameIdler::Idle
 bytes = "49 8B 8D C8 04 00 00 48 85 C9 74 09"      # mov rcx,[r13+4C8h]; test rcx,rcx; je
 
+[symbol.oos_handler.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x814A90
+bytes = "49 8B 8D C8 04 00 00 48 85 C9 74 09"
+
 [symbol.oos_flag]
 bytes = "41 80 7C 24 08 00 75 17"                  # cmp byte [r12+8],0; jne
 memory = "code"
@@ -161,6 +193,7 @@ values.flag = { at = 4, size = 1 }
 note = "end of the client's checksum compare: the handler's flag, 1 from the first mismatch; the host never runs this"
 build."eu4-1.37.5-steam-win64" = { rva = 0x742D18 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x741F48 }        # COOSHandler::MakeSyncCheck
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x741F48 }
 
 [symbol.oos_pause]
 bytes = "44 88 7F 19 45 84 FF"                     # mov [rdi+19h],r15b; test r15b,r15b
@@ -169,6 +202,7 @@ values.paused = { at = 3, size = 1 }
 note = "the game-speed object's byte that says a pause is due to going out of sync"
 build."eu4-1.37.5-steam-win64" = { rva = 0x7E04AC }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DF81C }        # CGameSpeed::Pause
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7DF81C }
 
 # --- the main menu ---
 # Outside a game the root's session (root+0x1E00) is the front end, whose state
@@ -180,6 +214,7 @@ memory = "read"
 note = "slot 0 of the front end's vtable: its scalar deleting destructor; the front end's Idle is slot 0x20"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1D5A8C8, points_to = 0x10D2C00 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }   # CFrontEnd::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D43318, points_to = 0x10D1400 }
 
 [symbol.frontend_state]
 memory = "code"
@@ -192,6 +227,10 @@ bytes = "41 8B 8E 00 09 00 00 49 8B 86 E8 08 00 00 48 8B 0C C8 48 8B 01 FF 50 18
 
 [symbol.frontend_state.build."eu4-1.37.5.2-gog-win64"]
 rva = 0x10D9677                                    # CFrontEnd::ChangeState
+bytes = "41 8B 8E F0 08 00 00 49 8B 86 D8 08 00 00 48 8B 0C C8 48 8B 01 FF 50 18 41 89 BE F0 08 00 00"
+
+[symbol.frontend_state.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10D9677
 bytes = "41 8B 8E F0 08 00 00 49 8B 86 D8 08 00 00 48 8B 0C C8 48 8B 01 FF 50 18 41 89 BE F0 08 00 00"
 
 # --- quitting a benchmark start (docs/spec/benchmark-v1.md §2) ---
@@ -212,6 +251,10 @@ bytes = "48 8D 0D AC 45 01 00 48 89 0D D5 DC 87 00"   # lea rcx,[SDL_PushEvent];
 rva = 0x171C25D                                    # SDL_DYNAPI_entry
 bytes = "48 8D 0D AC 45 01 00 48 89 0D 55 80 87 00"   # lea rcx,[SDL_PushEvent_REAL]; mov [jump_table+2C0h],rcx
 
+[symbol.sdl_dynapi_init.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x171C25D
+bytes = "48 8D 0D AC 45 01 00 48 89 0D 55 80 87 00"
+
 [symbol.sdl_push_event]
 bytes = "40 57 48 83 EC 20 48 8B F9 E8 82 B3 01 00 89 47 04"   # push rdi; sub rsp,20h; mov rdi,rcx; call SDL_GetTicks; mov [rdi+4],eax
 memory = "code"
@@ -219,6 +262,7 @@ signature = "int (void* event)"
 note = "SDL_PushEvent: stamps the event's time with SDL_GetTicks, then queues it"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1746B90 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1730810 }       # SDL_PushEvent_REAL
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1730810 }
 
 # --- the world (anvil-game.world): from Tongs, checked live there -------------------
 # Provinces are one array indexed by ID; root+0x1C90 is a vector of pointers to
@@ -240,6 +284,10 @@ bytes = "48 8B 05 24 97 4B 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9
 rva = 0xE84E9D
 bytes = "48 8B 05 54 EE 49 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
 
+[symbol.province_count.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xE84E9D
+bytes = "48 8B 05 54 EE 49 01 48 8B 88 98 1C 00 00 48 2B 88 90 1C 00 00 48 C1 F9 03"
+
 [symbol.province_is_sea]
 memory = "code"
 values.province_size = { at = 3, size = 4 }
@@ -258,6 +306,10 @@ bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD 96 6F 01 48 8B 88 A8 1C 00 00 48 8B 44
 rva = 0xC44F6D
 bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D ED 6D 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
 
+[symbol.province_is_sea.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xC44F6D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D ED 6D 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 28 02 00 00 C0 E9 03 F6 D1 80 E1 01"
+
 [symbol.province_is_wasteland]
 memory = "code"
 values.province_size = { at = 3, size = 4 }
@@ -273,6 +325,10 @@ rva = 0xC400BD
 bytes = "48 69 D0 10 2E 00 00 48 8B 05 AD FD 6F 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
 
 [symbol.province_is_wasteland.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC3E86D
+bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D 54 6E 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
+
+[symbol.province_is_wasteland.build."eu4-1.37.5.0-gog-win64"]
 rva = 0xC3E86D
 bytes = "48 69 D0 10 2E 00 00 48 8B 05 7D 54 6E 01 48 8B 88 A8 1C 00 00 48 8B 44 0A 28 0F B6 88 29 02 00 00 C0 E9 03 80 E1 01"
 
@@ -305,6 +361,10 @@ bytes = """
 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00
 """
 
+[symbol.province_base_tax.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x6DE270
+bytes = "4C 8B CA 49 8B 88 68 04 00 00 48 8B 05 CF 34 C4 01 48 C1 E9 20 48 0F BF C9 48 8B 80 18 01 00 00 48 8B 14 C8 48 8B 8A 78 9A 00 00 48 85 C9 74 26 41 8B 40 20 39 82 B8 14 00 00 75 1A B8 D3 4D 62 10 F7 69 1C C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E4 03 00 00"
+
 [symbol.province_base_production]
 bytes = "B8 D3 4D 62 10 F7 69 20 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E8 03 00 00"
 memory = "code"
@@ -312,6 +372,7 @@ values.base_production = { at = 31, size = 4 }
 note = "script value base_production: +0x3E8"
 build."eu4-1.37.5-steam-win64" = { rva = 0x6DE86C }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE33C }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6DE33C }
 
 [symbol.province_base_manpower]
 bytes = "B8 D3 4D 62 10 F7 69 24 C1 FA 06 8B C2 C1 E8 1F 03 D0 69 C2 E8 03 00 00 EB 02 33 C0 41 8B 90 E0 03 00 00"
@@ -320,6 +381,7 @@ values.base_manpower = { at = 31, size = 4 }
 note = "script value base_manpower: +0x3E0"
 build."eu4-1.37.5-steam-win64" = { rva = 0x6DE8FC }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x6DE3CC }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6DE3CC }
 
 [symbol.province_controller]
 bytes = "48 8B 85 B8 01 00 00 48 89 86 70 04 00 00"
@@ -328,6 +390,7 @@ values.controller = { at = 10, size = 4 }
 note = "controller setter 0xA015C0 stores the new controller tag"
 build."eu4-1.37.5-steam-win64" = { rva = 0xA01AC6 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xA00AA6 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA00AA6 }
 
 [symbol.province_cores]
 bytes = "48 8D B1 90 04 00 00 48 8B 46 08 4C 8B 16 4C 3B D0 74 28 48 C1 EA 20"
@@ -337,6 +400,7 @@ values.cores_end = { at = 10, size = 1 }
 note = "core adder 0xA05770: std::vector of 8-byte tags at +0x490 (begin, end)"
 build."eu4-1.37.5-steam-win64" = { rva = 0xA0579E }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xA0477E }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA0477E }
 
 [symbol.province_name]
 bytes = "48 8B 8F 60 05 00 00 45 33 C0 48 8B 51 28 48 8B C8 48 83 C2 10"
@@ -346,6 +410,7 @@ values.name = { at = 20, size = 1 }
 note = "province view label province_name: the displayed name, a std::string at static(+0x28)+0x10"
 build."eu4-1.37.5-steam-win64" = { rva = 0xE31A26 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xE30176 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xE30176 }
 
 [symbol.player_country]
 memory = "code"
@@ -374,6 +439,10 @@ bytes = """
 48 8B 05 F4 E2 AA 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1
 """
 
+[symbol.player_country.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x873423
+bytes = "80 B8 66 1E 00 00 07 C6 05 A7 2F 73 01 00 75 1B 80 B8 6F 1E 00 00 00 74 12 48 8B 88 68 1E 00 00 EB 10 48 8B 05 AC 08 AB 01 EB D5 48 8B 88 60 1E 00 00 48 8B 05 F4 E2 AA 01 48 C1 E9 20 48 0F BF D1 48 8B 88 18 01 00 00 48 8B 04 D1"
+
 [symbol.tag_buckets]
 bytes = """
 25 3F 00 00 80 7D 07 FF C8 83 C8 C0 FF C0 48 98 33 ED 48 89 5C 24 50
@@ -388,6 +457,7 @@ values.compared = { at = 54, size = 4 }
 note = "tag lookup 0x286120: the upper-cased first three characters summed, & 0x3F; bucket = db + 0x18*n (lea rcx,[rax+rax*2]; lea r15,[r10+rcx*8]), 8-byte tags at +0x148, count +0x154, compared by _strnicmp over 3 characters"
 build."eu4-1.37.5-steam-win64" = { rva = 0x2861A4 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x286154 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x286154 }
 
 [symbol.country_exists]
 memory = "code"
@@ -406,6 +476,10 @@ bytes = "48 8B 15 3F 21 BE 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01
 rva = 0x75A94A
 bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
 
+[symbol.country_exists.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x75A94A
+bytes = "48 8B 15 FF 6D BC 01 49 8B 46 20 48 C1 E8 20 48 0F BF C8 48 8B 82 18 01 00 00 48 8B 14 C8 83 BA 44 13 00 00 00 75 0A 80 7A 26 07"
+
 [symbol.country_provinces]
 bytes = "48 8B B1 38 13 00 00 48 63 81 44 13 00 00 4C 8D 24 86"
 memory = "code"
@@ -414,6 +488,7 @@ values.owned_count = { at = 10, size = 4 }
 note = "tag switch: the country's province IDs (int32) at +0x1338, count +0x1344 (0 = no provinces)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x779429 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x778729 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x778729 }
 
 # --- the country's values (anvil-game.world) --------------------------------------
 # Getters and setters of CCountry; only the offsets are used, nothing here is called.
@@ -425,6 +500,7 @@ values.treasury = { at = 2, size = 4 }
 note = "CCountry::GetTreasury: a fixed point (x 1000) at +0xBB0"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A300 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A330 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A330 }
 
 [symbol.country_stability]
 bytes = "8B 81 D8 0B 00 00 89 02 48 8B C2 C3"
@@ -433,6 +509,7 @@ values.stability = { at = 2, size = 4 }
 note = "CCountry::GetStability: a fixed point at +0xBD8"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A310 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A340 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A340 }
 
 [symbol.country_prestige]
 bytes = "8B 81 F8 0C 00 00 89 02 48 8B C2 C3"
@@ -441,6 +518,7 @@ values.prestige = { at = 2, size = 4 }
 note = "CCountry::GetPrestige: a fixed point at +0xCF8"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A330 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A360 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A360 }
 
 [symbol.country_manpower]
 bytes = "48 83 EC 28 8B 12 44 8B 81 B8 0D 00 00 44 03 C2"
@@ -449,6 +527,7 @@ values.manpower = { at = 9, size = 4 }
 note = "CCountry::AddManpower: a fixed point at +0xDB8, in thousands of men, so the raw value is men"
 build."eu4-1.37.5-steam-win64" = { rva = 0x34CF10 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x34CDE0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x34CDE0 }
 
 [symbol.country_monthly_income]
 bytes = "49 8D BC 24 38 0E 00 00 8B 44 24 50 89 07 41 8B DE 49 8B CC"
@@ -457,6 +536,7 @@ values.monthly_income = { at = 4, size = 4 }
 note = "CCountry::MonthlyUpdateSerial: _vEstimatedMonthlyIncome at +0xE38 is set to 0, summed and clamped there, once a month: the economy view's income total"
 build."eu4-1.37.5-steam-win64" = { rva = 0x2F75F7 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x2F75A7 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x2F75A7 }
 
 # --- wars (anvil-game.world) ----------------------------------------------------------
 
@@ -473,6 +553,7 @@ values.name = { at = 73, size = 1 }
 note = "CGameState::DoesWarNameExist: the running wars, CWar*[] at root+0x1E30, count at root+0x1E3C, and each war's name, a std::string at +0x28"
 build."eu4-1.37.5-steam-win64" = { rva = 0x75F540 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x75E700 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x75E700 }
 
 [symbol.war_attacker]
 bytes = "48 8B 81 50 01 00 00 48 89 02 48 8B C2 C3"
@@ -481,6 +562,7 @@ values.attacker = { at = 3, size = 4 }
 note = "CWar::GetOriginalAttacker: a tag at +0x150"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A000 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A030 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A030 }
 
 [symbol.war_defender]
 bytes = "48 8B 81 58 01 00 00 48 89 02 48 8B C2 C3"
@@ -489,6 +571,7 @@ values.defender = { at = 3, size = 4 }
 note = "CWar::GetOriginalDefender: a tag at +0x158"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD0290 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD02C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD02C0 }
 
 [symbol.war_attackers]
 bytes = "4C 8B 41 50 48 8B 41 48"
@@ -498,6 +581,7 @@ values.begin = { at = 7, size = 1 }
 note = "CWar::IsAttacker: the attackers, a std::vector of tags at +0x48"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD891A0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD87950 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD87950 }
 
 [symbol.war_defenders]
 bytes = "4C 8B 81 80 00 00 00 48 8B 41 78"
@@ -507,6 +591,7 @@ values.begin = { at = 10, size = 1 }
 note = "CWar::IsDefender: the defenders, a std::vector of tags at +0x78"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD89170 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD87920 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD87920 }
 
 # --- modifiers ---
 # The game's function is called and nothing else: it answers 0 for a modifier
@@ -519,6 +604,7 @@ signature = "int32_t* (const void* modifier, int32_t* out, int32_t type)"
 note = "CModifier::GetValue: a modifier's value, with its definition's transformer"
 build."eu4-1.37.5-steam-win64" = { rva = 0x8E6BD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x8E5E00 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x8E5E00 }
 
 [symbol.modifier_definitions]
 memory = "code"
@@ -535,6 +621,10 @@ bytes = "48 8B 3D EB 20 A7 01 48 8B 1D DC 20 A7 01 48 3B DF 74 31 0F 1F 80 00 00
 rva = 0x8E51C6
 bytes = "48 8B 3D 33 6D A5 01 48 8B 1D 24 6D A5 01 48 3B DF 74 31 0F 1F 80 00 00 00 00 48 8B CB E8 88 D1 E3 FF 48 83 C3 60"
 
+[symbol.modifier_definitions.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x8E51C6
+bytes = "48 8B 3D 33 6D A5 01 48 8B 1D 24 6D A5 01 48 3B DF 74 31 0F 1F 80 00 00 00 00 48 8B CB E8 88 D1 E3 FF 48 83 C3 60"
+
 [symbol.country_modifiers]
 bytes = "48 83 C3 08 48 39 18 0F 84 3F 02 00 00 83 3B 01 0F 85 36 02 00 00"
 memory = "code"
@@ -543,6 +633,7 @@ values.calculating = { at = 15, size = 1 }
 note = "CCountryCachedData::GetModifiers: the country's modifiers at +8; their state is their first int32, and while it says calculating the game hands out an empty set"
 build."eu4-1.37.5-steam-win64" = { rva = 0x93D77F }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x93C9AF }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x93C9AF }
 
 [symbol.country_modifier_total]
 memory = "code"
@@ -558,6 +649,10 @@ bytes = "48 81 C1 C0 28 00 00 E8 38 35 8A 00 4C 8D 40 08"
 rva = 0x9A23C
 bytes = "48 81 C1 C0 28 00 00 E8 38 27 8A 00 4C 8D 40 08"
 
+[symbol.country_modifier_total.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x9A23C
+bytes = "48 81 C1 C0 28 00 00 E8 38 27 8A 00 4C 8D 40 08"
+
 [symbol.province_modifier]
 bytes = "48 8D 81 98 09 00 00 C3"
 memory = "code"
@@ -565,6 +660,7 @@ values.modifier = { at = 3, size = 4 }
 note = "CProvince::GetModifier: the sum of the province's own modifiers"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD0110 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD0140 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD0140 }
 # --- units and the selection (anvil-game.world) -----------------------------------
 # Getters and short loops whose bytes hold the offsets; a port may declare them
 # all absent on a new build, and the unit calls then answer NOT_DECLARED.
@@ -576,6 +672,7 @@ values.units = { at = 3, size = 4 }
 note = "a country's units: a linked list at +0xD18"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A360 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A390 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A390 }
 
 [symbol.unit_country]
 bytes = "48 8B 81 D0 00 00 00 4C 8B C2 48 89 02 48 C1 E8 20 98"
@@ -584,6 +681,7 @@ values.country = { at = 3, size = 4 }
 note = "the country a unit belongs to: a tag at +0xD0"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD46770 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD44F20 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD44F20 }
 
 [symbol.unit_leader]
 bytes = "48 8B 81 D8 00 00 00 C3"
@@ -592,6 +690,7 @@ values.leader = { at = 3, size = 4 }
 note = "a unit's leader: a pointer at +0xD8, null without one"
 build."eu4-1.37.5-steam-win64" = { rva = 0x99A80 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x99AB0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x99AB0 }
 
 [symbol.unit_location]
 bytes = "48 8B 81 E8 00 00 00 C3"
@@ -600,6 +699,7 @@ values.location = { at = 3, size = 4 }
 note = "a unit's province: a pointer at +0xE8"
 build."eu4-1.37.5-steam-win64" = { rva = 0x98890 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x988C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x988C0 }
 
 [symbol.unit_mission]
 bytes = "48 8B 81 F8 01 00 00 C3"
@@ -608,6 +708,7 @@ values.mission = { at = 3, size = 4 }
 note = "a unit's mission object: a pointer at +0x1F8; an idle unit has a default one"
 build."eu4-1.37.5-steam-win64" = { rva = 0x144490 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1444C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1444C0 }
 
 [symbol.unit_name]
 bytes = "48 8D 81 48 01 00 00 C3"
@@ -616,6 +717,7 @@ values.name = { at = 3, size = 4 }
 note = "a unit's name: a std::string at +0x148"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD46E00 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD455B0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD455B0 }
 
 [symbol.unit_id]
 # mov [rdx+50h],rdi; mov rax,[rdi+20h]; mov [rdx+58h],rax
@@ -625,6 +727,7 @@ values.offset = { at = 7, size = 1 }
 note = "a unit command takes the unit and its id, 8 bytes at +0x20"
 build."eu4-1.37.5-steam-win64" = { rva = 0x147EE96 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1478D16 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1478D16 }
 
 [symbol.unit_strength]
 bytes = """
@@ -638,6 +741,7 @@ values.strength = { at = 37, size = 1 }
 note = "a unit's total strength: its regiments or ships, a std::vector of pointers at +0x30, each one's strength (x 1000) at +0x28"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD46D50 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD45500 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD45500 }
 
 [symbol.unit_mission_type]
 # mov rcx,[rdi+1F8h]; mov rax,[rcx]; call [rax+50h]; cmp eax,10h
@@ -648,6 +752,7 @@ values.limit = { at = 15, size = 1 }
 note = "a mission's type: vtable slot 0x50, a constant in each mission class; the switch after it takes 0..0x10"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD417A }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD41AA }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD41AA }
 
 [symbol.selection]
 memory = "code"
@@ -660,6 +765,10 @@ rva = 0x833C80
 bytes = "48 8B 81 80 1B 00 00 48 83 C0 28 C3"
 
 [symbol.selection.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x832FE0
+bytes = "48 8B 81 70 1B 00 00 48 83 C0 28 C3"
+
+[symbol.selection.build."eu4-1.37.5.0-gog-win64"]
 rva = 0x832FE0
 bytes = "48 8B 81 70 1B 00 00 48 83 C0 28 C3"
 
@@ -676,6 +785,7 @@ values.kind_slot = { at = 47, size = 1 }
 note = "the walk over the selection: count +0x38 and head +0x28 of the map input, a node's object at +0 and next at +0x10, each object's kind from vtable slot 8 (0 army, 1 navy)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1170B00 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x116AE60 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x116AE60 }
 
 [symbol.leader_id]
 bytes = "48 8D 41 10 C3"
@@ -684,6 +794,7 @@ values.offset = { at = 3, size = 1 }
 note = "the id of a game object, a leader among them: 8 bytes at +0x10"
 build."eu4-1.37.5-steam-win64" = { rva = 0x9A920 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A950 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A950 }
 
 [symbol.leader_name]
 bytes = "48 8D 41 20 C3"
@@ -692,3 +803,4 @@ values.name = { at = 3, size = 1 }
 note = "a leader's name: a std::string at +0x20"
 build."eu4-1.37.5-steam-win64" = { rva = 0xCF460 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xCF490 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xCF490 }

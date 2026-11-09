@@ -632,6 +632,17 @@ signature = "const char* ()"
         CHECK(contains(english(check_plugin_symbols(file, nullptr, patches, mapped.address(), nullptr, nullptr,
                                                     i18n::Message("build_unknown_gog", {known_gog_version()}))),
                        "Anvil runs on 1.37.5.2. If yours is older, update it in GOG Galaxy"));
+        // Both GOG builds of 1.37.5 are known, by header and by hash; the advice names the newer one.
+        const KnownBuild* gog0 = find_known_build_by_sha256(
+            "5F4145CE5FF9A4140CC4D14440920382B698DD91E1CDAE1D1DC053357D9388EE");
+        CHECK(gog0 != nullptr && std::string_view(gog0->id) == "eu4-1.37.5.0-gog-win64");
+        PeIdentity gog0_header;
+        gog0_header.pe_timestamp = 0x66FE67E2u;
+        gog0_header.size_of_image = 0x25C3000u;
+        gog0_header.pe_checksum = 0x0249D09Eu;
+        gog0_header.entry_point_rva = 0x1A1D448u;
+        CHECK(find_known_build(gog0_header) == gog0);
+        CHECK(known_gog_version() == "1.37.5.2");
         CHECK(unknown_build_reason(folder).code == "build_unknown");
         std::ofstream(folder / "goggame-2057001589.info") << "{}";
         CHECK(unknown_build_reason(folder).code == "build_unknown_gog");

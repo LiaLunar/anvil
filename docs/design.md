@@ -203,7 +203,7 @@ bytes = "48 8B 81 08 04 00 00 C3"
   - `anvil check --exe` lists the symbols absent on the exe's build; `anvil gen` names the absent builds in each symbol's comment, and a value is a constant when the builds the symbol is in agree.
   - Nothing is skipped silently: a symbol the file declares for a build must verify there, or the plugin is skipped as before. Only `absent` exempts it, and only on the builds it names.
   - Within API 2 ([ADR 0001](adr/0001-plugin-api-2-compatibility.md)): a new key, no new host field, and `address_of` already returned NULL for a symbol it cannot give. An older Anvil reads `absent` as an unknown key and skips the plugin, so a plugin that uses it declares `anvil = ">=1.9.0"`.
-- **Why one file:** the issue weighed one file per build against this. Here the shared part, which is most of a declaration, is written once and cannot drift between builds, and `anvil check` still names the build of every problem. A build is added by adding it to `builds` and a table to each symbol whose address or bytes differ, which `anvil port` (§16) does; the second GOG build (1.37.5.0) comes this way once a copy is checked. If several plugins come to need the same per-build tables, the shared address library declined in §21 is the next question.
+- **Why one file:** the issue weighed one file per build against this. Here the shared part, which is most of a declaration, is written once and cannot drift between builds, and `anvil check` still names the build of every problem. A build is added by adding it to `builds` and a table to each symbol whose address or bytes differ, which `anvil port` (§16) does; the second GOG build (1.37.5.0) came this way ([#187](https://github.com/happy-dwarf-team/anvil/issues/187)). If several plugins come to need the same per-build tables, the shared address library declined in §21 is the next question.
 
 ### 5.3 `settings.toml`
 
@@ -244,9 +244,10 @@ Anvil reads the PE header of the running image (TimeDateStamp, SizeOfImage, Chec
 | Build id | Store | `eu4.exe` SHA-256 |
 | --- | --- | --- |
 | `eu4-1.37.5-steam-win64` | Steam | `9AD3EFE1…D771A` |
+| `eu4-1.37.5.0-gog-win64` | GOG, 1.37.5.0 of 2024-10-03 | `5F4145CE…88EE` |
 | `eu4-1.37.5.2-gog-win64` | GOG, 1.37.5.2 of 2025-11-13 | `D29CF745…5319` |
 
-New ids carry the store and all four parts of the version, since GOG ships two builds of 1.37.5 ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)); the Steam id keeps its name, which every plugin declares. The other GOG build (1.37.5.0, `5f4145ce…88ee`) would be `eu4-1.37.5.0-gog-win64` once a copy is checked ([#187](https://github.com/happy-dwarf-team/anvil/issues/187)); until then its players are told to update, and the Manager and `anvil.log` say so. The Microsoft Store and Epic builds are not planned (§21, [#36](https://github.com/happy-dwarf-team/anvil/issues/36)).
+New ids carry the store and all four parts of the version, since GOG ships two builds of 1.37.5 ([#160](https://github.com/happy-dwarf-team/anvil/issues/160)); the Steam id keeps its name, which every plugin declares. The other GOG build, 1.37.5.0, is known since [#187](https://github.com/happy-dwarf-team/anvil/issues/187): its code is laid out as 1.37.5.2's (same sections, entry point and function table; about 1,700 bytes of code differ, in the custom nation commands, Nakama and GOG Galaxy code), so every symbol of `anvil-game` is at the same address. GOG rows stay oldest first, because the advice to a GOG player on an unknown build names the last one. The Microsoft Store and Epic builds are not planned (§21, [#36](https://github.com/happy-dwarf-team/anvil/issues/36)).
 
 ## 7. Verification before loading
 
@@ -851,7 +852,7 @@ The fog of the map ([#12](https://github.com/happy-dwarf-team/anvil/issues/12)) 
 **Issues**
 - Localization of player messages in the overlay and the Manager: [#158](https://github.com/happy-dwarf-team/anvil/issues/158). Decided on 2026-11-02: the language follows EU4's own language setting; English, French, German and Spanish come first; Chinese, Japanese and Korean come with the Unicode Patch port ([#104](https://github.com/happy-dwarf-team/anvil/issues/104)), which brings the fonts they need. English, French, German and Spanish are in (§15), and since 1.9 Simplified and Traditional Chinese, Japanese and Korean with Mei (§15); every catalog but English waits for a native speaker's check, and who checks them is still open.
 - The safe Rust `anvil` crate: [#159](https://github.com/happy-dwarf-team/anvil/issues/159), when the first Rust plugin is written.
-- Other storefront builds ([#36](https://github.com/happy-dwarf-team/anvil/issues/36)): GOG 1.37.5.2 is known and `anvil-game` declares it ([#160](https://github.com/happy-dwarf-team/anvil/issues/160), §5.2, §6); GOG 1.37.5.0 waits for a copy, and Bellows and Tongs for their own ports.
+- Other storefront builds ([#36](https://github.com/happy-dwarf-team/anvil/issues/36)): GOG 1.37.5.2 and 1.37.5.0 are known and `anvil-game` declares them ([#160](https://github.com/happy-dwarf-team/anvil/issues/160), [#187](https://github.com/happy-dwarf-team/anvil/issues/187), §5.2, §6); each plugin declares them in its own release.
 - Call counts of text hooks (a lighter context): a step of the Unicode Patch port, [#104](https://github.com/happy-dwarf-team/anvil/issues/104#issuecomment-6407336807).
 
 **Not planned**
