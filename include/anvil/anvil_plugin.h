@@ -51,7 +51,10 @@ typedef enum AnvilResult {
     ANVIL_ERROR_UNSUPPORTED = 9,
     ANVIL_ERROR_INTERNAL = 10,      /* also: anvil_plugin_load crashed or threw */
     ANVIL_ERROR_NOT_FOUND = 11,     /* a change that is already removed or belongs to another plugin */
-    ANVIL_ERROR_ALREADY_EXISTS = 12 /* a service name and version registered twice */
+    ANVIL_ERROR_ALREADY_EXISTS = 12, /* a service name and version registered twice */
+    /* Since Anvil 1.17.0 */
+    ANVIL_ERROR_SUSPENDED = 13,      /* the caller is suspended in this session (ironman, multiplayer; design §13) */
+    ANVIL_ERROR_LIMIT = 14           /* more than a service takes at once; nothing of the call was done */
 } AnvilResult;
 
 typedef enum AnvilLogLevel {

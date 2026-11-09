@@ -1,0 +1,139 @@
+#include "commands.hpp"
+
+#include <algorithm>
+#include <cstring>
+#include <new>
+
+namespace anvil_game {
+namespace {
+
+// The caller's struct takes only what its `size` covers, and keeps that size.
+void give(AnvilGameCommandResult* out, const AnvilGameCommandResult& value) {
+    if (out == nullptr) return;
+    AnvilGameCommandResult copy = value;
+    copy.size = out->size;
+    std::memcpy(out, &copy, std::min<std::size_t>(out->size, sizeof copy));
+}
+
+bool same_ref(const AnvilGameUnitRef& a, const AnvilGameUnitRef& b) {
+    return a.id == b.id && a.kind == b.kind && std::memcmp(a.country.text, b.country.text, 3) == 0;
+}
+
+// The checks that need no unit: the arguments, the caller, the type, the moment.
+AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGameCommand* c,
+                       const AnvilGameCommandResult* out) {
+    if (c == nullptr || c->size < sizeof(AnvilGameCommand)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (out != nullptr && out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    bool affects = false, suspended = false;
+    if (!b.caller(self, affects, suspended) || !affects) return ANVIL_ERROR_UNSUPPORTED;
+    if (suspended) return ANVIL_ERROR_SUSPENDED;
+    switch (c->type) {
+    case ANVIL_GAME_COMMAND_DRILL:
+        if ((c->flags & ~ANVIL_GAME_COMMAND_START) != 0) return ANVIL_ERROR_INVALID_ARGUMENT;
+        break;
+    case ANVIL_GAME_COMMAND_MERGE:
+    case ANVIL_GAME_COMMAND_SPLIT:
+        if (c->flags != 0) return ANVIL_ERROR_INVALID_ARGUMENT;
+        break;
+    default: return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (!b.declared(c->type)) return ANVIL_ERROR_NOT_DECLARED;
+    if (!b.open() || b.hot_join()) return ANVIL_ERROR_WRONG_PHASE;
+    if (c->count == 0 || c->units == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (c->count > ANVIL_GAME_COMMAND_MAX_UNITS) return ANVIL_ERROR_LIMIT;
+    return ANVIL_OK;
+}
+
+// The units, each the player's own, of the kind the ref says and the type takes.
+AnvilResult find_units(CommandBackend& b, const AnvilGameCommand& c, std::vector<CommandUnit>& units) {
+    for (std::uint32_t i = 0; i < c.count; ++i) {
+        for (std::uint32_t j = 0; j < i; ++j) {
+            if (same_ref(c.units[i], c.units[j])) return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
+        CommandUnit unit;
+        if (const AnvilResult r = b.find(c.units[i], unit); r != ANVIL_OK) return r;
+        if (unit.kind != c.units[i].kind) return ANVIL_ERROR_INVALID_ARGUMENT;
+        if (c.type == ANVIL_GAME_COMMAND_DRILL && unit.kind != ANVIL_GAME_UNIT_ARMY) return ANVIL_ERROR_INVALID_ARGUMENT;
+        units.push_back(unit);
+    }
+    if (c.type == ANVIL_GAME_COMMAND_SPLIT && (units.size() != 1 || units[0].subunits < 2)) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (c.type == ANVIL_GAME_COMMAND_MERGE) {
+        if (units.size() < 2 || units[0].location == 0) return ANVIL_ERROR_INVALID_ARGUMENT;
+        for (const CommandUnit& u : units) {
+            if (u.kind != units[0].kind || u.location != units[0].location) return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
+    }
+    return ANVIL_OK;
+}
+
+}  // namespace
+
+std::int32_t split_count(std::uint32_t subunits) { return static_cast<std::int32_t>((subunits + 1) / 2); }
+
+AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, const AnvilGameCommand* command,
+                                AnvilGameCommandResult* out) {
+    if (const AnvilResult r = check_call(b, self, command, out); r != ANVIL_OK) return r;
+    const AnvilGameCommand& c = *command;
+    std::vector<CommandUnit> units;
+    std::vector<const CommandUnit*> drills;
+    try {
+        units.reserve(c.count);
+        if (const AnvilResult r = find_units(b, c, units); r != ANVIL_OK) return r;
+        if (c.type == ANVIL_GAME_COMMAND_DRILL) {
+            const bool start = (c.flags & ANVIL_GAME_COMMAND_START) != 0;
+            for (const CommandUnit& u : units) {
+                if (u.drilling != start) drills.push_back(&u);
+            }
+        }
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+
+    AnvilGameCommandResult result{};
+    result.size = sizeof(result);
+    const std::uint32_t planned = c.type == ANVIL_GAME_COMMAND_DRILL ? static_cast<std::uint32_t>(drills.size()) : 1;
+    result.skipped = c.type == ANVIL_GAME_COMMAND_DRILL ? c.count - planned : 0;
+
+    const std::uint64_t frame = b.frame();
+    if (frame != frame_) {
+        frame_ = frame;
+        used_ = 0;
+    }
+    if (used_ + planned > ANVIL_GAME_COMMAND_MAX_PER_FRAME) return ANVIL_ERROR_LIMIT;
+
+    // Every command the session refuses is freed here: the game's post
+    // function leaves it to the caller, and the buttons leak it.
+    const auto send = [&](void* made) {
+        if (made == nullptr) return false;
+        ++used_;
+        if (b.submit(made)) {
+            ++result.posted;
+        } else {
+            b.destroy(made);
+            ++result.refused;
+        }
+        return true;
+    };
+    bool memory = true;
+    switch (c.type) {
+    case ANVIL_GAME_COMMAND_DRILL:
+        for (const CommandUnit* u : drills) {
+            if (!(memory = send(b.make_drill(*u)))) break;
+        }
+        break;
+    case ANVIL_GAME_COMMAND_SPLIT: memory = send(b.make_split(units[0], split_count(units[0].subunits))); break;
+    case ANVIL_GAME_COMMAND_MERGE:
+        try {
+            memory = send(b.make_merge(units));
+        } catch (const std::bad_alloc&) {
+            memory = false;
+        }
+        break;
+    }
+    give(out, result);
+    return memory ? ANVIL_OK : ANVIL_ERROR_OUT_OF_MEMORY;
+}
+
+}  // namespace anvil_game

@@ -141,6 +141,13 @@ AnvilResult read_unit_name(const WorldLayout& l, std::string_view tag, std::uint
 AnvilResult read_unit_leader_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8);
 AnvilResult read_selected_units(const WorldLayout& l, std::vector<AnvilGameUnitRef>& out);
 
+// For anvil-game.commands: the country the player commands, the root's player
+// and never the observed one (ANVIL_ERROR_NOT_FOUND in observe mode), and a
+// unit's object with what read_unit answers for it.
+AnvilResult read_own_country(const WorldLayout& l, AnvilGameTag& out);
+AnvilResult read_unit_object(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::uintptr_t& unit,
+                             AnvilGameUnit& out);
+
 // The constant a getter of 3 or 6 bytes returns: xor eax,eax; ret (0) or
 // mov eax,imm32; ret. False for any other code.
 bool decode_constant_getter(const std::uint8_t* code, std::size_t size, std::int64_t& value);

@@ -300,6 +300,8 @@ const char* result_name(AnvilResult result) {
     case ANVIL_ERROR_INTERNAL: return "internal error";
     case ANVIL_ERROR_NOT_FOUND: return "not found";
     case ANVIL_ERROR_ALREADY_EXISTS: return "already exists";
+    case ANVIL_ERROR_SUSPENDED: return "suspended in this session";
+    case ANVIL_ERROR_LIMIT: return "over the limit";
     }
     return "unknown";
 }

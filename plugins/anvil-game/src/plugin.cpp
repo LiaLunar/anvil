@@ -20,7 +20,8 @@
 // screen.
 //
 // The service anvil-game.world reads the world in those same moments: on the
-// main thread, inside this step, while a session runs (world.hpp).
+// main thread, inside this step, while a session runs (world.hpp), and
+// anvil-game.commands posts the unit panel's commands then (commands.hpp).
 //
 // In a start-up benchmark start it also quits the game when the core says so
 // (ANVIL_BENCHMARK_EVENT_QUIT): SDL_QUIT pushed on the main thread, which is
@@ -36,6 +37,8 @@
 
 #include "symbols.gen.hpp"
 
+#include "anvil_control.h"
+#include "commands.hpp"
 #include "session.hpp"
 #include "work_queue.hpp"
 #include "world.hpp"
@@ -824,6 +827,216 @@ void load_world(anvil::Host& host) {
               ANVIL_GAME_EVENT_WAR);
 }
 
+// ---- the commands service ---------------------------------------------------
+
+// What the buttons of the unit panel use, from verified symbols (symbols.toml,
+// "game commands"). A function of 0 is absent on this build.
+struct CommandsLayout {
+    sym::Types::command_post::Pointer post = nullptr;
+    sym::Types::command_new::Pointer allocate = nullptr;
+    std::uint32_t game = 0;     // the idler (the root's session): its game, CEU4Application
+    std::uint32_t session = 0;  // the game: its CSession
+    std::uint32_t hotjoin = 0;  // CSession: byte, a hot-join in progress
+    sym::Types::drill_command::Pointer drill = nullptr;
+    std::uint32_t drill_size = 0;
+    std::uint8_t drill_reason = 0;
+    sym::Types::split_command::Pointer split = nullptr;
+    std::uint32_t split_size = 0;
+    sym::Types::merge_command::Pointer merge = nullptr;
+    std::uint32_t merge_size = 0;
+};
+
+CommandsLayout g_commands;
+const AnvilControlService* g_control = nullptr;  // asked on first use: anvil.control may register after us
+anvil_game::CommandPoster g_poster;              // main thread only
+
+// The game's list of units as CMergeCommand's constructor reads it: head,
+// tail, count; a node holds the unit, the previous and the next node.
+struct GameUnitNode {
+    std::uintptr_t unit;
+    GameUnitNode* previous;
+    GameUnitNode* next;
+    std::uint64_t locked;
+};
+struct GameUnitList {
+    GameUnitNode* head;
+    GameUnitNode* tail;
+    std::int32_t count;
+    std::uint32_t locked;
+};
+
+// No objects with destructors: the body runs under __try.
+std::uintptr_t read_command_session_unguarded() {
+    const std::uintptr_t root = *g_layout.root;
+    if (root == 0) return 0;
+    const std::uintptr_t idler = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
+    if (idler == 0 || *reinterpret_cast<const std::uintptr_t*>(idler) != g_layout.session_vtable) return 0;
+    const std::uintptr_t game = *reinterpret_cast<const std::uintptr_t*>(idler + g_commands.game);
+    if (game == 0) return 0;
+    return *reinterpret_cast<const std::uintptr_t*>(game + g_commands.session);
+}
+
+// The session the buttons post to; 0 when there is none to read.
+std::uintptr_t command_session() {
+    __try {
+        return read_command_session_unguarded();
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return 0;
+    }
+}
+
+std::uint8_t read_hotjoin(std::uintptr_t session) {
+    __try {
+        return *reinterpret_cast<const volatile std::uint8_t*>(session + g_commands.hotjoin);
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return 1;  // unreadable: post nothing
+    }
+}
+
+class GameCommands final : public anvil_game::CommandBackend {
+public:
+    bool caller(const AnvilPlugin* self, bool& affects_gameplay, bool& suspended) override {
+        if (g_control == nullptr) {
+            const anvil::Host host;
+            const auto* control =
+                static_cast<const AnvilControlService*>(host.c_api().get_service(host.self(), ANVIL_CONTROL_SERVICE,
+                                                                                 ANVIL_CONTROL_VERSION));
+            if (control == nullptr ||
+                control->size < offsetof(AnvilControlService, plugin_of) + sizeof(control->plugin_of)) {
+                return false;
+            }
+            g_control = control;
+        }
+        AnvilControlPlugin info{};
+        info.size = sizeof(info);
+        if (self == nullptr || g_control->plugin_of(self, &info) == 0) return false;
+        affects_gameplay = info.affects_gameplay != 0;
+        suspended = info.suspended != 0;
+        return true;
+    }
+    bool declared(std::uint32_t type) override {
+        switch (type) {
+        case ANVIL_GAME_COMMAND_DRILL: return g_commands.drill != nullptr;
+        case ANVIL_GAME_COMMAND_SPLIT: return g_commands.split != nullptr;
+        case ANVIL_GAME_COMMAND_MERGE: return g_commands.merge != nullptr;
+        }
+        return false;
+    }
+    bool open() override {
+        session_ = world_open() ? command_session() : 0;
+        return session_ != 0;
+    }
+    bool hot_join() override { return read_hotjoin(session_) != 0; }
+    std::uint64_t frame() override { return g_frame_number.load(std::memory_order_acquire); }
+    AnvilResult find(const AnvilGameUnitRef& ref, anvil_game::CommandUnit& out) override {
+        AnvilGameTag own{};
+        if (const AnvilResult r = anvil_game::read_own_country(g_world, own); r != ANVIL_OK) return r;
+        // A tag ignores case, as the world's calls take it.
+        for (int i = 0; i < 3; ++i) {
+            const char a = ref.country.text[i], b = own.text[i];
+            if ((a >= 'a' && a <= 'z' ? a - 32 : a) != b) return ANVIL_ERROR_NOT_FOUND;
+        }
+        AnvilGameUnit unit{};
+        std::uintptr_t object = 0;
+        if (const AnvilResult r = anvil_game::read_unit_object(g_world, own.text, ref.id, object, unit); r != ANVIL_OK) {
+            return r;
+        }
+        out.object = object;
+        out.id = ref.id;
+        out.kind = unit.kind;
+        out.location = unit.location;
+        out.drilling = unit.mission == ANVIL_GAME_MISSION_DRILL;
+        out.subunits = unit.subunits;
+        return ANVIL_OK;
+    }
+    void* make_drill(const anvil_game::CommandUnit& unit) override {
+        void* command = g_commands.allocate(g_commands.drill_size);
+        if (command == nullptr) return nullptr;
+        return g_commands.drill(command, reinterpret_cast<const void*>(unit.object), g_commands.drill_reason);
+    }
+    void* make_split(const anvil_game::CommandUnit& unit, std::int32_t count) override {
+        void* command = g_commands.allocate(g_commands.split_size);
+        if (command == nullptr) return nullptr;
+        return g_commands.split(command, reinterpret_cast<const void*>(unit.object), count);
+    }
+    void* make_merge(const std::vector<anvil_game::CommandUnit>& units) override {
+        // The constructor copies the list into nodes of its own.
+        std::vector<GameUnitNode> nodes(units.size());
+        for (std::size_t i = 0; i < units.size(); ++i) {
+            nodes[i] = {units[i].object, i > 0 ? &nodes[i - 1] : nullptr, i + 1 < units.size() ? &nodes[i + 1] : nullptr, 0};
+        }
+        GameUnitList list{nodes.data(), &nodes.back(), static_cast<std::int32_t>(nodes.size()), 0};
+        void* command = g_commands.allocate(g_commands.merge_size);
+        if (command == nullptr) return nullptr;
+        return g_commands.merge(command, &list);
+    }
+    bool submit(void* command) override {
+        return g_commands.post(reinterpret_cast<void*>(session_), command);
+    }
+    void destroy(void* command) override {
+        // Slot 0 of a command's vtable is its deleting destructor: flag 1 frees it.
+        using DeletingDestructor = void* (*)(void*, unsigned);
+        (*static_cast<DeletingDestructor* const*>(command))[0](command, 1);
+    }
+
+private:
+    std::uintptr_t session_ = 0;  // as found by open() in this call
+};
+
+AnvilResult commands_post(AnvilPlugin* self, const AnvilGameCommand* command, AnvilGameCommandResult* out) {
+    GameCommands backend;
+    try {
+        return g_poster.post(backend, self, command, out);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+constexpr AnvilGameCommandsService kCommandsService = {sizeof(AnvilGameCommandsService), commands_post};
+
+// The post function, the allocator, the session's path and the hot-join flag
+// are the service; each command type has its own symbols, which a port may
+// declare absent on a new build.
+void load_commands(anvil::Host& host) {
+    if (!g_world_available || g_world.units == 0 || !host.present(sym::command_post) ||
+        !host.present(sym::command_new) || !host.present(sym::hotjoin_flag) || !host.present(sym::drill_button)) {
+        host.info("the commands' symbols are absent on this build: no service {}", ANVIL_GAME_COMMANDS_SERVICE);
+        return;
+    }
+    CommandsLayout c;
+    c.post = host.function(sym::command_post);
+    c.allocate = host.function(sym::command_new);
+    c.game = static_cast<std::uint32_t>(host.value(sym::drill_button, "game"));
+    c.session = static_cast<std::uint32_t>(host.value(sym::drill_button, "session"));
+    c.hotjoin = static_cast<std::uint32_t>(host.value(sym::hotjoin_flag, "hotjoin"));
+    if (host.present(sym::drill_command) && host.present(sym::drill_reason)) {
+        c.drill = host.function(sym::drill_command);
+        c.drill_size = static_cast<std::uint32_t>(host.value(sym::drill_button, "size"));
+        c.drill_reason = static_cast<std::uint8_t>(host.value(sym::drill_reason, "reason"));
+    }
+    if (host.present(sym::split_command) && host.present(sym::split_button)) {
+        // The button counts the same regiments the world reads.
+        if (host.value(sym::split_button, "subunits") == g_world.subunits &&
+            host.value(sym::split_button, "subunits_end") == g_world.subunits_end) {
+            c.split = host.function(sym::split_command);
+            c.split_size = static_cast<std::uint32_t>(host.value(sym::split_button, "size"));
+        } else {
+            host.warn("the split button reads other regiments than anvil-game.world: no SPLIT");
+        }
+    }
+    if (host.present(sym::merge_command) && host.present(sym::merge_button)) {
+        c.merge = host.function(sym::merge_command);
+        c.merge_size = static_cast<std::uint32_t>(host.value(sym::merge_button, "size"));
+    }
+    g_commands = c;
+    host.register_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, kCommandsService);
+    host.info("service {} v{}: drill {}, merge {}, split {}", ANVIL_GAME_COMMANDS_SERVICE,
+              ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
+              c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent");
+}
+
 struct AnvilGame : anvil::Plugin {
     void load(anvil::Host& host) override {
         g_layout.frame_counter = sym::frame_counter.counter;
@@ -857,6 +1070,7 @@ struct AnvilGame : anvil::Plugin {
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);
         load_world(host);
+        load_commands(host);
         host.hook(g_frame, sym::frame, on_frame);
         host.hook(g_set_session, sym::set_session, on_set_session);
         host.info("frame hook staged; events {}, {}, {}, {}; service {} v{}", ANVIL_GAME_EVENT_READY,

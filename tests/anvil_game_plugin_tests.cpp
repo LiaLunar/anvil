@@ -13,8 +13,10 @@
 #include "core/plugin_symbols.hpp"
 #include "core/services.hpp"
 #include "core/symbol_check.hpp"
+#include "control/anvil_control.h"
 #include "test_support.hpp"
 
+#include "../plugins/anvil-game/src/commands.hpp"
 #include "../plugins/anvil-game/src/session.hpp"
 #include "../plugins/anvil-game/src/work_queue.hpp"
 #include "../plugins/anvil-game/src/world.hpp"
@@ -30,6 +32,7 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <map>
 #include <memory>
 #include <sstream>
 #include <string>
@@ -536,6 +539,135 @@ bool contains(const std::vector<std::string>& list, const std::string& item) {
     return std::find(list.begin(), list.end(), item) != list.end();
 }
 
+// The game's side of anvil-game.commands for its rules alone: units by id, and
+// what was made, handed to the session and freed, in order.
+struct FakeCommands final : anvil_game::CommandBackend {
+    std::map<uint64_t, anvil_game::CommandUnit> units;  // RUS's
+    bool affects = true, suspended = false, is_open = true, hot = false, take = true;
+    uint32_t absent = 0;
+    int memory = -1;  // allocations left; -1: no end
+    uint64_t frame_number = 0;
+    std::vector<std::string> made;  // "drill 1001", "split 1001 2", "merge 1001 1002"
+    std::vector<int> submitted, destroyed;  // indices into made
+
+    bool caller(const AnvilPlugin* self, bool& a, bool& s) override {
+        if (self != reinterpret_cast<const AnvilPlugin*>(this)) return false;
+        a = affects;
+        s = suspended;
+        return true;
+    }
+    bool declared(uint32_t type) override { return type != absent; }
+    bool open() override { return is_open; }
+    bool hot_join() override { return hot; }
+    uint64_t frame() override { return frame_number; }
+    AnvilResult find(const AnvilGameUnitRef& ref, anvil_game::CommandUnit& out) override {
+        if (std::strcmp(ref.country.text, "RUS") != 0) return ANVIL_ERROR_NOT_FOUND;
+        const auto it = units.find(ref.id);
+        if (it == units.end()) return ANVIL_ERROR_NOT_FOUND;
+        out = it->second;
+        return ANVIL_OK;
+    }
+    void* make(std::string what) {
+        if (memory == 0) return nullptr;
+        if (memory > 0) --memory;
+        made.push_back(std::move(what));
+        return reinterpret_cast<void*>(static_cast<uintptr_t>(made.size()));  // index + 1
+    }
+    static std::string hex(uintptr_t v) {
+        char text[20];
+        std::snprintf(text, sizeof text, "%llx", static_cast<unsigned long long>(v));
+        return text;
+    }
+    void* make_drill(const anvil_game::CommandUnit& u) override { return make("drill " + hex(u.object)); }
+    void* make_split(const anvil_game::CommandUnit& u, int32_t count) override {
+        return make("split " + hex(u.object) + " " + std::to_string(count));
+    }
+    void* make_merge(const std::vector<anvil_game::CommandUnit>& list) override {
+        std::string what = "merge";
+        for (const auto& u : list) what += " " + hex(u.object);
+        return make(what);
+    }
+    bool submit(void* command) override {
+        if (!take) return false;
+        submitted.push_back(static_cast<int>(reinterpret_cast<uintptr_t>(command)) - 1);
+        return true;
+    }
+    void destroy(void* command) override { destroyed.push_back(static_cast<int>(reinterpret_cast<uintptr_t>(command)) - 1); }
+};
+
+// The game's side of anvil-game.commands in FakeEu4: its functions are
+// overwritten with jumps here once the symbols verified. A command is 0x80
+// bytes of the test's heap; slot 0 of its vtable frees it.
+struct GameCommandsLog {
+    std::vector<std::string> calls;  // "new 68", "drill <unit> 36", "split <unit> 2", "merge <units> (n)", "post <session>", "free 1"
+    std::vector<void*> posted;
+    bool allowed = true;  // what the stand-in of CSession::Post answers
+};
+GameCommandsLog g_game_commands;
+std::string pointer_text(const void* p) {
+    char text[24];
+    std::snprintf(text, sizeof text, "%p", p);
+    return text;
+}
+void* fake_command_free(void* command, unsigned flags) {
+    g_game_commands.calls.push_back("free " + std::to_string(flags));
+    std::free(command);
+    return command;
+}
+uintptr_t g_command_vtable[1] = {reinterpret_cast<uintptr_t>(&fake_command_free)};
+void* fake_command_new(size_t size) {
+    char text[16];
+    std::snprintf(text, sizeof text, "new %zx", size);
+    g_game_commands.calls.push_back(text);
+    void* p = std::calloc(1, 0x80);
+    const uintptr_t vtable = reinterpret_cast<uintptr_t>(g_command_vtable);
+    std::memcpy(p, &vtable, sizeof vtable);
+    return p;
+}
+void* fake_drill_command(void* command, const void* unit, uint8_t reason) {
+    char text[64];
+    std::snprintf(text, sizeof text, "drill %s %x", pointer_text(unit).c_str(), reason);
+    g_game_commands.calls.push_back(text);
+    return command;
+}
+void* fake_split_command(void* command, const void* unit, int32_t count) {
+    g_game_commands.calls.push_back("split " + pointer_text(unit) + " " + std::to_string(count));
+    return command;
+}
+// It walks the list as CMergeCommand's constructor does: head, count, a node's unit and next.
+void* fake_merge_command(void* command, const void* list) {
+    std::string text = "merge";
+    const auto* bytes = static_cast<const uint8_t*>(list);
+    int32_t count = 0;
+    std::memcpy(&count, bytes + 0x10, sizeof count);
+    uintptr_t node = 0;
+    std::memcpy(&node, bytes, sizeof node);
+    for (int i = 0; i < count && node != 0; ++i) {
+        uintptr_t unit = 0;
+        std::memcpy(&unit, reinterpret_cast<const void*>(node), sizeof unit);
+        text += " " + pointer_text(reinterpret_cast<const void*>(unit));
+        std::memcpy(&node, reinterpret_cast<const void*>(node + 0x10), sizeof node);
+    }
+    g_game_commands.calls.push_back(text + " (" + std::to_string(count) + ")");
+    return command;
+}
+bool fake_command_post(void* session, void* command) {
+    g_game_commands.calls.push_back("post " + pointer_text(session));
+    if (!g_game_commands.allowed) return false;
+    g_game_commands.posted.push_back(command);
+    return true;
+}
+
+// anvil.control's plugin_of, for one gameplay plugin.
+AnvilPlugin* g_command_caller = nullptr;
+int g_command_caller_suspended = 0;
+int fake_plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin* out) {
+    if (plugin == nullptr || plugin != g_command_caller) return 0;
+    out->affects_gameplay = 1;
+    out->suspended = g_command_caller_suspended;
+    return 1;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -691,6 +823,139 @@ int main(int argc, char** argv) {
         CHECK(q.run() == 1 && (ran == std::vector<int>{1, 2, 3}) && q.run() == 0);
     });
 
+    run("anvil-game.commands: the rules, with a fake game", [] {
+        FakeCommands game;
+        anvil_game::CommandPoster poster;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(&game);
+        const AnvilGameUnitRef army = {1, {"RUS"}, ANVIL_GAME_UNIT_ARMY};    // drilling
+        const AnvilGameUnitRef army2 = {2, {"RUS"}, ANVIL_GAME_UNIT_ARMY};   // idle, with Moskva's 1st Army
+        const AnvilGameUnitRef navy = {3, {"RUS"}, ANVIL_GAME_UNIT_NAVY};
+        const AnvilGameUnitRef foreign = {9, {"TUR"}, ANVIL_GAME_UNIT_ARMY};
+        const AnvilGameUnitRef gone = {7, {"RUS"}, ANVIL_GAME_UNIT_ARMY};
+        game.units[1] = {0x1001, 1, ANVIL_GAME_UNIT_ARMY, 1, true, 3};
+        game.units[2] = {0x1002, 2, ANVIL_GAME_UNIT_ARMY, 1, false, 1};
+        game.units[3] = {0x1003, 3, ANVIL_GAME_UNIT_NAVY, 5, false, 4};
+        const auto command = [](uint32_t type, uint32_t flags, std::vector<AnvilGameUnitRef>& refs) {
+            AnvilGameCommand c{};
+            c.size = sizeof(c);
+            c.type = type;
+            c.flags = flags;
+            c.count = static_cast<uint32_t>(refs.size());
+            c.units = refs.data();
+            return c;
+        };
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+
+        // Start over a mixed selection: only the idle army; stop: only the drilling one.
+        std::vector<AnvilGameUnitRef> both = {army, army2};
+        AnvilGameCommand c = command(ANVIL_GAME_COMMAND_DRILL, ANVIL_GAME_COMMAND_START, both);
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 1 && out.refused == 0 &&
+              out.size == sizeof(out));
+        CHECK((game.made == std::vector<std::string>{"drill 1002"}) && (game.submitted == std::vector<int>{0}));
+        c.flags = 0;
+        CHECK(poster.post(game, self, &c, nullptr) == ANVIL_OK && game.made.back() == "drill 1001");
+        // A caller built against a shorter result gets only that much.
+        AnvilGameCommandResult shorter{};
+        shorter.size = offsetof(AnvilGameCommandResult, skipped);
+        shorter.skipped = 77;
+        CHECK(poster.post(game, self, &c, &shorter) == ANVIL_OK && shorter.posted == 1 && shorter.skipped == 77);
+
+        // Split: half, rounded up; merge: the units in one province, into the first.
+        std::vector<AnvilGameUnitRef> one = {army};
+        c = command(ANVIL_GAME_COMMAND_SPLIT, 0, one);
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && game.made.back() == "split 1001 2");
+        CHECK(anvil_game::split_count(2) == 1 && anvil_game::split_count(3) == 2 && anvil_game::split_count(40) == 20);
+        c = command(ANVIL_GAME_COMMAND_MERGE, 0, both);
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && game.made.back() == "merge 1001 1002");
+
+        // Nothing posted for a bad call.
+        const size_t made = game.made.size();
+        const auto refused = [&](AnvilGameCommand call, AnvilResult expected) {
+            return poster.post(game, self, &call, &out) == expected;
+        };
+        std::vector<AnvilGameUnitRef> list = {army, foreign};
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, list), ANVIL_ERROR_NOT_FOUND));
+        list = {army, gone};
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, list), ANVIL_ERROR_NOT_FOUND));
+        list = {navy};
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, ANVIL_GAME_COMMAND_START, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        list = {{1, {"RUS"}, ANVIL_GAME_UNIT_NAVY}};  // the army, called a navy
+        CHECK(refused(command(ANVIL_GAME_COMMAND_SPLIT, 0, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        list = {army, army};
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        list = {army2};  // one regiment
+        CHECK(refused(command(ANVIL_GAME_COMMAND_SPLIT, 0, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(refused(command(ANVIL_GAME_COMMAND_SPLIT, 0, both), ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(refused(command(ANVIL_GAME_COMMAND_MERGE, 0, one), ANVIL_ERROR_INVALID_ARGUMENT));
+        list = {army, navy};
+        CHECK(refused(command(ANVIL_GAME_COMMAND_MERGE, 0, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(refused(command(ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_START, both), ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0x2, both), ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(refused(command(4, 0, both), ANVIL_ERROR_INVALID_ARGUMENT));
+        list.clear();
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, list), ANVIL_ERROR_INVALID_ARGUMENT));
+        AnvilGameCommand small = command(ANVIL_GAME_COMMAND_DRILL, 0, both);
+        small.size = offsetof(AnvilGameCommand, units);
+        CHECK(refused(small, ANVIL_ERROR_INVALID_ARGUMENT));
+        CHECK(poster.post(game, self, nullptr, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+        AnvilGameCommandResult no_size{};
+        c = command(ANVIL_GAME_COMMAND_DRILL, 0, both);
+        CHECK(poster.post(game, self, &c, &no_size) == ANVIL_ERROR_INVALID_ARGUMENT);
+        std::vector<AnvilGameUnitRef> many(65, army);
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, many), ANVIL_ERROR_LIMIT));
+        CHECK(game.made.size() == made);
+
+        // The caller: not a gameplay plugin, no plugin at all, suspended.
+        game.affects = false;
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, both), ANVIL_ERROR_UNSUPPORTED));
+        game.affects = true;
+        CHECK(poster.post(game, nullptr, &c, &out) == ANVIL_ERROR_UNSUPPORTED);
+        game.suspended = true;
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, both), ANVIL_ERROR_SUSPENDED));
+        game.suspended = false;
+        // The moment: off the main thread or between sessions, in a hot-join.
+        game.is_open = false;
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, both), ANVIL_ERROR_WRONG_PHASE));
+        game.is_open = true;
+        game.hot = true;
+        CHECK(refused(command(ANVIL_GAME_COMMAND_DRILL, 0, both), ANVIL_ERROR_WRONG_PHASE));
+        game.hot = false;
+        // A type this build lacks; the others still work.
+        game.absent = ANVIL_GAME_COMMAND_SPLIT;
+        CHECK(refused(command(ANVIL_GAME_COMMAND_SPLIT, 0, one), ANVIL_ERROR_NOT_DECLARED));
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1);
+        game.absent = 0;
+        CHECK(game.made.size() == made + 1);
+
+        // A refused post is freed, once, and counted.
+        game.take = false;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 1 &&
+              game.destroyed.size() == 1 && game.destroyed[0] == static_cast<int>(game.made.size()) - 1);
+        game.take = true;
+        // No memory: what was posted before stays posted, and is told.
+        game.memory = 1;
+        list = {army, {4, {"RUS"}, ANVIL_GAME_UNIT_ARMY}};
+        game.units[4] = {0x1004, 4, ANVIL_GAME_UNIT_ARMY, 1, true, 2};
+        AnvilGameCommand two = command(ANVIL_GAME_COMMAND_DRILL, 0, list);
+        CHECK(poster.post(game, self, &two, &out) == ANVIL_ERROR_OUT_OF_MEMORY && out.posted == 1);
+        game.memory = -1;
+
+        // 256 commands a frame for every caller together, then the next frame.
+        std::vector<AnvilGameUnitRef> drilling;
+        for (uint64_t id = 100; id < 164; ++id) {
+            game.units[id] = {0x2000 + id, id, ANVIL_GAME_UNIT_ARMY, 1, true, 2};
+            drilling.push_back({id, {"RUS"}, ANVIL_GAME_UNIT_ARMY});
+        }
+        game.frame_number = 50;
+        c = command(ANVIL_GAME_COMMAND_DRILL, 0, drilling);
+        for (int i = 0; i < 4; ++i) CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 64);
+        const size_t full = game.made.size();
+        CHECK(refused(command(ANVIL_GAME_COMMAND_SPLIT, 0, one), ANVIL_ERROR_LIMIT) && game.made.size() == full);
+        game.frame_number = 51;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 64);
+    });
+
     // As in the game, the image, the host and the policy outlive the plugin.
     FakeEu4& image = *new FakeEu4;
     GameObjects& game = *new GameObjects;
@@ -762,7 +1027,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 60);
+        CHECK(reason.empty() && verified.symbols.size() == 70);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -1485,6 +1750,135 @@ int main(int argc, char** argv) {
         frame(game.app, 1);
         CHECK(campaign.empty());
         fake_wars = 1;
+    });
+
+    run("anvil-game.commands: the unit panel's commands, posted to the session", [&] {
+        const auto* commands = static_cast<const AnvilGameCommandsService*>(
+            bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION));
+        CHECK(commands != nullptr && ANVIL_GAME_COMMANDS_HAS(commands, post));
+        CHECK(contains(log, "anvil-game: service anvil-game.commands v1: drill yes, merge yes, split yes"));
+        if (commands == nullptr) return;
+        // The game's functions, verified at load, now jump to the stand-ins.
+        const auto jump = [&](uint32_t rva, const void* target) {
+            image.put(rva, {0x48, 0xB8});
+            image.put_pointer(rva + 2, reinterpret_cast<uintptr_t>(target));
+            image.put(rva + 10, {0xFF, 0xE0});
+        };
+        jump(0x14CA2D0, reinterpret_cast<const void*>(&fake_command_post));
+        jump(0x1A332D4, reinterpret_cast<const void*>(&fake_command_new));
+        jump(0xD671A0, reinterpret_cast<const void*>(&fake_drill_command));
+        jump(0xD63680, reinterpret_cast<const void*>(&fake_split_command));
+        jump(0xD5FF20, reinterpret_cast<const void*>(&fake_merge_command));
+        // The idler's game (+0x330 on Steam) and its session (+0x370), with the hot-join flag at +0x7D7.
+        alignas(8) static uint8_t application[0x400] = {};
+        alignas(8) static uint8_t session[0x880] = {};
+        FakeWorld::set(game.session, 0x330, reinterpret_cast<uintptr_t>(application));
+        FakeWorld::set(application, 0x370, reinterpret_cast<uintptr_t>(session));
+        // RUS again, with a second army in Moskva that does not drill.
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        fake.install_units(game.session, image);
+        alignas(8) static uint8_t army2[0x260] = {};
+        alignas(8) static uint8_t node2[0x20] = {};
+        std::memcpy(army2, fake.army, sizeof army2);
+        constexpr uint64_t kArmy2 = 0x000003EB00000036;
+        FakeWorld::set(army2, 0x20, kArmy2);
+        FakeWorld::set(army2, 0x1F8, reinterpret_cast<uintptr_t>(fake.idle));
+        FakeWorld::set(node2, 0, reinterpret_cast<uintptr_t>(army2));
+        FakeWorld::set(fake.unit_nodes[1], 0x10, reinterpret_cast<uintptr_t>(node2));
+        FakeWorld::set(fake.rus, 0xD18 + 0x10, int32_t{3});
+        FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
+        game.set_session(game.session);
+        frame(game.app, 1);
+
+        // anvil.control, as the core registers it, and the gameplay plugin it knows.
+        static AnvilControlService control{};
+        control.size = sizeof(control);
+        control.plugin_of = fake_plugin_of;
+        bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION, &control);
+        g_command_caller = new AnvilPlugin;
+        AnvilPlugin* caller = g_command_caller;
+
+        const AnvilGameUnitRef army = {FakeWorld::kArmyId, {"RUS"}, ANVIL_GAME_UNIT_ARMY};
+        const AnvilGameUnitRef idle = {kArmy2, {"rus"}, ANVIL_GAME_UNIT_ARMY};
+        const AnvilGameUnitRef navy = {FakeWorld::kNavyId, {"RUS"}, ANVIL_GAME_UNIT_NAVY};
+        AnvilGameUnitRef refs[2] = {army, idle};
+        AnvilGameCommand c{};
+        c.size = sizeof(c);
+        c.type = ANVIL_GAME_COMMAND_DRILL;
+        c.flags = ANVIL_GAME_COMMAND_START;
+        c.count = 2;
+        c.units = refs;
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+        CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_WRONG_PHASE);  // between frames
+        CHECK(g_game_commands.calls.empty());
+
+        const std::string session_text = pointer_text(session);
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            CHECK(commands->post(plugin, &c, &out) == ANVIL_ERROR_UNSUPPORTED);  // anvil-game is no gameplay plugin
+            // Start over both: the drilling one is skipped, the other gets the button's command.
+            CHECK(commands->post(caller, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 1 && out.refused == 0);
+            CHECK((g_game_commands.calls ==
+                   std::vector<std::string>{"new 68", "drill " + pointer_text(army2) + " 36", "post " + session_text}));
+            g_game_commands.calls.clear();
+            // Stop: the drilling one.
+            c.flags = 0;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 1);
+            CHECK(g_game_commands.calls.size() == 3 &&
+                  g_game_commands.calls[1] == "drill " + pointer_text(fake.army) + " 36");
+            g_game_commands.calls.clear();
+            // Split the three regiments: two go.
+            c.type = ANVIL_GAME_COMMAND_SPLIT;
+            c.count = 1;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 0);
+            CHECK((g_game_commands.calls ==
+                   std::vector<std::string>{"new 78", "split " + pointer_text(fake.army) + " 2", "post " + session_text}));
+            g_game_commands.calls.clear();
+            // Merge the two armies in Moskva, into the first.
+            c.type = ANVIL_GAME_COMMAND_MERGE;
+            c.count = 2;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_OK && out.posted == 1);
+            CHECK((g_game_commands.calls ==
+                   std::vector<std::string>{"new 68", "merge " + pointer_text(fake.army) + " " + pointer_text(army2) + " (2)",
+                                            "post " + session_text}));
+            g_game_commands.calls.clear();
+            // Refused by the session: freed through slot 0.
+            g_game_commands.allowed = false;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 1);
+            CHECK(g_game_commands.calls.size() == 4 && g_game_commands.calls[3] == "free 1");
+            g_game_commands.allowed = true;
+            g_game_commands.calls.clear();
+
+            // Nothing reaches the game: a navy with an army, a foreign or gone unit, a hot-join, a suspended caller.
+            refs[1] = navy;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+            refs[1] = {FakeWorld::kArmyId, {"TUR"}, ANVIL_GAME_UNIT_ARMY};
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_NOT_FOUND);
+            refs[1] = {777, {"RUS"}, ANVIL_GAME_UNIT_ARMY};
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_NOT_FOUND);
+            refs[1] = idle;
+            session[0x7D7] = 1;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_WRONG_PHASE);
+            session[0x7D7] = 0;
+            g_command_caller_suspended = 1;
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_SUSPENDED);
+            g_command_caller_suspended = 0;
+            // Observe mode: the player has no units of its own.
+            FakeWorld::set(game.root, 0x1E60, game_tag("O00", 2, 7));
+            FakeWorld::set(game.root, 0x1E68, game_tag("RUS", 0));
+            CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_NOT_FOUND);
+            FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
+            CHECK(g_game_commands.calls.empty());
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        g_in_frame_handler = nullptr;
+        for (void* p : g_game_commands.posted) std::free(p);
+        g_game_commands.posted.clear();
+        FakeWorld::set(game.root, 0x1E60, game_tag("TUR", 1));
     });
 
     run("anvil-game: a benchmark start quits on the core's event, on the main thread", [&] {

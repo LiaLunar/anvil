@@ -454,6 +454,15 @@ AnvilResult read_player(const WorldLayout& l, AnvilGameTag& out) {
     return ANVIL_OK;
 }
 
+AnvilResult read_own_country(const WorldLayout& l, AnvilGameTag& out) {
+    std::uintptr_t root = 0;
+    std::uint64_t player = 0;
+    if (!read_root(l, root) || !read(root + l.player, player)) return ANVIL_ERROR_INTERNAL;
+    if (byte_of(player, l.tag_kind) == l.observer_kind || byte_of(player, l.tag_valid) == 0) return ANVIL_ERROR_NOT_FOUND;
+    out = tag_text(player, l);
+    return ANVIL_OK;
+}
+
 // ---- units --------------------------------------------------------------------
 
 bool decode_constant_getter(const std::uint8_t* code, std::size_t size, std::int64_t& value) {
@@ -564,6 +573,11 @@ AnvilResult read_country_units(const WorldLayout& l, std::string_view tag, std::
 
 AnvilResult read_unit(const WorldLayout& l, std::string_view tag, std::uint64_t id, AnvilGameUnit& out) {
     std::uintptr_t unit = 0;
+    return read_unit_object(l, tag, id, unit, out);
+}
+
+AnvilResult read_unit_object(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::uintptr_t& unit,
+                             AnvilGameUnit& out) {
     if (const AnvilResult r = unit_at(l, tag, id, unit); r != ANVIL_OK) return r;
     std::uint64_t country = 0;
     std::uintptr_t leader = 0, location = 0, mission = 0, begin = 0, end = 0;

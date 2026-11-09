@@ -804,3 +804,171 @@ note = "a leader's name: a std::string at +0x20"
 build."eu4-1.37.5-steam-win64" = { rva = 0xCF460 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xCF490 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0xCF490 }
+
+# --- game commands (anvil-game.commands) ---
+# The unit panel's drill, split and merge buttons each build a game command and
+# hand it to the session's post function (CSession::Post); anvil-game.commands
+# builds the same commands with the game's own allocator and constructors and
+# posts them the same way. Found in GOG 1.37.5.2, named by its eu4.pdb, and
+# matched by bytes on Steam 1.37.5 and GOG 1.37.5.0 (anvil#256). A port may
+# declare a command's symbols absent: that command type then answers
+# ANVIL_ERROR_NOT_DECLARED, and the others keep working.
+
+[symbol.command_post]
+# mov [rsp+8],rbx; push rdi; sub rsp,20h; cmp qword [rcx+58h],0; mov rbx,rdx; mov rdi,rcx; je; test rdx,rdx; je;
+# cmp byte [rcx+55h],0; jne; cmp byte [rcx+80Dh],0; jne; mov rax,[rdx]; mov rcx,rdx; call [rax+80h]; test al,al;
+# jne; mov rax,[rbx]; mov rcx,rbx; call [rax+58h]; test al,al; je
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 48 83 79 58 00 48 8B DA 48 8B F9 74 66 48 85 D2 74 61
+80 79 55 00 75 26 80 B9 0D 08 00 00 00 75 1D 48 8B 02 48 8B CA FF 90 80 00 00 00 84 C0 75 0D
+48 8B 03 48 8B CB FF 50 58 84 C0 74 35
+"""
+memory = "code"
+signature = "bool (void* session, void* command)"
+values.server = { at = 13, size = 1 }
+values.dummy = { at = 30, size = 1 }
+values.allowed = { at = 36, size = 4 }
+note = "CSession::Post(CCommand*): false, the command left to the caller, without a server (+0x58) or outside the game's posting window (+0x80D) unless the session is a dummy (+0x55, single player) or the command skips the check; true when the session's handler took it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14CA2D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14C3E40 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14C3E40 }
+
+[symbol.command_new]
+# push rbx; sub rsp,20h; mov rbx,rcx; jmp; mov rcx,rbx; call _callnewh; test eax,eax; je; mov rcx,rbx;
+# call malloc; test rax,rax; je; add rsp,20h; pop rbx; ret
+bytes = "40 53 48 83 EC 20 48 8B D9 EB 0F 48 8B CB E8 ?? ?? ?? ?? 85 C0 74 13 48 8B CB E8 ?? ?? ?? ?? 48 85 C0 74 E7 48 83 C4 20 5B C3"
+memory = "code"
+signature = "void* (size_t size)"
+note = "operator new, with which the buttons allocate their commands; a command's deleting destructor (vtable slot 0) frees it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1A332D4 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1A1CF54 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1A1CF54 }
+
+[symbol.hotjoin_flag]
+# lea rcx,[rbp]; call the ios_base destructor; nop; mov [rsi+7D7h],dil; test dil,dil; je; mov byte [rsi+7D8h],1
+bytes = "48 8D 4D 00 E8 ?? ?? ?? ?? 90 40 88 BE D7 07 00 00 40 84 FF 74 07 C6 86 D8 07 00 00 01"
+memory = "code"
+values.hotjoin = { at = 13, size = 4 }
+note = "CSession::SetIsHotjoin: session+0x7D7, nonzero from a hot-join's request until the game starts again; meanwhile the game drops every command the service posts"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14CDF5D }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14C7ACD }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14C7ACD }
+
+[symbol.drill_command]
+# xor r9d,r9d; mov dword [rcx+8],165h; mov byte [rcx+10h],0; lea rax,vtable; mov [rcx],rax; lea rax,[rdx+20h];
+# ... mov dword [rcx+44h],370Ah (the command's order type)
+bytes = """
+45 33 C9 C7 41 08 65 01 00 00 C6 41 10 00 48 8D 05 ?? ?? ?? ?? 48 89 01 48 8D 42 20 4C 89 49 18 4C 89 49 28
+48 C7 41 30 0F 00 00 00 C7 41 38 FF FF FF FF 44 89 49 3C 66 44 89 49 40 C7 41 44 0A 37 00 00
+"""
+memory = "code"
+signature = "void* (void* command, const void* unit, uint8_t reason)"
+note = "CToggleDrillingArmyCommand(unit, reason): starts the army drilling, or stops it when it drills"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD671A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD65950 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD65950 }
+
+[symbol.drill_button]
+memory = "code"
+values.game = { at = 57, size = 4 }
+values.session = { at = 69, size = 4 }
+values.size = { at = 74, size = 4 }
+note = "CToggleDrillAction::DoInternal: the idler's game (+0x330 Steam, +0x328 GOG), its session (+0x370), then operator new(0x68) for the drill command"
+
+[symbol.drill_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x147EDF0
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 30 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 68 00 00 00
+"""
+
+[symbol.drill_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1478C70
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 28 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 68 00 00 00
+"""
+
+[symbol.drill_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x1478C70
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 28 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 68 00 00 00
+"""
+
+[symbol.drill_reason]
+# mov [rdx+50h],rdi; mov rax,[rdi+20h]; mov [rdx+58h],rax; mov byte [rdx+60h],36h; call CSession::Post
+bytes = "48 89 7A 50 48 8B 47 20 48 89 42 58 C6 42 60 36 E8 ?? ?? ?? ??"
+memory = "code"
+values.reason = { at = 15, size = 1 }
+note = "the drill button, its command built in place: the unit, its id and the stop reason 0x36 (the player's action), then the post"
+build."eu4-1.37.5-steam-win64" = { rva = 0x147EE96 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1478D16 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1478D16 }
+
+[symbol.split_command]
+# as drill_command, with the order type 2AA2h
+bytes = """
+45 33 C9 C7 41 08 65 01 00 00 C6 41 10 00 48 8D 05 ?? ?? ?? ?? 48 89 01 48 8D 42 20 4C 89 49 18 4C 89 49 28
+48 C7 41 30 0F 00 00 00 C7 41 38 FF FF FF FF 44 89 49 3C 66 44 89 49 40 C7 41 44 A2 2A 00 00
+"""
+memory = "code"
+signature = "void* (void* command, const void* unit, int32_t count)"
+note = "CSplitUnitCommand(unit, count): moves `count` regiments or ships into a new unit"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD63680 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD61E30 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD61E30 }
+
+[symbol.split_button]
+memory = "code"
+values.size = { at = 15, size = 4 }
+values.subunits_end = { at = 27, size = 1 }
+values.subunits = { at = 34, size = 1 }
+note = "CSplitAction::DoInternal: the session as for drill, operator new(0x78), and half of the unit's regiments or ships (unit+0x30 to +0x38), rounded up"
+
+[symbol.split_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x147FAA6
+bytes = "48 8B 88 30 03 00 00 48 8B 99 70 03 00 00 B9 78 00 00 00 E8 ?? ?? ?? ?? 48 8B 4F 38 4C 8B C8 48 2B 4F 30"
+
+[symbol.split_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x1479926
+bytes = "48 8B 88 28 03 00 00 48 8B 99 70 03 00 00 B9 78 00 00 00 E8 ?? ?? ?? ?? 48 8B 4F 38 4C 8B C8 48 2B 4F 30"
+
+[symbol.split_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x1479926
+bytes = "48 8B 88 28 03 00 00 48 8B 99 70 03 00 00 B9 78 00 00 00 E8 ?? ?? ?? ?? 48 8B 4F 38 4C 8B C8 48 2B 4F 30"
+
+[symbol.merge_command]
+# mov [rsp+10h],rbx; mov [rsp+18h],rbp; mov [rsp+20h],rsi; mov [rsp+8],rcx; push rdi; sub rsp,30h; mov rdi,rcx;
+# mov dword [rcx+8],165h; ... mov dword [rcx+44h],29CFh
+bytes = """
+48 89 5C 24 10 48 89 6C 24 18 48 89 74 24 20 48 89 4C 24 08 57 48 83 EC 30 48 8B F9 C7 41 08 65 01 00 00
+C6 41 10 00 33 ED 48 89 69 18 48 89 69 28 48 C7 41 30 0F 00 00 00 40 88 69 18 C7 41 38 FF FF FF FF
+89 69 3C 66 89 69 40 C7 41 44 CF 29 00 00
+"""
+memory = "code"
+signature = "void* (void* command, const void* units)"
+note = "CMergeCommand(const CList<CUnit*>&): merges the listed units into the first; it reads the list's head (+0) and count (+0x10), and each node's unit (+0) and next node (+0x10)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD5FF20 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD5E6D0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD5E6D0 }
+
+[symbol.merge_button]
+memory = "code"
+values.size = { at = 15, size = 4 }
+note = "CMergeAction::DoInternal: the session as for drill, then operator new(0x68) for the merge command"
+
+[symbol.merge_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x1481475
+bytes = "49 8B 85 30 03 00 00 4C 8B B0 70 03 00 00 B9 68 00 00 00 E8 ?? ?? ?? ??"
+
+[symbol.merge_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x147B2F5
+bytes = "49 8B 85 28 03 00 00 4C 8B B0 70 03 00 00 B9 68 00 00 00 E8 ?? ?? ?? ??"
+
+[symbol.merge_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x147B2F5
+bytes = "49 8B 85 28 03 00 00 4C 8B B0 70 03 00 00 B9 68 00 00 00 E8 ?? ?? ?? ??"

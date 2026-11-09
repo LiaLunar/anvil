@@ -424,6 +424,105 @@ typedef struct AnvilGameWorldService {
 #define ANVIL_GAME_WORLD_HAS(service, field) \
     ((service)->size >= offsetof(AnvilGameWorldService, field) + sizeof((service)->field))
 
+/* --- Since anvil-game 1.17.0: game commands ---------------------------------
+ *
+ * A game command is an object the session queues, the host of a multiplayer
+ * game sends out and every machine runs at the same place in the queue. The
+ * service posts the commands a player's click on the unit panel would post,
+ * built by the game's own constructors and handed to the session as the
+ * buttons do, so a plugin needs no game address for them (Anvil's ADR 0004,
+ * stage 3; anvil#256).
+ *
+ * Who. Only a plugin with affects_gameplay = true, and only while Anvil has not
+ * suspended it (ironman or multiplayer without the player's opt-in). `post`
+ * takes the caller's own `self`: ANVIL_ERROR_UNSUPPORTED for a plugin with
+ * affects_gameplay = false or a pointer that is no plugin's, and
+ * ANVIL_ERROR_SUSPENDED for a suspended one; nothing then reaches the game.
+ * This keeps honest plugins from mistakes; native code can pass any `self`.
+ *
+ * What. Only the player's own units, given as AnvilGameUnitRef from
+ * anvil-game.world, and only through the game's commands: no pointer leaves the
+ * service, and nothing is written outside a command. Each unit is looked up in
+ * its country's list. ANVIL_ERROR_NOT_FOUND for a unit that is gone or belongs
+ * to another country (also every unit in observe mode); ANVIL_ERROR_INVALID_ARGUMENT
+ * for a unit of the wrong kind, one given twice, or a bad combination. Either
+ * way nothing of the call is posted.
+ *
+ * Intents, not toggles. The game's drill command toggles, so two in flight
+ * would undo each other. DRILL with ANVIL_GAME_COMMAND_START posts only for the
+ * armies that do not drill now, and without it only for those that do; the
+ * others count as `skipped`.
+ *
+ * Thread and moment. Call only on the game's main thread, after an outer frame,
+ * in a session: from a handler of an anvil-game event, from run_on_main_thread
+ * work, or from an anvil-overlay.input handler. Anywhere else, and while this
+ * machine takes part in a hot-join (the game would drop the command on every
+ * machine), ANVIL_ERROR_WRONG_PHASE and nothing is posted; try again later. The
+ * service draws nothing from the game's random numbers.
+ *
+ * Bounded. At most ANVIL_GAME_COMMAND_MAX_UNITS units per call and
+ * ANVIL_GAME_COMMAND_MAX_PER_FRAME commands per frame for all callers together:
+ * above that ANVIL_ERROR_LIMIT, and nothing of that call is posted.
+ *
+ * Results. `posted` is not "happened": a posted command runs at the session's
+ * next turn of the queue on every machine, also while the game is paused, and
+ * the game checks it again then. In multiplayer a command is only on its way to
+ * the host. `refused` counts the commands the session did not take at its own
+ * check (a session without a server, or an observer's game, which allows
+ * posting only inside its input handling). The service frees a refused
+ * command. A plugin that needs the outcome reads
+ * anvil-game.world a few frames later.
+ *
+ * Game builds. A build whose symbols for a command type are declared absent
+ * answers ANVIL_ERROR_NOT_DECLARED for that type; the others keep working.
+ * NULL from get_service with an older anvil-game, or when the post function's
+ * own symbols are absent.
+ *
+ * Within version 1 types and fields are only appended; check `size`. */
+
+/* AnvilGameCommand.type */
+#define ANVIL_GAME_COMMAND_DRILL 1u /* armies: start or stop drilling, an intent (ANVIL_GAME_COMMAND_START) */
+#define ANVIL_GAME_COMMAND_MERGE 2u /* two or more armies, or navies, in one province: into the first */
+#define ANVIL_GAME_COMMAND_SPLIT 3u /* one army or navy: in half, rounded up, as the button does */
+
+/* AnvilGameCommand.flags */
+#define ANVIL_GAME_COMMAND_START 0x1u /* DRILL: start; without it, stop */
+
+#define ANVIL_GAME_COMMAND_MAX_UNITS 64u
+#define ANVIL_GAME_COMMAND_MAX_PER_FRAME 256u
+
+typedef struct AnvilGameCommand {
+    uint32_t size;                 /* sizeof(AnvilGameCommand), set by the caller */
+    uint32_t type;                 /* ANVIL_GAME_COMMAND_* */
+    uint32_t flags;                /* ANVIL_GAME_COMMAND_START; other bits: ANVIL_ERROR_INVALID_ARGUMENT */
+    uint32_t count;                /* units, 1 .. ANVIL_GAME_COMMAND_MAX_UNITS */
+    const AnvilGameUnitRef *units; /* from anvil-game.world */
+} AnvilGameCommand;
+
+typedef struct AnvilGameCommandResult {
+    uint32_t size;    /* set by the caller: only that much is written */
+    uint32_t posted;  /* commands the session took (in multiplayer: sent to the host) */
+    uint32_t skipped; /* units already in the asked state: nothing posted for them */
+    uint32_t refused; /* commands the session's own check refused at posting */
+} AnvilGameCommandResult;
+
+#define ANVIL_GAME_COMMANDS_SERVICE "anvil-game.commands"
+#define ANVIL_GAME_COMMANDS_SERVICE_VERSION 1
+
+typedef struct AnvilGameCommandsService {
+    uint32_t size; /* sizeof(AnvilGameCommandsService) as known by anvil-game */
+
+    /* Posts the commands a player's click would post for `command`, through
+     * the session. ANVIL_OK when the call was done, whatever the counts in
+     * *out say (`out` may be NULL); any other result posted nothing, but
+     * ANVIL_ERROR_OUT_OF_MEMORY, after which *out tells what was posted. */
+    AnvilResult (*post)(AnvilPlugin *self, const AnvilGameCommand *command, AnvilGameCommandResult *out);
+} AnvilGameCommandsService;
+
+/* Nonzero when `service` provides `field`. */
+#define ANVIL_GAME_COMMANDS_HAS(service, field) \
+    ((service)->size >= offsetof(AnvilGameCommandsService, field) + sizeof((service)->field))
+
 #ifdef __cplusplus
 }
 #endif

@@ -52,6 +52,14 @@ pub const ANVIL_GAME_MISSION_SIEGE: u32 = 14;
 pub const ANVIL_GAME_MISSION_DRILL: u32 = 15;
 pub const ANVIL_GAME_WORLD_SERVICE: &[u8; 17] = b"anvil-game.world\0";
 pub const ANVIL_GAME_WORLD_SERVICE_VERSION: u32 = 1;
+pub const ANVIL_GAME_COMMAND_DRILL: u32 = 1;
+pub const ANVIL_GAME_COMMAND_MERGE: u32 = 2;
+pub const ANVIL_GAME_COMMAND_SPLIT: u32 = 3;
+pub const ANVIL_GAME_COMMAND_START: u32 = 1;
+pub const ANVIL_GAME_COMMAND_MAX_UNITS: u32 = 64;
+pub const ANVIL_GAME_COMMAND_MAX_PER_FRAME: u32 = 256;
+pub const ANVIL_GAME_COMMANDS_SERVICE: &[u8; 20] = b"anvil-game.commands\0";
+pub const ANVIL_GAME_COMMANDS_SERVICE_VERSION: u32 = 1;
 pub const ANVIL_OVERLAY_ID: &[u8; 14] = b"anvil-overlay\0";
 pub const ANVIL_PANEL_SERVICE: &[u8; 20] = b"anvil-overlay.panel\0";
 pub const ANVIL_PANEL_SERVICE_VERSION: u32 = 1;
@@ -95,6 +103,8 @@ pub const ANVIL_ERROR_UNSUPPORTED: AnvilResult = 9;
 pub const ANVIL_ERROR_INTERNAL: AnvilResult = 10;
 pub const ANVIL_ERROR_NOT_FOUND: AnvilResult = 11;
 pub const ANVIL_ERROR_ALREADY_EXISTS: AnvilResult = 12;
+pub const ANVIL_ERROR_SUSPENDED: AnvilResult = 13;
+pub const ANVIL_ERROR_LIMIT: AnvilResult = 14;
 pub type AnvilResult = core::ffi::c_int;
 pub const ANVIL_LOG_DEBUG: AnvilLogLevel = 0;
 pub const ANVIL_LOG_INFO: AnvilLogLevel = 1;
@@ -1235,6 +1245,93 @@ const _: () = {
     [
         "Offset of field: AnvilGameWorldService::selected_units",
     ][::core::mem::offset_of!(AnvilGameWorldService, selected_units) - 152usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameCommand {
+    pub size: u32,
+    pub type_: u32,
+    pub flags: u32,
+    pub count: u32,
+    pub units: *const AnvilGameUnitRef,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of AnvilGameCommand"][::core::mem::size_of::<AnvilGameCommand>() - 24usize];
+    [
+        "Alignment of AnvilGameCommand",
+    ][::core::mem::align_of::<AnvilGameCommand>() - 8usize];
+    [
+        "Offset of field: AnvilGameCommand::size",
+    ][::core::mem::offset_of!(AnvilGameCommand, size) - 0usize];
+    [
+        "Offset of field: AnvilGameCommand::type_",
+    ][::core::mem::offset_of!(AnvilGameCommand, type_) - 4usize];
+    [
+        "Offset of field: AnvilGameCommand::flags",
+    ][::core::mem::offset_of!(AnvilGameCommand, flags) - 8usize];
+    [
+        "Offset of field: AnvilGameCommand::count",
+    ][::core::mem::offset_of!(AnvilGameCommand, count) - 12usize];
+    [
+        "Offset of field: AnvilGameCommand::units",
+    ][::core::mem::offset_of!(AnvilGameCommand, units) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameCommandResult {
+    pub size: u32,
+    pub posted: u32,
+    pub skipped: u32,
+    pub refused: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGameCommandResult",
+    ][::core::mem::size_of::<AnvilGameCommandResult>() - 16usize];
+    [
+        "Alignment of AnvilGameCommandResult",
+    ][::core::mem::align_of::<AnvilGameCommandResult>() - 4usize];
+    [
+        "Offset of field: AnvilGameCommandResult::size",
+    ][::core::mem::offset_of!(AnvilGameCommandResult, size) - 0usize];
+    [
+        "Offset of field: AnvilGameCommandResult::posted",
+    ][::core::mem::offset_of!(AnvilGameCommandResult, posted) - 4usize];
+    [
+        "Offset of field: AnvilGameCommandResult::skipped",
+    ][::core::mem::offset_of!(AnvilGameCommandResult, skipped) - 8usize];
+    [
+        "Offset of field: AnvilGameCommandResult::refused",
+    ][::core::mem::offset_of!(AnvilGameCommandResult, refused) - 12usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameCommandsService {
+    pub size: u32,
+    pub post: ::core::option::Option<
+        unsafe extern "C" fn(
+            self_: *mut AnvilPlugin,
+            command: *const AnvilGameCommand,
+            out: *mut AnvilGameCommandResult,
+        ) -> AnvilResult,
+    >,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGameCommandsService",
+    ][::core::mem::size_of::<AnvilGameCommandsService>() - 16usize];
+    [
+        "Alignment of AnvilGameCommandsService",
+    ][::core::mem::align_of::<AnvilGameCommandsService>() - 8usize];
+    [
+        "Offset of field: AnvilGameCommandsService::size",
+    ][::core::mem::offset_of!(AnvilGameCommandsService, size) - 0usize];
+    [
+        "Offset of field: AnvilGameCommandsService::post",
+    ][::core::mem::offset_of!(AnvilGameCommandsService, post) - 8usize];
 };
 #[repr(C)]
 #[derive(Debug)]

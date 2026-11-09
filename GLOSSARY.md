@@ -100,6 +100,20 @@ _Avoid_: command (the game's commands are what its clients exchange), script hoo
 The word on the left of a script effect, `chisel_set_terrain` in `chisel_set_terrain = mountain`. A plugin's key starts with its id.
 _Avoid_: effect name, keyword (for the game's own lexer words)
 
+### Game commands
+
+**Game command**:
+An object the session queues, the host of a multiplayer game sends out and every machine runs at the same place in the queue. The unit panel's buttons and `anvil-game.commands` make them.
+_Avoid_: order, action
+
+**Post**:
+Handing a game command to the session's queue. A posted command has not run yet: it runs at the session's next turn of the queue, and in multiplayer it is only on its way to the host.
+_Avoid_: send, execute
+
+**Intent**:
+The state a plugin asks for, such as "drilling", which `anvil-game.commands` turns into a command only for the units whose state differs.
+_Avoid_: toggle
+
 ### The game's day
 
 **Day end**:

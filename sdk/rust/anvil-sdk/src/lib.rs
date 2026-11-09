@@ -87,6 +87,7 @@ mod panic;
 mod text;
 
 pub mod benchmark;
+pub mod commands;
 pub mod game;
 pub mod map;
 pub mod panel;

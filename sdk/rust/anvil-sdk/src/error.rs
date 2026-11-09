@@ -38,6 +38,12 @@ pub enum ErrorCode {
     NotFound,
     /// `ANVIL_ERROR_ALREADY_EXISTS`.
     AlreadyExists,
+    /// `ANVIL_ERROR_SUSPENDED`: the caller is suspended in this session
+    /// (ironman, multiplayer). Since Anvil 1.17.0.
+    Suspended,
+    /// `ANVIL_ERROR_LIMIT`: more than a service takes at once; nothing of the
+    /// call was done. Since Anvil 1.17.0.
+    Limit,
     /// A result this crate does not know.
     Other(AnvilResult),
 }
@@ -59,6 +65,8 @@ impl ErrorCode {
             sys::ANVIL_ERROR_INTERNAL => Self::Internal,
             sys::ANVIL_ERROR_NOT_FOUND => Self::NotFound,
             sys::ANVIL_ERROR_ALREADY_EXISTS => Self::AlreadyExists,
+            sys::ANVIL_ERROR_SUSPENDED => Self::Suspended,
+            sys::ANVIL_ERROR_LIMIT => Self::Limit,
             other => Self::Other(other),
         })
     }
@@ -78,6 +86,8 @@ impl ErrorCode {
             Self::Internal => sys::ANVIL_ERROR_INTERNAL,
             Self::NotFound => sys::ANVIL_ERROR_NOT_FOUND,
             Self::AlreadyExists => sys::ANVIL_ERROR_ALREADY_EXISTS,
+            Self::Suspended => sys::ANVIL_ERROR_SUSPENDED,
+            Self::Limit => sys::ANVIL_ERROR_LIMIT,
             Self::Other(sys::ANVIL_OK) => sys::ANVIL_ERROR_INTERNAL,
             Self::Other(other) => other,
         }
@@ -98,6 +108,8 @@ impl ErrorCode {
             Self::Internal => "internal error",
             Self::NotFound => "not found",
             Self::AlreadyExists => "already exists",
+            Self::Suspended => "suspended in this session",
+            Self::Limit => "over the limit",
             Self::Other(_) => "unknown result",
         }
     }
