@@ -9,7 +9,8 @@ Direct3D 11.
 Tests can run install, plugin zips and uninstall with window messages only,
 without focus and without moving the cursor (issue #106):
 
-- The Manager speaks the language of EU4's settings, so labels and their
+- The Manager speaks the language of EU4's settings, or the Chinese,
+  Japanese or Korean of Steam or Windows, so labels and their
   positions differ by language. Start it with `ANVIL_LANGUAGE=en` in its
   environment for the English layout, or point `userdir.txt` in the copy at
   a folder whose `settings.txt` sets `language` to test another one.

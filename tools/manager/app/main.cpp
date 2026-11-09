@@ -278,8 +278,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
         if (args[i] == L"--game" && i + 1 < args.size()) game = args[++i];
     }
     remove_stale_copies();
-    // The language of EU4's settings (#158); ManagerApp follows the chosen game folder later.
-    anvil::i18n::set_language(anvil::i18n::choose_language(anvil::eu4_user_dir(game)).language);
+    // The language of EU4's settings, then Steam's or Windows' CJK (#158, lab#93);
+    // ManagerApp follows the chosen game folder later.
+    anvil::i18n::set_language(anvil::i18n::choose_manager_language(anvil::eu4_user_dir(game)).language);
 
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     std::string package_error;

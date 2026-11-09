@@ -112,6 +112,13 @@ struct LanguageChoice {
 LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text = false);
 LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text, const SystemLanguages& system);
 
+// The Manager's language: choose_language with Steam's, then Windows', Chinese,
+// Japanese or Korean whether Mei loads or not. The Manager installs Anvil before
+// Mei is there, so a Chinese player would otherwise read it in English. The
+// overlay keeps the Mei condition: there the game's own text decides.
+LanguageChoice choose_manager_language(const std::filesystem::path& user_dir);
+LanguageChoice choose_manager_language(const std::filesystem::path& user_dir, const SystemLanguages& system);
+
 // The plugin whose loading means the game shows Chinese, Japanese or Korean text.
 inline constexpr std::string_view kCjkTextPlugin = "mei";
 

@@ -64,20 +64,18 @@ std::optional<bool> overlay_release_answer(const fs::path& game) {
     return std::nullopt;
 }
 
-// The player's language as the overlay chooses it (#158): ANVIL_LANGUAGE, the
-// overlay's `language` setting, EU4's settings in the game's user folder, or,
-// when Mei is in the load order of `report`, Steam's or Windows' Chinese,
-// Japanese or Korean.
-void follow_language(const fs::path& game, const cli::GameReport* report = nullptr) {
+// The player's language (#158, lab#93): ANVIL_LANGUAGE, the overlay's
+// `language` setting, EU4's settings in the game's user folder, then Steam's
+// or Windows' Chinese, Japanese or Korean, with or without Mei: at the first
+// start Mei is not installed yet.
+void follow_language(const fs::path& game) {
     if (!i18n::forced_language() && !game.empty()) {
         if (const auto language = overlay_language(game)) {
             i18n::set_language(*language);
             return;
         }
     }
-    const bool cjk_text = report != nullptr && std::any_of(report->load_order.begin(), report->load_order.end(),
-                                                           [](const auto& p) { return p.id == i18n::kCjkTextPlugin; });
-    i18n::set_language(i18n::choose_language(eu4_user_dir(game), cjk_text).language);
+    i18n::set_language(i18n::choose_manager_language(eu4_user_dir(game)).language);
 }
 
 // The problems of a check to show a player. On a build Anvil does not know,
@@ -239,7 +237,7 @@ void ManagerApp::poll() {
     using namespace std::chrono;
     if (pending_.valid() && pending_.wait_for(0s) == std::future_status::ready) {
         snapshot_ = pending_.get();
-        follow_language(game_, snapshot_->report ? &*snapshot_->report : nullptr);
+        follow_language(game_);  // the overlay's setting may be new: the folder was installed or changed
     }
     if (release_pending_.valid() && release_pending_.wait_for(0s) == std::future_status::ready) {
         release_ = release_pending_.get();

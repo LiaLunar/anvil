@@ -55,10 +55,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   downloaded ([ADR 0005](docs/adr/0005-release-check-in-the-game.md)). It
   draws on the game's Direct3D 9 renderer and stays off with OpenGL.
 - The overlay and the Manager speak the language EU4 is set to: English,
-  French, German or Spanish (other languages show English). With
+  French, German or Spanish (other languages show English). The Manager
+  speaks Simplified or Traditional Chinese, Japanese or Korean when Steam or
+  Windows is set to it, from its first start; the overlay does so with
   [Mei](https://github.com/happy-dwarf-team/mei), which shows a translation
-  mod's Chinese, Japanese or Korean, they speak Simplified or Traditional
-  Chinese, Japanese or Korean when Steam or Windows is set to it. The overlay's
+  mod's Chinese, Japanese or Korean. The overlay's
   setting "Language" chooses one for both. `anvil.log` and `anvil check` stay
   in English, for bug reports and plugin authors.
 - And `anvil-log-throttle` (`anvil/plugins/anvil-log-throttle/`): a line that

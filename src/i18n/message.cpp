@@ -315,4 +315,12 @@ LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_t
     return choose_language(user_dir, cjk_text, cjk_text ? read_system_languages() : SystemLanguages{});
 }
 
+LanguageChoice choose_manager_language(const std::filesystem::path& user_dir, const SystemLanguages& system) {
+    return choose_language(user_dir, true, system);
+}
+
+LanguageChoice choose_manager_language(const std::filesystem::path& user_dir) {
+    return choose_manager_language(user_dir, read_system_languages());
+}
+
 }  // namespace anvil::i18n
