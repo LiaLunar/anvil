@@ -238,6 +238,10 @@ AnvilResult svc_revoke_mod_plugin(uint32_t index, AnvilControlResult* out) {
 
 const char* svc_language() { return g_control != nullptr ? g_control->language() : "en"; }
 
+int svc_plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin* out) {
+    return fill_sized(out, [&](AnvilControlPlugin& full) { return g_control->plugin_of(plugin, full); });
+}
+
 const AnvilControlService kService{
     sizeof(AnvilControlService),
     svc_status,
@@ -259,6 +263,7 @@ const AnvilControlService kService{
     svc_approve_mod_plugin,
     svc_revoke_mod_plugin,
     svc_language,
+    svc_plugin_of,
 };
 
 const char* skipped_state(const Skipped&) { return "skipped"; }
@@ -403,6 +408,15 @@ bool Control::plugin(uint32_t index, AnvilControlPlugin& out) const {
     }
     out.disabled_next_start = disabled_next_start(id) ? 1 : 0;
     return true;
+}
+
+bool Control::plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin& out) const {
+    if (plugin == nullptr || sources_.plugins == nullptr) return false;
+    const auto& plugins = *sources_.plugins;
+    for (size_t i = 0; i < plugins.size(); ++i) {
+        if (plugins[i].get() == plugin) return this->plugin(static_cast<uint32_t>(i), out);
+    }
+    return false;
 }
 
 std::optional<std::string> Control::warning(uint32_t index) const {

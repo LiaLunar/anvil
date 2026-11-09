@@ -1,0 +1,110 @@
+# The game code anvil-script uses, for EU4 1.37.5 (Steam and GOG 1.37.5.2,
+# win64): the start of CEffect::ReadMember, which parses every member of every
+# container effect, and what a CEffect of the plugin's needs to be built,
+# appended, described and destroyed like the game's own. Every offset is a
+# value taken from verified bytes. Sources: EU4 engine lab
+# docs/research/script-effect-statics.md (GOG's eu4.pdb, the Steam bytes) and
+# its prototype docs/script-effect-game-test.md (eu4-engine-lab#77);
+# docs/spec/script-effects-v1.md section 7.
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
+
+[symbol.effect_read_member]
+# mov [rsp+8],rbx; mov [rsp+10h],rsi; push rbp; push rdi; push r12; push r14; push r15
+bytes = "48 89 5C 24 08 48 89 74 24 10 55 57 41 54 41 56 41 57"
+memory = "code"
+signature = "void (void* effect, void* reader, int token)"
+note = "CEffect::ReadMember(CReader&, int): a 31.5 kB switch over the lexer's tokens; every container effect parses its members here"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5DEC50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE720 }
+
+[symbol.effect_lhs_site]
+bytes = "48 8D 5E 30 48 8B CB"                       # lea rbx,[rsi+30h]; mov rcx,rbx (then CToken::GetString)
+memory = "code"
+values.lhs = { at = 3, size = 1 }
+note = "ReadMember's default branch takes the key's text from CReader::_Toklhs (CToken: id at +0, text at +4)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5E4B04 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5E45D4 }
+
+[symbol.effect_assign_site]
+# lea rcx,[rdi+10h]; lea rdx,[rsp+20h]; call CArray::Append; mov rcx,[rsp+20h]; mov rax,[rcx];
+# lea rdx,[rsi+440h]; call [rax+48h]
+bytes = "48 8D 4F 10 48 8D 54 24 20 E8 ?? ?? ?? ?? 48 8B 4C 24 20 48 8B 01 48 8D 96 40 04 00 00 FF 50 48"
+memory = "code"
+values.children = { at = 3, size = 1 }
+values.rhs = { at = 25, size = 4 }
+values.assign = { at = 31, size = 1 }
+note = "a simple effect's case in ReadMember: append to the parent's children (CEffect+0x10), Assign(CReader::_Tokrhs) through vtable slot 0x48"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5E0F43 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5E0A13 }
+
+[symbol.effect_set_token]
+bytes = "89 51 28 C3"                                # mov [rcx+28h],edx; ret
+memory = "code"
+values.token = { at = 2, size = 1 }
+note = "CEffect::SetToken(int): CEffect::_Token"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5EF140 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5EEC10 }
+
+[symbol.effect_ctor]
+bytes = "48 89 5C 24 20 48 89 4C 24 08 57 48 83 EC 40 48 8B D9 33 C0"
+memory = "code"
+signature = "void* (void* effect)"
+note = "CEffect::CEffect(): the vtable, token -1, and the effect registered in CEffectDataBase under its mutex"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5DE770 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE240 }
+
+[symbol.effect_vtable_site]
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7, type = "void*" }
+note = "lea rax,[CEffect::vftable]; mov [rcx],rax in CEffect::CEffect: 19 slots, 0x98 bytes"
+
+[symbol.effect_vtable_site.build."eu4-1.37.5-steam-win64"]
+rva = 0x5DE797
+bytes = "48 8D 05 AA FD 6B 01 48 89 01"
+
+[symbol.effect_vtable_site.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x5DE267
+bytes = "48 8D 05 5A 90 6A 01 48 89 01"
+
+[symbol.effect_dtor]
+bytes = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 40 4C 8B F1"
+memory = "code"
+signature = "void (void* effect)"
+note = "CEffect::~CEffect(): unregisters the effect and deletes its children through slot 0; frees nothing of the effect itself"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5DE8D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE3A0 }
+
+[symbol.array_append]
+bytes = "4C 8B C2 48 8B 51 08 48 3B 51 10 74 0C 49 8B 00 48 89 02 48 83 41 08 08 C3"
+memory = "code"
+signature = "void (void* array, void** item)"
+note = "CArray<T*>::Append, a std::vector<void*> push_back with the game's heap"
+build."eu4-1.37.5-steam-win64" = { rva = 0xC9F10 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xC9F40 }
+
+[symbol.scope_province_site]
+bytes = "48 8B DA 48 8B F9 83 7A 28 00"                  # mov rbx,rdx; mov rdi,rcx; cmp dword [rdx+28h],0
+memory = "code"
+values.province = { at = 8, size = 1 }
+note = "CProvinceCultureEffect::Execute+0x1F: a province effect reads the scope's own province (CEventScope+0x28); CEffect::GetScopeProvinceId answers only for ROOT, FROM and event targets"
+build."eu4-1.37.5-steam-win64" = { rva = 0x62367F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x62314F }
+
+[symbol.scope_country_site]
+# movzx r8d,byte [rdx+4Bh]; mov edx,44h; mov eax,edx; mov r9d,2Ch; test r8b,r8b; cmove eax,r9d
+bytes = "44 0F B6 42 4B BA 44 00 00 00 8B C2 41 B9 2C 00 00 00 45 84 C0 41 0F 44 C1"
+memory = "code"
+values.override_valid = { at = 4, size = 1 }
+values.override = { at = 6, size = 4 }
+values.tag = { at = 14, size = 4 }
+note = "CTreasuryEffect::Execute+0x25: a country effect's country is the scope's tag at +0x44 when +0x4B is set, else the tag at +0x2C (CCountryTag: text, then valid at +7)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5EFC55 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5EF725 }
+
+[symbol.cstring_from_text]
+bytes = "40 53 48 83 EC 20 33 C0 48 C7 41 18 0F 00 00 00 48 89 01 48 8B D9 88 01"
+memory = "code"
+signature = "void* (void* string, const char* text)"
+note = "CString::CString(const char*): the game's std::string, with the game's heap"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1703550 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x16ED320 }

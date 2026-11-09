@@ -3,7 +3,8 @@
  * #58). Status and start-up warnings, the settings of every plugin, the
  * previous crash report, the log tail and "disable at the next start"; since
  * 1.3 the plugins in mods with their approval (#60); since 1.7 the reasons as
- * messages and the player's language (#158). Fields and functions are only
+ * messages and the player's language (#158); since 1.16 a plugin's entry by
+ * its handle, for anvil-script (ADR 0008). Fields and functions are only
  * appended: a caller checks `size` before it reads a later one.
  *
  * Not part of the SDK: it lives in the Anvil repository, only Anvil's own
@@ -235,6 +236,13 @@ typedef struct AnvilControlService {
      * ANVIL_LANGUAGE, else EU4's settings.txt, else with Mei loaded Steam's or
      * Windows' Chinese, Japanese or Korean, else "en" (i18n::choose_language). */
     const char *(*language)(void);
+
+    /* --- a plugin by its handle (appended in 1.16, ADR 0008) --- */
+    /* The entry plugin() gives for the resolved plugin whose AnvilPlugin *self
+     * this is; 0 for any other pointer. anvil-script asks it which plugin
+     * registers an effect (affects_gameplay, early) and whether the owner of
+     * an effect is suspended now. */
+    int (*plugin_of)(const AnvilPlugin *plugin, AnvilControlPlugin *out);
 } AnvilControlService;
 
 #ifdef __cplusplus

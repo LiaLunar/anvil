@@ -1,0 +1,16 @@
+id = "anvil-script"
+name = "Anvil script"
+version = "1.15.0"
+authors = ["Happy Dwarf Team"]
+description = "Standard plugin: gameplay plugins add effects of their own to the game's script language, which mods use in events, decisions and scripted effects."
+api = 2
+entry = "anvil_script.dll"
+# Early, so that its hook is in place before the game parses a script file
+# and early gameplay plugins can depend on it.
+phase = "early"
+symbols = "symbols.toml"
+# It changes nothing by itself: without a registered effect every member of
+# every effect goes to the game as before. Only gameplay plugins register.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"

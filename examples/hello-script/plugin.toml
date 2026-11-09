@@ -1,0 +1,22 @@
+id = "hello-script"
+name = "Hello (script effect)"
+version = "0.1.0"
+authors = ["Happy Dwarf Team"]
+description = "Example plugin: a script effect of its own, hello_script_log = <text>, which a mod writes in an event or a decision; it logs the text and the scope and adds a tooltip line."
+api = 2
+entry = "hello_script.dll"
+# Early: anvil-script takes registrations only before the game parses its
+# scripts, and only from early plugins.
+phase = "early"
+# No symbols.toml: the plugin uses no game address of its own.
+# Only gameplay plugins may add script effects (ADR 0008). This one only logs,
+# but anything an effect does runs inside the game's own commands.
+affects_gameplay = true
+allow_ironman = false
+allow_multiplayer = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+[[dependencies]]
+id = "anvil-script"
+version = "^1.16"   # the first Anvil with anvil-script.effects

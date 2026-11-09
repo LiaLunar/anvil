@@ -68,6 +68,8 @@ public:
 
     void status(AnvilControlStatus& out) const;
     bool plugin(uint32_t index, AnvilControlPlugin& out) const;
+    // plugin() of the resolved plugin with this handle; false for any other.
+    bool plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin& out) const;
     std::optional<std::string> warning(uint32_t index) const;
     PluginSettings* settings_of(std::string_view plugin_id) const;
     // The previous crash, loaded on the first call; that call also marks it
