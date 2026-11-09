@@ -1260,7 +1260,7 @@ void draw_crash() {
     }
     const CrashInfo& c = *u.crash;
     line(trf(c.before_game_ready ? N_("Report {0}, before the game was ready") : N_("Report {0}"), {c.name}));
-    wrapped(trf("The crash was {0}.", {c.summary_text()}));
+    wrapped(crash_sentence(c));
     if (!c.plugins.empty()) {
         std::string list;
         for (const std::string& id : c.plugins) list += (list.empty() ? "" : ", ") + id;

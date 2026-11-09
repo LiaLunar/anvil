@@ -57,9 +57,6 @@ struct CrashInfo {
     std::wstring path;
     bool before_game_ready = false;
     bool is_new = false;
-
-    // "in plugin x's code" in the player's language.
-    std::string summary_text() const { return anvil::i18n::text(anvil::i18n::crash_message(level, plugins, summary)); }
 };
 
 class ControlClient {

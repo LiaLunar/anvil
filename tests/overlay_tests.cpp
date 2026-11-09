@@ -261,7 +261,7 @@ int main() {
         crash.is_new = true;
         crash.name = "2026-10-20_18-05-11";
         crash.level = "in_plugin_change";
-        crash.summary = "in plugin tongs's change (also bellows)";
+        crash.summary = "in plugin tongs's change (also bellows, gone)";
         crash.plugins = {"tongs", "bellows", "gone"};
         crash.before_game_ready = true;
         facts.crash = crash;
@@ -270,7 +270,7 @@ int main() {
         CHECK(n != nullptr && n->kind == NoticeKind::Warning);
         if (n == nullptr) return;
         CHECK(n->title.find("before the game was ready") != std::string::npos);
-        CHECK(n->lines[0] == "The crash was in plugin tongs's change (also bellows).");
+        CHECK(n->lines[0] == "The crash was in plugin tongs's change (also bellows, gone).");
         CHECK(n->lines[1] == "Report: anvil\\crashes\\2026-10-20_18-05-11.txt");
         // bellows is already disabled from the next start, gone is not a plugin of this start.
         CHECK(disable_actions(*n) == 1 && n->actions[0].plugin == "tongs");
@@ -279,6 +279,34 @@ int main() {
         CHECK(disable_actions(*find(start_notices(facts), "crash")) == 0);
         facts.crash->level = "no_plugin";
         CHECK(find(start_notices(facts), "crash")->lines[0] == "No plugin was involved.");
+    });
+
+    run("notices: the crash is one whole sentence for each level", [] {
+        auto sentence = [](const char* level, std::vector<std::string> plugins, const char* summary) {
+            CrashInfo crash;
+            crash.level = level;
+            crash.plugins = std::move(plugins);
+            crash.summary = summary;
+            return crash_sentence(crash);
+        };
+        CHECK(sentence("in_plugin_code", {"tongs"}, "in plugin tongs's code") == "The crash was in plugin tongs's code.");
+        CHECK(sentence("in_plugin_code", {"tongs", "bellows"}, "") == "The crash was in plugin tongs's code (also bellows).");
+        CHECK(sentence("in_plugin_change", {"tongs"}, "") == "The crash was in plugin tongs's change.");
+        CHECK(sentence("plugin_on_stack", {"y"}, "plugin y on the stack") ==
+              "Plugin y was on the stack when the game crashed.");
+        CHECK(sentence("plugin_on_stack", {"y", "z"}, "") == "Plugin y was on the stack when the game crashed (also z).");
+        CHECK(sentence("no_plugin", {}, "no plugin involved") == "No plugin was involved.");
+        // The level names no plugin, or the report has no words: nothing to blame.
+        CHECK(sentence("in_plugin_code", {}, "") == "The report names no plugin.");
+        CHECK(sentence("", {}, "") == "The report names no plugin.");
+        // Another Anvil's words are quoted as they are, not put in a sentence of ours.
+        CHECK(sentence("later_level", {"z"}, "something new") == "The report says: something new");
+        CHECK(sentence("in_plugin_code", {"tongs"}, "in X") == "The report says: in X");
+        // Each level is a sentence of its own in the catalogs, not English words in a translated frame.
+        anvil::i18n::set_language(anvil::i18n::Language::German);
+        CHECK(sentence("plugin_on_stack", {"y"}, "") == "Das Plugin y war beim Absturz auf dem Stack.");
+        CHECK(sentence("in_plugin_code", {"tongs"}, "") == "Der Absturz geschah im Code des Plugins tongs.");
+        anvil::i18n::set_language(anvil::i18n::Language::English);
     });
 
     run("notices: safe mode explains itself", [] {

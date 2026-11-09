@@ -53,6 +53,11 @@ struct StartFacts {
 };
 std::vector<Notice> start_notices(const StartFacts& facts);
 
+// The crash in one sentence, in the player's language, for each level of the
+// report: "The crash was in plugin x's code.", "Plugin x was on the stack when
+// the game crashed.", "No plugin was involved."; another Anvil's words as they are.
+std::string crash_sentence(const CrashInfo& crash);
+
 // How many plugins wait for an update that supports this game build: those
 // whose symbols.toml does not declare it and those that need one of them. The
 // badge turns amber for them; a plugin that failed still turns it red.

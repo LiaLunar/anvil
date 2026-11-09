@@ -21,12 +21,6 @@ bool disabled_next(const StartFacts& facts, const std::string& id) {
                        [&](const PluginRow& p) { return p.id == id && p.disabled_next; });
 }
 
-std::string crash_line(const CrashInfo& crash) {
-    if (crash.level == "no_plugin") return tr("No plugin was involved.");
-    if (!crash.summary.empty() || !crash.plugins.empty()) return trf("The crash was {0}.", {crash.summary_text()});
-    return tr("The report names no plugin.");
-}
-
 bool unknown_build(const PluginRow& p) { return p.why.code == "build_unknown" || p.why.code == "build_unknown_gog"; }
 bool not_for_this_build(const PluginRow& p) { return p.why.code == "symbols_build" || p.why.code == "symbols_builds"; }
 
@@ -68,6 +62,29 @@ std::string and_more(size_t more) { return trf("and {0} more", {std::to_string(m
 
 }  // namespace
 
+std::string crash_sentence(const CrashInfo& crash) {
+    if (crash.level == "no_plugin") return tr("No plugin was involved.");
+    const anvil::i18n::Message m = anvil::i18n::crash_message(crash.level, crash.plugins, crash.summary);
+    if (m.code.empty()) {
+        // Another Anvil's words, shown as they are.
+        return m.text.empty() ? tr("The report names no plugin.") : trf("The report says: {0}", {m.text});
+    }
+    const bool also = m.code == "crash_also";
+    const anvil::i18n::Message& where = also ? m.args[0] : m;
+    if (where.code == "crash_none" || where.args.empty()) return tr("The report names no plugin.");
+    const std::string& plugin = where.args[0].text;
+    if (where.code == "crash_in_code") {
+        if (also) return trf("The crash was in plugin {0}'s code (also {1}).", {plugin, m.args[1].text});
+        return trf("The crash was in plugin {0}'s code.", {plugin});
+    }
+    if (where.code == "crash_in_change") {
+        if (also) return trf("The crash was in plugin {0}'s change (also {1}).", {plugin, m.args[1].text});
+        return trf("The crash was in plugin {0}'s change.", {plugin});
+    }
+    if (also) return trf("Plugin {0} was on the stack when the game crashed (also {1}).", {plugin, m.args[1].text});
+    return trf("Plugin {0} was on the stack when the game crashed.", {plugin});
+}
+
 size_t plugins_waiting_for_build(const std::vector<PluginRow>& plugins) {
     return held_back(plugins, not_for_this_build).size();
 }
@@ -89,7 +106,7 @@ std::vector<Notice> start_notices(const StartFacts& facts) {
         n.lines.push_back(trf("The last {0} starts ended before the game was ready, so this start loads only Anvil's "
                               "standard plugins. The next start loads every plugin again.",
                               {std::to_string(facts.unfinished_starts)}));
-        if (facts.crash) n.lines.push_back(crash_line(*facts.crash));
+        if (facts.crash) n.lines.push_back(crash_sentence(*facts.crash));
         n.actions.push_back({NoticeAction::Type::OpenPanel, {}, tr("Open the panel")});
         notices.push_back(std::move(n));
     }
@@ -101,7 +118,7 @@ std::vector<Notice> start_notices(const StartFacts& facts) {
         n.kind = NoticeKind::Warning;
         n.title = crash.before_game_ready ? tr("The previous start crashed before the game was ready")
                                           : tr("The game crashed last time");
-        n.lines.push_back(crash_line(crash));
+        n.lines.push_back(crash_sentence(crash));
         n.lines.push_back(trf("Report: {0}", {"anvil\\crashes\\" + crash.name + ".txt"}));
         // Only the levels that put the crash in a plugin offer to disable it;
         // "on the stack" is too weak to suggest it.
