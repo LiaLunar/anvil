@@ -6,10 +6,10 @@
 //   1. at the entry point it hooks Direct3DCreate9 and Direct3DCreate9Ex in
 //      d3d9.dll with hook_function_at, before the game creates its renderer;
 //   2. on the object they return it hooks CreateDevice (and CreateDeviceEx)
-//      in d3d9.dll with hook_function_at;
+//      in d3d9.dll with hook_function_at; there it subclasses the game window
+//      for input before the device is made;
 //   3. on the device it hooks EndScene, Reset (and ResetEx), chained with any
-//      other plugin's Direct3D 9 hooks, and subclasses the game window for
-//      input.
+//      other plugin's Direct3D 9 hooks.
 // On the OpenGL backend none of this is called and the overlay stays off.
 //
 // With no notice shown, the panel closed and the badge not shown (it is only
@@ -252,8 +252,25 @@ HRESULT STDMETHODCALLTYPE on_reset_ex(IDirect3DDevice9Ex* device, D3DPRESENT_PAR
     return g_reset_ex.hook.next(device, parameters, mode);
 }
 
+HWND device_window(HWND focus, const D3DPRESENT_PARAMETERS* parameters) {
+    return parameters != nullptr && parameters->hDeviceWindow != nullptr ? parameters->hDeviceWindow : focus;
+}
+
+// The window is subclassed before the device is made, so the overlay sits
+// under what the device itself puts on the window. DXVK in exclusive
+// fullscreen hooks the window inside CreateDevice, keeps the procedure it
+// found as its previous one, and when its swap chain goes puts that back only
+// if its own procedure is still on top (otherwise it forgets it). Subclassed
+// after it, the overlay would keep DXVK's procedure while DXVK's next hook
+// keeps the overlay's: a cycle of procedures, and a stack overflow at the
+// first message.
+void subclass_before_device(HWND focus, const D3DPRESENT_PARAMETERS* parameters) {
+    std::lock_guard lock(g_hook_mutex);
+    subclass(device_window(focus, parameters));
+}
+
 void on_device(IDirect3DDevice9* device, HWND focus, const D3DPRESENT_PARAMETERS* parameters, bool ex) {
-    HWND window = parameters != nullptr && parameters->hDeviceWindow != nullptr ? parameters->hDeviceWindow : focus;
+    HWND window = device_window(focus, parameters);
     std::lock_guard lock(g_hook_mutex);
     bool ok = hook_at(g_end_scene, slot(device, kEndScene), on_end_scene, "IDirect3DDevice9::EndScene");
     ok = hook_at(g_reset, slot(device, kReset), on_reset, "IDirect3DDevice9::Reset") && ok;
@@ -272,6 +289,10 @@ void on_device(IDirect3DDevice9* device, HWND focus, const D3DPRESENT_PARAMETERS
 
 HRESULT STDMETHODCALLTYPE on_create_device(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND focus, DWORD flags,
                                            D3DPRESENT_PARAMETERS* parameters, IDirect3DDevice9** out) noexcept {
+    try {
+        subclass_before_device(focus, parameters);
+    } catch (...) {
+    }
     const HRESULT hr = g_create_device.hook.next(d3d, adapter, type, focus, flags, parameters, out);
     if (SUCCEEDED(hr) && out != nullptr && *out != nullptr) {
         try {
@@ -285,6 +306,10 @@ HRESULT STDMETHODCALLTYPE on_create_device(IDirect3D9* d3d, UINT adapter, D3DDEV
 HRESULT STDMETHODCALLTYPE on_create_device_ex(IDirect3D9Ex* d3d, UINT adapter, D3DDEVTYPE type, HWND focus,
                                               DWORD flags, D3DPRESENT_PARAMETERS* parameters, D3DDISPLAYMODEEX* mode,
                                               IDirect3DDevice9Ex** out) noexcept {
+    try {
+        subclass_before_device(focus, parameters);
+    } catch (...) {
+    }
     const HRESULT hr = g_create_device_ex.hook.next(d3d, adapter, type, focus, flags, parameters, mode, out);
     if (SUCCEEDED(hr) && out != nullptr && *out != nullptr) {
         try {

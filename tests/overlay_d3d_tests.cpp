@@ -67,6 +67,55 @@ LRESULT CALLBACK game_window_proc(HWND window, UINT message, WPARAM wparam, LPAR
     return DefWindowProcW(window, message, wparam, lparam);
 }
 
+// A stand-in of DXVK's window hook (src/d3d9/d3d9_window.cpp in DXVK 2.7.1).
+// A swap chain in exclusive fullscreen hooks its window inside CreateDevice
+// and takes the procedure on top as its "previous" one; when the swap chain
+// goes, it puts that back only if its own procedure is still on top, and
+// otherwise just forgets it. The overlay must therefore sit under it.
+HWND g_dxvk_window = nullptr;
+WNDPROC g_dxvk_previous = nullptr;
+int g_dxvk_depth = 0;
+int g_dxvk_max_depth = 0;
+int g_dxvk_game_messages = 0;
+constexpr UINT kDxvkProbe = WM_APP + 7;
+
+LRESULT CALLBACK dxvk_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (g_dxvk_previous == nullptr) return DefWindowProcW(window, message, wparam, lparam);
+    if (g_dxvk_depth >= 8) {  // a cycle of procedures; cut short instead of overflowing the stack
+        g_dxvk_max_depth = 99;
+        return 0;
+    }
+    g_dxvk_max_depth = std::max(g_dxvk_max_depth, ++g_dxvk_depth);
+    const LRESULT result = CallWindowProcW(g_dxvk_previous, window, message, wparam, lparam);
+    --g_dxvk_depth;
+    return result;
+}
+void dxvk_reset_window_proc(HWND window) {
+    if (g_dxvk_previous == nullptr) return;
+    if (reinterpret_cast<WNDPROC>(GetWindowLongPtrW(window, GWLP_WNDPROC)) == &dxvk_window_proc) {
+        SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(g_dxvk_previous));
+    }
+    g_dxvk_previous = nullptr;
+}
+void dxvk_hook_window_proc(HWND window) {
+    dxvk_reset_window_proc(window);
+    g_dxvk_previous = reinterpret_cast<WNDPROC>(
+        SetWindowLongPtrW(window, GWLP_WNDPROC, reinterpret_cast<LONG_PTR>(&dxvk_window_proc)));
+}
+using CreateDeviceFn = HRESULT(STDMETHODCALLTYPE*)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*,
+                                                   IDirect3DDevice9**);
+CreateDeviceFn g_dxvk_next = nullptr;
+HRESULT STDMETHODCALLTYPE dxvk_create_device(IDirect3D9* d3d, UINT adapter, D3DDEVTYPE type, HWND focus, DWORD flags,
+                                             D3DPRESENT_PARAMETERS* parameters, IDirect3DDevice9** out) {
+    const HRESULT hr = g_dxvk_next(d3d, adapter, type, focus, flags, parameters, out);
+    if (SUCCEEDED(hr) && focus == g_dxvk_window) dxvk_hook_window_proc(focus);  // "fullscreen" on this window
+    return hr;
+}
+LRESULT CALLBACK dxvk_game_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    if (message == kDxvkProbe) ++g_dxvk_game_messages;
+    return DefWindowProcW(window, message, wparam, lparam);
+}
+
 LPARAM point(int x, int y) { return MAKELPARAM(x, y); }
 
 bool contains(const std::vector<std::string>& log, const std::string& part) {
@@ -426,6 +475,52 @@ int main(int argc, char** argv) {
         CHECK(panels->show(panel, 0) == ANVIL_OK && panels->shown(panel) == 0);
         frame(device, area);
         CHECK(frame(device, area) == 0);
+    });
+
+    run("overlay: under DXVK's window hook, devices made and released in fullscreen keep one chain to the game", [&] {
+        // EU4 on DXVK in exclusive fullscreen: a device, released, then the
+        // device it keeps, each hooking the window inside CreateDevice.
+        WNDCLASSEXW dc{sizeof(dc)};
+        dc.lpfnWndProc = dxvk_game_window_proc;
+        dc.hInstance = self;
+        dc.lpszClassName = L"anvil-overlay-dxvk-test";
+        RegisterClassExW(&dc);
+        HWND game = CreateWindowExW(0, dc.lpszClassName, L"anvil-overlay dxvk test", WS_OVERLAPPEDWINDOW, 0, 0, kWidth,
+                                    kHeight, nullptr, nullptr, self, nullptr);
+        g_dxvk_window = game;
+        // DXVK as the code under the overlay's CreateDevice hook (a later owner sits further in).
+        const OwnerId dxvk = changes.add_owner("dxvk");
+        ChangeTarget target;
+        target.address = reinterpret_cast<uintptr_t>((*reinterpret_cast<void***>(d3d))[16]);
+        target.inside_image = false;
+        CHECK(changes.hook_function(dxvk, target, reinterpret_cast<void*>(&dxvk_create_device),
+                                    reinterpret_cast<void**>(&g_dxvk_next)) == ChangeStatus::Ok);
+        const auto create = [&] {
+            IDirect3DDevice9* made = nullptr;
+            D3DPRESENT_PARAMETERS p = parameters(game);
+            CHECK(SUCCEEDED(d3d->CreateDevice(D3DADAPTER_DEFAULT, D3DDEVTYPE_HAL, game,
+                                              D3DCREATE_SOFTWARE_VERTEXPROCESSING | D3DCREATE_FPU_PRESERVE, &p, &made)));
+            return made;
+        };
+        const auto release = [&](IDirect3DDevice9* gone) {
+            dxvk_reset_window_proc(game);  // as DXVK's swap chain when it goes
+            if (gone != nullptr) gone->Release();
+        };
+        const auto probe = [&] {
+            g_dxvk_max_depth = 0;
+            SendMessageW(game, kDxvkProbe, 0, 0);
+        };
+        release(create());
+        IDirect3DDevice9* kept = create();
+        probe();
+        CHECK(g_dxvk_game_messages == 1);  // reached the game once, not a cycle
+        CHECK(g_dxvk_max_depth == 1);
+        release(kept);
+        probe();
+        CHECK(g_dxvk_game_messages == 2);  // after DXVK leaves, the overlay still leads to the game
+        CHECK(g_dxvk_max_depth == 0);
+        changes.rollback(dxvk);
+        DestroyWindow(game);
     });
 
     device->Release();
