@@ -1,6 +1,6 @@
 id = "anvil-map"
 name = "Anvil map"
-version = "1.16.0"
+version = "1.17.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin: map modes from plugins, with a button on the minimap's list, a colour for each province and lines in the province's tooltip."
 api = 2

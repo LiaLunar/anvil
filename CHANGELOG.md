@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.17.0](https://github.com/happy-dwarf-team/anvil/compare/v1.16.0...v1.17.0) (2026-11-09)
+
+
+### Features
+
+* **api:** add anvil-game.commands, the unit panel's commands for gameplay plugins ([#297](https://github.com/happy-dwarf-team/anvil/issues/297)) ([014231a](https://github.com/happy-dwarf-team/anvil/commit/014231a7ff3496f2971d2133324b19d79e294e38))
+* **api:** choose an event option through anvil-game.commands (version 2) ([#298](https://github.com/happy-dwarf-team/anvil/issues/298)) ([478df38](https://github.com/happy-dwarf-team/anvil/commit/478df3860b7037cb96a2b950fe3fd11d87890e3e))
+
+
+### Bug Fixes
+
+* **overlay:** subclass the game window before the device is made ([#292](https://github.com/happy-dwarf-team/anvil/issues/292)) ([dcad034](https://github.com/happy-dwarf-team/anvil/commit/dcad0349ef78c2cb0a8d80c749e29adc12b5fac7))
+
 ## [1.16.0](https://github.com/happy-dwarf-team/anvil/compare/v1.15.0...v1.16.0) (2026-11-09)
 
 

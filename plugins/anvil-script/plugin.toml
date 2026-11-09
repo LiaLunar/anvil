@@ -1,6 +1,6 @@
 id = "anvil-script"
 name = "Anvil script"
-version = "1.16.0"
+version = "1.17.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin: gameplay plugins add effects of their own to the game's script language, which mods use in events, decisions and scripted effects."
 api = 2
