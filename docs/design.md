@@ -827,6 +827,11 @@ Exceeding a budget blocks the release and any change to stubs, chains or core st
 
 `anvil/anvil.log` is UTF-8 and rotated. It records the Anvil version, the build, each plugin's status and reason, its changes, verification failures with the symbol and byte, timings and the call counters. The same status is published as the `anvil.status` service and event for the overlay and the Manager.
 
+After the build line it names the platform, so a report from Linux says what the game ran on (`src/core/platform.cpp`; read and logged only, nothing behaves differently):
+
+- `Wine: <version> (build <build id>, host <system> <release>)` from `ntdll`'s `wine_get_version`, `wine_get_build_id` and `wine_get_host_version` under Wine or Proton; `Wine: not detected` on Windows.
+- `d3d9.dll: …` with the company and file version of its version resource and whether it came from the system folder, the game folder or elsewhere. DXVK's resource copies the version of Microsoft's `d3d9.dll`, so for DXVK the line starts with the version DXVK keeps next to its `DXVK: ` log prefix (`d3d9.dll: DXVK v2.7.1 (version resource: DXVK 10.0.17763.1, system folder)`); Wine's own `d3d9.dll` (wined3d, `PROTON_USE_WINED3D=1`) gives the company `Microsoft Corporation` and the product `Wine <version>` (`include/ntverp.h.in`). Microsoft's `d3d9.dll` is not searched for that string.
+
 ## 19. Security
 
 Plugins are native code with the game's permissions:

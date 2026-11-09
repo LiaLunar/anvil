@@ -1,5 +1,6 @@
 // Unit tests for the Anvil core. Usage: anvil_tests <path-to-built-version.dll>
 #include "core/manifest.hpp"
+#include "core/platform.hpp"
 #include "core/resolver.hpp"
 #include "core/semver.hpp"
 #include "core/services.hpp"
@@ -247,6 +248,60 @@ int main(int argc, char** argv) {
             CHECK(HIWORD(fixed->dwFileVersionMS) == expected->major && LOWORD(fixed->dwFileVersionMS) == expected->minor &&
                   HIWORD(fixed->dwFileVersionLS) == expected->patch);
         }
+    });
+
+    run("platform: the DXVK version string", [] {
+        using namespace std::string_view_literals;
+        // As DXVK 2.7.1's d3d9.dll lays it out in .rdata.
+        CHECK(find_dxvk_version("n\0  \0DXVK\0Game: \0DXVK: \0v2.7.1\0Build: \0"sv) == "v2.7.1");
+        CHECK(find_dxvk_version("DXVK: \0\0\0\0v2.7.1-498-ga6764047\0"sv) == "v2.7.1-498-ga6764047");
+        // Other "DXVK: " messages are not the version.
+        CHECK(!find_dxvk_version("DXVK: Unhandled query type: \0DXVK: \0Build: \0"sv));
+        CHECK(find_dxvk_version("DXVK: Using \0DXVK: \0v3.1\0"sv) == "v3.1");
+        CHECK(!find_dxvk_version("DXVK: \0v"sv));
+        CHECK(!find_dxvk_version(""sv));
+    });
+
+    run("platform: version resources and the log lines", [&] {
+        // Microsoft's own d3d9.dll, read as a data file.
+        wchar_t system[MAX_PATH] = {};
+        GetSystemDirectoryW(system, MAX_PATH);
+        const std::wstring d3d9_path = std::wstring(system) + L"\\d3d9.dll";
+        HMODULE data = LoadLibraryExW(d3d9_path.c_str(), nullptr, LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+        CHECK(data != nullptr);
+        if (data) {
+            const VersionResource r = module_version_resource(data);
+            CHECK(r.strings.count("CompanyName") == 1 && r.strings.at("CompanyName").rfind("Microsoft", 0) == 0);
+            CHECK(r.strings.count("ProductName") == 1);
+            CHECK(r.file_version.rfind("10.0.", 0) == 0);
+            FreeLibrary(data);
+        }
+        // The real d3d9.dll, loaded: on Windows the system one, no DXVK scan.
+        HMODULE d3d9 = LoadLibraryW(L"d3d9.dll");
+        CHECK(d3d9 != nullptr);
+        const std::string line = d3d9_log_line(d3d9, {});
+        CHECK(line.rfind("d3d9.dll: Microsoft", 0) == 0);
+        CHECK(line.find("system folder") != std::string::npos);
+        CHECK(d3d9_log_line(nullptr, {}) == "d3d9.dll: not loaded");
+        // Anvil's own version.dll: its resource names Happy Dwarf Team.
+        if (argc >= 2) {
+            HMODULE proxy = LoadLibraryExA(argv[1], nullptr, LOAD_LIBRARY_AS_DATAFILE_EXCLUSIVE | LOAD_LIBRARY_AS_IMAGE_RESOURCE);
+            CHECK(proxy != nullptr);
+            if (proxy) {
+                const VersionResource r = module_version_resource(proxy);
+                CHECK(r.strings.count("CompanyName") == 1 && r.strings.at("CompanyName") == "Happy Dwarf Team");
+                FreeLibrary(proxy);
+            }
+        }
+        CHECK(parse_version_resource(nullptr, 0).strings.empty());
+        const uint8_t junk[8] = {0xFF, 0xFF, 0, 0, 0, 0, 0, 0};
+        CHECK(parse_version_resource(junk, sizeof(junk)).strings.empty());
+        // The Wine lines: these tests run on Windows.
+        CHECK(!detect_wine());
+        CHECK(wine_log_line(std::nullopt) == "Wine: not detected");
+        CHECK(wine_log_line(WineInfo{"11.0", "wine-11.0 (Proton-11.0-2e)", "Linux", "6.11.11-valve19"}) ==
+              "Wine: 11.0 (build wine-11.0 (Proton-11.0-2e), host Linux 6.11.11-valve19)");
+        CHECK(wine_log_line(WineInfo{"9.0", "", "", ""}) == "Wine: 9.0");
     });
 
     std::printf("%d checks, %d failed\n", g_checks, g_failures);

@@ -93,6 +93,7 @@ add_library(anvil_core STATIC
     src/core/manifest.cpp
     src/core/mod_plugins.cpp
     src/core/pe_image.cpp
+    src/core/platform.cpp
     src/core/playset.cpp
     src/core/plugin_hash.cpp
     src/core/resolver.cpp

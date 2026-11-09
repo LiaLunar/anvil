@@ -12,6 +12,7 @@
 #include "host.hpp"
 #include "log.hpp"
 #include "manifest.hpp"
+#include "platform.hpp"
 #include "changes.hpp"
 #include "control.hpp"
 #include "crash.hpp"
@@ -572,6 +573,10 @@ void startup_impl(const std::filesystem::path& game_dir) {
     std::snprintf(header, sizeof(header), "timestamp 0x%08X, image 0x%X, checksum 0x%08X, entry 0x%X",
                   identity->pe_timestamp, identity->size_of_image, identity->pe_checksum, identity->entry_point_rva);
     log_info(std::string("game build: ") + (game.build_id ? game.build_id : "unknown") + " (" + header + ")");
+    // For reports from Linux: the Wine and the Direct3D 9 the game runs on
+    // (eu4.exe imports d3d9.dll, so it is loaded by now). Log only.
+    log_info(wine_log_line(detect_wine()));
+    log_info(d3d9_log_line(GetModuleHandleW(L"d3d9.dll"), game_dir));
     const i18n::Message unknown_build = game.build_id ? i18n::Message() : unknown_build_reason(game_dir);
     if (unknown_build.code == "build_unknown_gog") log_warning(i18n::english(unknown_build));
 
