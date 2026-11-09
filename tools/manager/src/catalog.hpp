@@ -61,6 +61,10 @@ struct CatalogStatus {
     bool from_mod = false;   // an enabled mod carries a plugin with this id
     // Installed at the pinned version.
     bool current(const CatalogPlugin& plugin) const { return !installed.empty() && installed == plugin.version; }
+    // An update the catalog offers (ADR 0006): installed in anvil/plugins at a
+    // version older than the pin, which this build and Anvil can run. A plugin
+    // only from a mod updates through Steam and is never one.
+    bool update(const CatalogPlugin& plugin) const;
 };
 
 // `local` are the (id, version) of anvil/plugins, `mods` the ids of plugins
@@ -69,6 +73,12 @@ struct CatalogStatus {
 CatalogStatus catalog_status(const CatalogPlugin& plugin, std::string_view build, std::string_view anvil_version,
                              const std::vector<std::pair<std::string, std::string>>& local,
                              const std::vector<std::string>& mods);
+
+// The plugins of `catalog` whose status is an update, in its order, with the
+// same arguments as catalog_status.
+std::vector<const CatalogPlugin*> catalog_updates(const Catalog& catalog, std::string_view build, std::string_view anvil_version,
+                                                  const std::vector<std::pair<std::string, std::string>>& local,
+                                                  const std::vector<std::string>& mods);
 
 // Why a downloaded zip is not the pinned one (size, then SHA-256); empty when it is.
 std::string check_pinned_zip(const CatalogPlugin& plugin, const std::vector<uint8_t>& bytes);

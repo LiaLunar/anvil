@@ -102,9 +102,12 @@ menu" on its Anvil tab makes that one click, and uninstalling removes the entry.
 - Its Catalog tab lists the team's plugins (Bellows, Tongs, Hamweard, Mei) and
   installs or updates one with a click (Anvil 1.9 and later): the Manager
   downloads the zip of the release the list pins, installs it only if its
-  SHA-256 matches, and shows what `anvil check` finds first. Nothing is
-  downloaded until you click; see
-  [ADR 0002](docs/adr/0002-manager-plugin-catalog.md).
+  SHA-256 matches, and shows what `anvil check` finds first. If you agreed
+  to the release check, it reads the list when it starts and shows which
+  installed plugins have an update; no zip is downloaded until you
+  click. See
+  [ADR 0002](docs/adr/0002-manager-plugin-catalog.md) and
+  [ADR 0006](docs/adr/0006-catalog-check-at-start.md).
 - It installs a plugin from its release zip after checking it against your
   `eu4.exe`, and edits plugin settings.
 - On its Mods tab it approves and revokes plugins that come with enabled mods

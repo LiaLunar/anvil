@@ -159,6 +159,23 @@ CatalogStatus catalog_status(const CatalogPlugin& plugin, std::string_view build
     return status;
 }
 
+bool CatalogStatus::update(const CatalogPlugin& plugin) const {
+    if (!for_build || !anvil_ok) return false;
+    const auto have = Version::parse(installed);
+    const auto pinned = Version::parse(plugin.version);
+    return have && pinned && *have < *pinned;
+}
+
+std::vector<const CatalogPlugin*> catalog_updates(const Catalog& catalog, std::string_view build, std::string_view anvil_version,
+                                                  const std::vector<std::pair<std::string, std::string>>& local,
+                                                  const std::vector<std::string>& mods) {
+    std::vector<const CatalogPlugin*> out;
+    for (const CatalogPlugin& plugin : catalog.plugins) {
+        if (catalog_status(plugin, build, anvil_version, local, mods).update(plugin)) out.push_back(&plugin);
+    }
+    return out;
+}
+
 std::string check_pinned_zip(const CatalogPlugin& plugin, const std::vector<uint8_t>& bytes) {
     if (bytes.size() != plugin.zip.size) {
         return "the download has " + std::to_string(bytes.size()) + " bytes, the catalog says " + std::to_string(plugin.zip.size);

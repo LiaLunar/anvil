@@ -70,5 +70,5 @@ values = [
 ]
 default = "ask"
 label = "Check for new Anvil releases"
-description = "When the game is ready, ask GitHub (api.github.com) once for Anvil's latest release and, when it is newer, show a notice with a link to its page. Nothing is downloaded. Ask: follow your answer in Anvil Manager, or ask once in the game."
+description = "When the game is ready, ask GitHub (api.github.com) once for Anvil's latest release and, when it is newer, show a notice with a link to its page. Nothing is downloaded. Ask: follow your answer in Anvil Manager, or ask once in the game. A Manager that never asked follows On or Off here, and then also reads the list of the team's plugins at its start to show their updates."
 restart = false

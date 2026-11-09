@@ -26,7 +26,8 @@ Notice release_question() {
     n.title = tr("Check for new Anvil releases?");
     n.lines.push_back(tr("Should Anvil ask GitHub for its latest release when the game starts? It only shows a notice "
                          "with a link; nothing is downloaded. Anvil Manager asks the same, and one answer counts for "
-                         "both. You can change it in the panel's settings."));
+                         "both; the Manager also looks for updates of the team's plugins with it. You can change it "
+                         "in the panel's settings."));
     n.actions.push_back({NoticeAction::Type::ReleaseCheckOn, {}, tr("Yes, check for releases"), {}});
     n.actions.push_back({NoticeAction::Type::ReleaseCheckOff, {}, tr("No"), {}});
     return n;

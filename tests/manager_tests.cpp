@@ -737,6 +737,33 @@ int main(int argc, char** argv) {
         CHECK(status.installed == "0.18.0" && !status.current(plugin));
         plugin.builds.clear();
         CHECK(catalog_status(plugin, "", "1.8.0", none, {}).for_build);  // no symbols: every build
+        plugin.builds = {"eu4-1.37.5-steam-win64"};
+
+        // Updates (ADR 0006): an older copy in anvil/plugins that this build and Anvil can run.
+        const std::string steam = "eu4-1.37.5-steam-win64";
+        CHECK(catalog_status(plugin, steam, "1.8.0", {{"bellows", "0.18.0"}}, {}).update(plugin));
+        CHECK(catalog_status(plugin, steam, "1.8.0", {{"bellows", "0.18.0"}}, {"bellows"}).update(plugin));  // its copy loads
+        CHECK(!catalog_status(plugin, steam, "1.8.0", {{"bellows", "0.19.0"}}, {}).update(plugin));       // current
+        CHECK(!catalog_status(plugin, steam, "1.8.0", {{"bellows", "0.20.0-dev"}}, {}).update(plugin));   // newer, from main
+        CHECK(catalog_status(plugin, steam, "1.8.0", {{"bellows", "0.19.0-rc.1"}}, {}).update(plugin));   // a pre-release of the pin
+        CHECK(!catalog_status(plugin, steam, "1.8.0", none, {"bellows"}).update(plugin));  // only from a mod: Steam updates it
+        CHECK(!catalog_status(plugin, steam, "1.8.0", none, {}).update(plugin));           // not installed
+        CHECK(!catalog_status(plugin, steam, "1.8.0", {{"bellows", "?"}}, {}).update(plugin));  // version unknown
+        CHECK(!catalog_status(plugin, steam, "1.6.1", {{"bellows", "0.18.0"}}, {}).update(plugin));  // needs a newer Anvil
+        CHECK(!catalog_status(plugin, "eu4-1.37.5.2-gog-win64", "1.8.0", {{"bellows", "0.18.0"}}, {}).update(plugin));
+        Catalog catalog;
+        catalog.plugins.push_back(plugin);
+        CatalogPlugin tongs = plugin;
+        tongs.id = "tongs";
+        tongs.version = "0.27.0";
+        catalog.plugins.push_back(tongs);
+        CatalogPlugin mei = plugin;
+        mei.id = "mei";
+        catalog.plugins.push_back(mei);
+        const auto updates =
+            catalog_updates(catalog, steam, "1.8.0", {{"tongs", "0.26.1"}, {"bellows", "0.18.0"}, {"mei", "0.19.0"}}, {});
+        CHECK(updates.size() == 2 && updates[0]->id == "bellows" && updates[1]->id == "tongs");
+        CHECK(catalog_updates(catalog, steam, "1.8.0", none, {"bellows", "tongs"}).empty());
 
         const std::vector<uint8_t> bytes = {'a', 'b', 'c'};
         plugin.zip.size = 3;
