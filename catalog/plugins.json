@@ -50,17 +50,18 @@
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
-      "version": "1.2.1",
+      "version": "1.3.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
         "eu4-1.37.5-steam-win64",
-        "eu4-1.37.5.2-gog-win64"
+        "eu4-1.37.5.2-gog-win64",
+        "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.2.1/hamweard-windows-x64.zip",
-        "size": 199233,
-        "sha256": "339b6f4346a6f7847ef21de76f22f07527c34e2062d2e69768bff2610ff677cb"
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.3.0/hamweard-windows-x64.zip",
+        "size": 199497,
+        "sha256": "65ef06866ccd93ab9827de4fb1b11a8b2a7c959dc75b0e4694e0dab28e446e84"
       }
     },
     {
@@ -71,7 +72,7 @@
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
       "note": "The zip holds the plugin. Mei's fonts come with its Workshop item; on GOG they are mei-fonts.zip in its release, for a local mod. Without them the game's own fonts stay.",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -80,9 +81,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.4.0/mei-windows-x64.zip",
-        "size": 1059666,
-        "sha256": "db3bfe84916cfb0cbccc4adee595dbbea1ee52595871a27c43c844f9ea9bf02a"
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.5.0/mei-windows-x64.zip",
+        "size": 1061354,
+        "sha256": "85f7a15cc477f5c391b50e124c74446a855bf217a6093b551a904b45d8aa9511"
       }
     }
   ]
