@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.16.0](https://github.com/happy-dwarf-team/anvil/compare/v1.15.0...v1.16.0) (2026-11-09)
+
+
+### Features
+
+* **api:** add anvil-map, the standard plugin of plugin map modes ([#290](https://github.com/happy-dwarf-team/anvil/issues/290)) ([d9d8ff1](https://github.com/happy-dwarf-team/anvil/commit/d9d8ff1830f62e586147f7bc2f86a2bab508af44))
+* **api:** safe Rust crate anvil-sdk with typed service wrappers ([#281](https://github.com/happy-dwarf-team/anvil/issues/281)) ([acb13e1](https://github.com/happy-dwarf-team/anvil/commit/acb13e1ced3200a56110d150442d8f3d48be389b))
+* let gameplay plugins add script effects through anvil-script ([#282](https://github.com/happy-dwarf-team/anvil/issues/282)) ([4335f41](https://github.com/happy-dwarf-team/anvil/commit/4335f41afa5fc4bcc6836e15787ecf3b00db64b2))
+* **log:** name the Wine and the d3d9.dll the game runs on in anvil.log ([#279](https://github.com/happy-dwarf-team/anvil/issues/279)) ([bbe0d88](https://github.com/happy-dwarf-team/anvil/commit/bbe0d88619d0d858fa8adca9d00d3bb8ad064be0))
+* **manager:** replace EU4DLL and EU4 Unicode Patch with a backup ([#280](https://github.com/happy-dwarf-team/anvil/issues/280)) ([d2df34b](https://github.com/happy-dwarf-team/anvil/commit/d2df34b9782bac769f4b7a9538e6f25e3c1e6f88))
+* **manager:** speak Chinese, Japanese or Korean from the first start ([#283](https://github.com/happy-dwarf-team/anvil/issues/283)) ([fa4dd22](https://github.com/happy-dwarf-team/anvil/commit/fa4dd2276604b45bd9b7d588ca7acffa86df9142))
+* speak Polish in the Manager and the overlay ([#275](https://github.com/happy-dwarf-team/anvil/issues/275)) ([1bb0ea6](https://github.com/happy-dwarf-team/anvil/commit/1bb0ea67f4265020d4810c8877c02df48b85be0b))
+
+
+### Bug Fixes
+
+* **overlay:** say the crash in a whole sentence for each level ([#278](https://github.com/happy-dwarf-team/anvil/issues/278)) ([d4ea6c9](https://github.com/happy-dwarf-team/anvil/commit/d4ea6c9fdb1b4cbc278a169371a9265c15f93895))
+
 ## [1.15.0](https://github.com/happy-dwarf-team/anvil/compare/v1.14.1...v1.15.0) (2026-11-09)
 
 
