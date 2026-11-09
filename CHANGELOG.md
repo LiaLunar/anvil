@@ -1,5 +1,15 @@
 # Changelog
 
+## [1.15.0](https://github.com/happy-dwarf-team/anvil/compare/v1.14.1...v1.15.0) (2026-11-09)
+
+
+### Features
+
+* **api:** read modifiers from anvil-game.world ([#246](https://github.com/happy-dwarf-team/anvil/issues/246)) ([6b816e0](https://github.com/happy-dwarf-team/anvil/commit/6b816e0f59c130f1344a7b373df97694adf853df))
+* **api:** read units and the selection from anvil-game.world ([#252](https://github.com/happy-dwarf-team/anvil/issues/252)) ([d26c34e](https://github.com/happy-dwarf-team/anvil/commit/d26c34eeaab95aacd304bfce2b0532c32a17639b))
+* know the GOG build 1.37.5.0 ([#273](https://github.com/happy-dwarf-team/anvil/issues/273)) ([880da87](https://github.com/happy-dwarf-team/anvil/commit/880da87d4fa472871d6fea5cd34d86509d28a5ce)), closes [#187](https://github.com/happy-dwarf-team/anvil/issues/187)
+* **manager:** read the plugin catalog at start and show plugin updates ([#270](https://github.com/happy-dwarf-team/anvil/issues/270)) ([9676b2b](https://github.com/happy-dwarf-team/anvil/commit/9676b2b67fee26c5647ba6c0d55f0556079bec1a))
+
 ## [1.14.1](https://github.com/happy-dwarf-team/anvil/compare/v1.14.0...v1.14.1) (2026-11-09)
 
 
