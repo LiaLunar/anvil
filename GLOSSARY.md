@@ -100,6 +100,12 @@ _Avoid_: command (the game's commands are what its clients exchange), script hoo
 The word on the left of a script effect, `chisel_set_terrain` in `chisel_set_terrain = mountain`. A plugin's key starts with its id.
 _Avoid_: effect name, keyword (for the game's own lexer words)
 
+### The game's day
+
+**Day end**:
+The moment after the game has finished a day (with its month and year) on the main thread, before it compares checksums, when no worker thread runs. A gameplay plugin is called there through `anvil-script.day_end`.
+_Avoid_: daily tick hook, after tick, end of tick
+
 ### When the game crashes
 
 **Crash report**:
