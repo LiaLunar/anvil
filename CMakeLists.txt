@@ -214,6 +214,8 @@ add_subdirectory(plugins/anvil-overlay)
 # the game's logs instead of writing them (anvil#172), released next to them.
 add_subdirectory(plugins/anvil-log-throttle)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
+# PROTOTYPE (eu4-engine-lab#11): throwaway, on prototype/script-errors-panel only.
+add_subdirectory(plugins/prototype-script-errors)
 # The standard plugins ship only inside the package, so their version is
 # Anvil's: release-please bumps their manifests with version.txt.
 foreach(_standard anvil-game anvil-overlay anvil-log-throttle)

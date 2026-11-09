@@ -1,0 +1,31 @@
+# PROTOTYPE (eu4-engine-lab#11), throwaway.
+
+[setting.source]
+type = "string"
+default = ""
+label = "Log to read"
+description = "Empty: the game's own logs/error.log in its user folder. A path: that file instead (a saved log replayed, for the prototype)."
+restart = true
+
+[setting.playset]
+type = "string"
+default = ""
+label = "Playset (dlc_load.json)"
+description = "Empty: dlc_load.json of the game's user folder. A path: that file, with its .mod files next to it in mod/."
+restart = true
+
+[setting.variant]
+type = "int"
+default = 0
+min = 0
+max = 2
+label = "First variant"
+description = "0 = A (worst first), 1 = B (by kind), 2 = C (by file)."
+restart = true
+
+[setting.open_links]
+type = "bool"
+default = true
+label = "Open links"
+description = "Off: Open only writes the vscode:// link to anvil.log."
+restart = true

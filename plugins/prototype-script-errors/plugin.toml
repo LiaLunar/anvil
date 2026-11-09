@@ -1,0 +1,21 @@
+id = "prototype-script-errors"
+name = "PROTOTYPE: script errors panel"
+version = "0.0.1"
+authors = ["Happy Dwarf Team"]
+description = "Throwaway prototype for eu4-engine-lab#11: a panel of the game's error.log for modders, in three variants. Never released."
+api = 2
+entry = "prototype_script_errors.dll"
+phase = "main"
+settings = "settings.toml"
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+[[dependencies]]
+id = "anvil-overlay"
+version = "^1"
+
+# Clicks are delivered on the main thread through anvil-game.
+[[dependencies]]
+id = "anvil-game"
+version = "^1"
