@@ -4,7 +4,7 @@
     {
       "id": "bellows",
       "name": "Bellows",
-      "summary": "Makes the game start faster, without changing game files or rules.",
+      "summary": "Makes the game start faster and the years pass sooner, without changing game files or rules.",
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",

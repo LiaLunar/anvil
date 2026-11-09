@@ -49,7 +49,7 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   start", the crash report, the log and every plugin's settings. In the game's
   main menu a small "Anvil x.y.z" badge on the left edge shows that
   Anvil runs; a click on it opens the panel (the overlay's setting "Show Anvil
-  in the main menu" turns it off). If you agree (it asks once, or follows your
+  in the main menu" turns it off). From Anvil 1.14, if you agree (it asks once, or follows your
   answer in the Manager), it asks GitHub for the latest Anvil release when the
   game is ready and tells you when a newer one is out, with a link; nothing is
   downloaded ([ADR 0005](docs/adr/0005-release-check-in-the-game.md)). It
@@ -102,8 +102,8 @@ menu" on its Anvil tab makes that one click, and uninstalling removes the entry.
 - Its Catalog tab lists the team's plugins (Bellows, Tongs, Hamweard, Mei) and
   installs or updates one with a click (Anvil 1.9 and later): the Manager
   downloads the zip of the release the list pins, installs it only if its
-  SHA-256 matches, and shows what `anvil check` finds first. If you agreed
-  to the release check, it reads the list when it starts and shows which
+  SHA-256 matches, and shows what `anvil check` finds first. From Anvil 1.15,
+  if you agreed to the release check, it reads the list when it starts and shows which
   installed plugins have an update; no zip is downloaded until you
   click. See
   [ADR 0002](docs/adr/0002-manager-plugin-catalog.md) and
@@ -122,15 +122,22 @@ menu" on its Anvil tab makes that one click, and uninstalling removes the entry.
   in a GOG install, through the Paradox launcher, as GOG does. On
   its Log tab, "Copy a problem report" puts what an issue needs on the
   clipboard: the versions, the game build, the plugins and why one is
-  skipped, the newest crash report and the end of `anvil.log`, with the game
-  folder, your user folder and Windows user name left out. Nothing is
-  uploaded.
+  skipped, the newest crash report and the end of `anvil.log`, and from
+  Anvil 1.14 how many game folders Steam and GOG list, which one the Manager
+  uses, an `eu4.exe` running from another folder and a last game without
+  Anvil. The game folder, your user folder and Windows user name are left
+  out. Nothing is uploaded.
 - "Repair" puts back Anvil's own files.
 - "Uninstall Anvil" removes `version.dll`, the standard plugins and the
   Manager, and keeps your plugins, their settings and `anvil/anvil.toml`.
   Tick "Also remove my plugins…" to remove the `anvil` folder too.
 - To update Anvil, run the Manager of the newer release.
-- While the game runs, the Manager only shows. It is not code-signed, so
+- While the game runs, the Manager only shows. From Anvil 1.14 it also says
+  when the game runs from another folder than the one Anvil is installed in
+  ("Switch to that folder" moves the Manager there), and when a game from its
+  folder ran without loading Anvil; both point to
+  [If Anvil does not run at all](https://anvil.happydwarf.dev/docs/troubleshooting/#if-anvil-does-not-run-at-all).
+  It is not code-signed, so
   Windows SmartScreen may ask once ("More info" → "Run anyway").
 
 **By hand.** Extract `anvil-windows-x64.zip` into the game folder (the
