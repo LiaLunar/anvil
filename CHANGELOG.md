@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.14.0](https://github.com/happy-dwarf-team/anvil/compare/v1.13.0...v1.14.0) (2026-11-09)
+
+
+### Features
+
+* **api:** report out-of-sync state from anvil-game ([#244](https://github.com/happy-dwarf-team/anvil/issues/244)) ([8dd2e76](https://github.com/happy-dwarf-team/anvil/commit/8dd2e76c9b790429af3da0461d570812679355f2))
+* **manager:** say when the game ran but Anvil did not load ([#254](https://github.com/happy-dwarf-team/anvil/issues/254)) ([8e3a386](https://github.com/happy-dwarf-team/anvil/commit/8e3a3864d30da67d2048145cc9f15b6fc8542967)), closes [#253](https://github.com/happy-dwarf-team/anvil/issues/253)
+* **overlay:** tell the player about a newer Anvil release ([#260](https://github.com/happy-dwarf-team/anvil/issues/260)) ([b5ab3bc](https://github.com/happy-dwarf-team/anvil/commit/b5ab3bc878ef34428c7793354ff0fea55aa3b36c))
+
+
+### Bug Fixes
+
+* **overlay:** let the player close the multiplayer notice ([#257](https://github.com/happy-dwarf-team/anvil/issues/257)) ([f8f4338](https://github.com/happy-dwarf-team/anvil/commit/f8f4338927901f65e338bb2073cf3ab2605d7cda))
+
 ## [1.13.0](https://github.com/happy-dwarf-team/anvil/compare/v1.12.0...v1.13.0) (2026-11-06)
 
 
