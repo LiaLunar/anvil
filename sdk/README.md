@@ -68,14 +68,18 @@ CI: build, then `anvil check <plugin folder> --format github` (from
 
 ## Rust
 
-A Rust plugin is a `cdylib` that depends on the
-[`anvil-sys`](https://crates.io/crates/anvil-sys) crate (the raw API, the same version
-as the release) and exports `anvil_plugin_load`. `bin/anvil.exe gen --lang rust
+A Rust plugin is a `cdylib` that depends on the safe crate
+[`anvil-sdk`](https://crates.io/crates/anvil-sdk) (library `anvil`) and says
+`anvil::plugin!(MyPlugin);`. Its adapters catch panics in every callback, and it
+wraps the services Anvil ships (`anvil::game`, `anvil::world`, `anvil::panel`,
+`anvil::benchmark`). The raw API, the same version as the release, is
+[`anvil-sys`](https://crates.io/crates/anvil-sys). `bin/anvil.exe gen --lang rust
 symbols.toml <out-dir>` writes `symbols.gen.rs`: symbol ids, a function type per
-`signature` and the values. `examples/hello-rust` in the repository (and in the
-release package, under `anvil/docs/examples`) shows it with a `build.rs`; link the C
-runtime statically (`-C target-feature=+crt-static`) and catch panics at every
-function Anvil or the game calls. See
+`signature` and the values. `examples/hello-rust` (hooks on declared symbols, with
+a `build.rs`) and `examples/panel-rust` (the world service and an overlay panel,
+no game addresses) are in the repository and in the release package, under
+`anvil/docs/examples`; link the C runtime statically
+(`-C target-feature=+crt-static`). See
 [docs/design.md §9](../docs/design.md#9-plugin-api-2).
 
 Release assets come with `SHA256SUMS.txt` and a build attestation

@@ -13,4 +13,4 @@ name = "hello_rust"
 crate-type = ["cdylib"]
 
 [dependencies]
-anvil-sys = { path = "../../sdk/rust/anvil-sys" }
+anvil-sdk = { path = "../../sdk/rust/anvil-sdk" }

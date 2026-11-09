@@ -1,0 +1,25 @@
+id = "panel-rust"
+name = "Country panel (Rust)"
+version = "0.1.0"
+authors = ["Happy Dwarf Team"]
+description = "Example plugin in Rust: the player's country in an overlay panel, from the world service."
+api = 2
+anvil = ">=1.11.0"         # the first Anvil with the world service and plugin windows
+entry = "panel_rust.dll"
+phase = "main"
+# It only reads the world and draws a panel; it changes nothing in the game.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+# Sessions, the date, the month and the world service (the selected units
+# need anvil-game 1.15; with an older one that button says so).
+[[dependencies]]
+id = "anvil-game"
+version = "^1.11.0"
+
+# The panel. Without the overlay the plugin only logs.
+[[dependencies]]
+id = "anvil-overlay"
+version = "^1.11.0"
+optional = true

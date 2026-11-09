@@ -673,10 +673,12 @@ std::string generate_rust(const SymbolFile& file, const std::string& source, std
     std::string out = "// " + header_comment(file, source) + "\n";
     out += "// Include it in a module: #[allow(dead_code)] mod sym { include!(\"symbols.gen.rs\"); }\n\n";
     out += "#[allow(unused_imports)]\nuse ::core::ffi::{\n    c_char, c_int, c_long, c_longlong, c_schar, c_short, c_uchar, c_uint, c_ulong, c_ulonglong,\n    c_ushort, c_void,\n};\n\n";
-    out += "// Symbol ids (anvil_sys::AnvilSymbol): the declaration order in symbols.toml.\n";
+    // Plain u32 (the type anvil_sys::AnvilSymbol names), so the file needs no
+    // crate: a plugin on anvil-sdk alone includes it as one on anvil-sys does.
+    out += "// Symbol ids (u32, anvil_sys::AnvilSymbol): the declaration order in symbols.toml.\n";
     for (const auto& s : file.symbols) {
         out += "/// " + where_of(s) + (s.note.empty() ? "" : ": " + comment_text(s.note, false)) + "\n";
-        out += "pub const " + upper(s.name) + ": ::anvil_sys::AnvilSymbol = " + std::to_string(s.id) + ";\n";
+        out += "pub const " + upper(s.name) + ": u32 = " + std::to_string(s.id) + ";\n";
     }
 
     std::string types;
@@ -738,11 +740,11 @@ std::string generate_settings_rust(const SettingsFile& file, const std::string& 
             claim(name, std::string("the key flag ") + name, file.settings.front().line);
         }
     }
-    out += "\n// Setting ids (anvil_sys::AnvilSetting): the declaration order in settings.toml.\n"
+    out += "\n// Setting ids (u32, anvil_sys::AnvilSetting): the declaration order in settings.toml.\n"
            "// Read them with host.setting_bool/int/float/string(self, <NAME>).\n";
     for (const auto& s : file.settings) {
         out += "/// " + settings_text(describe(s), false) + "\n";
-        out += "pub const " + upper(s.name) + ": ::anvil_sys::AnvilSetting = " + std::to_string(s.id) + ";\n";
+        out += "pub const " + upper(s.name) + ": u32 = " + std::to_string(s.id) + ";\n";
     }
     if (!options.empty()) out += "\n// Options of enum settings: the index setting_int reads.\n" + options;
     if (keys) {

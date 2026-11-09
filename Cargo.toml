@@ -1,8 +1,15 @@
-# The Rust side of the tree: anvil-sys (the C ABI, published to crates.io) and
-# the Rust hello plugin. The C++ core builds with CMake (CMakeLists.txt).
+# The Rust side of the tree: anvil-sys (the C ABI) and anvil-sdk (the safe
+# crate), both published to crates.io, and the Rust example plugins. The C++
+# core builds with CMake (CMakeLists.txt).
 [workspace]
 resolver = "2"
-members = ["sdk/rust/anvil-sys", "examples/hello-rust", "tests/rust/gen-compile"]
+members = [
+    "sdk/rust/anvil-sys",
+    "sdk/rust/anvil-sdk",
+    "examples/hello-rust",
+    "examples/panel-rust",
+    "tests/rust/gen-compile",
+]
 
 [workspace.package]
 edition = "2021"

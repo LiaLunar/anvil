@@ -109,8 +109,9 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: python -I catalog/update.py --check
 
-      # Rust (design §9): the bindings match the header, anvil gen's Rust output
-      # compiles, and the Rust hello builds and loads in the tests below.
+      # Rust (design §9): the bindings match the headers, anvil gen's Rust output
+      # compiles, both crates package, and the Rust examples build and load in the
+      # tests below.
       - name: Rust toolchain
         shell: bash
         run: |
@@ -153,14 +154,17 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
-          cargo build -p hello-rust --release --target x86_64-pc-windows-msvc
-          cargo publish -p anvil-sys --dry-run
-          mkdir -p build/plugin/hello-rust
+          RUSTDOCFLAGS='-D warnings' cargo doc -p anvil-sdk --no-deps
+          cargo build -p hello-rust -p panel-rust --release --target x86_64-pc-windows-msvc
+          # anvil-sdk is verified against this anvil-sys, not the published one.
+          cargo publish -p anvil-sys -p anvil-sdk --dry-run
+          mkdir -p build/plugin/hello-rust build/plugin/panel-rust
           cp target/x86_64-pc-windows-msvc/release/hello_rust.dll examples/hello-rust/plugin.toml examples/hello-rust/symbols.toml build/plugin/hello-rust/
+          cp target/x86_64-pc-windows-msvc/release/panel_rust.dll examples/panel-rust/plugin.toml build/plugin/panel-rust/
 
       - name: Test
         env:
-          ANVIL_REQUIRE_HELLO_RUST: '1'
+          ANVIL_REQUIRE_RUST_EXAMPLES: '1'
         shell: pwsh
         run: |
           Get-Content (Join-Path $env:RUNNER_TEMP msvc.env) |
@@ -202,7 +206,7 @@ jobs:
           cmake --install build --config Release --component manager --prefix dist/anvil-manager
           # The hello examples, laid out as plugin folders (not installed: docs only).
           New-Item -ItemType Directory -Force dist/anvil-package/anvil/docs/examples | Out-Null
-          foreach ($example in 'hello-c', 'hello-cpp', 'hello-rust') {
+          foreach ($example in 'hello-c', 'hello-cpp', 'hello-rust', 'panel-rust') {
             Copy-Item build/plugin/$example -Destination dist/anvil-package/anvil/docs/examples/$example -Recurse
           }
           $files = Get-ChildItem dist/anvil-package -Recurse -File

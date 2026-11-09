@@ -102,10 +102,13 @@ jobs:
       - name: Publish the release
         run: gh release edit "$TAG" --draft=false --latest
 
-  # anvil-sys goes to crates.io once the package is built (the tests have passed).
-  # Without a CARGO_REGISTRY_TOKEN secret the job only warns: add the secret (a
-  # crates.io token with publish-new and publish-update for anvil-sys) and
-  # publish the missing release by hand (`cargo publish -p anvil-sys` at the tag).
+  # anvil-sys goes to crates.io once the package is built (the tests have passed),
+  # then anvil-sdk when its own version is new. Without a CARGO_REGISTRY_TOKEN
+  # secret the job only warns: add the secret (a crates.io token with
+  # publish-update for anvil-sys and anvil-sdk) and publish the missing release by
+  # hand (`cargo publish -p anvil-sys -p anvil-sdk` at the tag). anvil-sdk's first
+  # version is published by hand, after the game test and the maintainer's
+  # approval (CONTRIBUTING.md); until then the job leaves it out.
   publish-crate:
     needs: [release-please, build]
     runs-on: ubuntu-24.04
@@ -131,6 +134,24 @@ jobs:
             exit 1
           fi
           cargo publish -p anvil-sys
+
+      # anvil-sdk has its own 0.x line: most releases leave it as it is.
+      - name: Publish anvil-sdk to crates.io
+        if: env.CARGO_REGISTRY_TOKEN != ''
+        run: |
+          version="$(cargo metadata --no-deps --format-version 1 | jq -r '.packages[] | select(.name == "anvil-sdk") | .version')"
+          agent='happy-dwarf-team/anvil release workflow'
+          crate="$(curl -s -o /dev/null -w '%{http_code}' -A "$agent" https://crates.io/api/v1/crates/anvil-sdk)"
+          if [ "$crate" = 404 ]; then
+            echo "::warning::anvil-sdk is not on crates.io yet; its first version is published by hand (CONTRIBUTING.md)"
+            exit 0
+          fi
+          release="$(curl -s -o /dev/null -w '%{http_code}' -A "$agent" "https://crates.io/api/v1/crates/anvil-sdk/${version}")"
+          if [ "$release" = 200 ]; then
+            echo "anvil-sdk ${version} is already on crates.io"
+            exit 0
+          fi
+          cargo publish -p anvil-sdk
 
       - name: Skip crates.io (no CARGO_REGISTRY_TOKEN)
         if: env.CARGO_REGISTRY_TOKEN == ''

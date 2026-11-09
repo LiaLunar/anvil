@@ -1,0 +1,26 @@
+[package]
+name = "anvil-sdk"
+# Its own 0.x line (anvil#159): bump it in the pull request that changes the
+# crate. The release workflow publishes a version crates.io does not have yet.
+version = "0.1.0"
+description = "Safe Rust API for plugins of Anvil, the plugin loader for Europa Universalis IV"
+readme = "README.md"
+keywords = ["anvil", "eu4", "plugin", "modding"]
+categories = ["api-bindings", "game-development"]
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+include = ["src/**/*.rs", "Cargo.toml", "README.md"]
+
+[lib]
+# Code says anvil::…; the package name anvil is taken on crates.io.
+name = "anvil"
+
+[dependencies]
+# The anvil-sys of the same Anvil release (release-please keeps the version
+# equal to version.txt).
+anvil-sys = { version = "1.15.0", path = "../anvil-sys" } # x-release-please-version
+
+[package.metadata.docs.rs]
+targets = ["x86_64-pc-windows-msvc"]

@@ -219,7 +219,7 @@ verification, `settings.toml`, the game build identity) with `version.dll`:
 ```powershell
 anvil gen symbols.toml build\generated            # symbols.gen.h and symbols.gen.hpp
 anvil gen settings.toml build\generated           # settings.gen.h and settings.gen.hpp
-anvil gen --lang rust symbols.toml out            # symbols.gen.rs (Rust plugins, anvil-sys)
+anvil gen --lang rust symbols.toml out            # symbols.gen.rs (Rust plugins)
 anvil check my-plugin --exe "C:\...\eu4.exe"     # verify against the game, write symbols.lock
 anvil check my-plugin --format github             # in CI, without the game: schemas and symbols.lock
 anvil port symbols.toml --from old\eu4.exe --to new\eu4.exe --build <new id> --out symbols.toml
@@ -227,11 +227,12 @@ anvil port symbols.toml --from old\eu4.exe --to new\eu4.exe --build <new id> --o
                                                   # (--unknown-build for a build this anvil.exe does not know yet)
 ```
 
-The Rust side (`sdk/rust/anvil-sys`, `examples/hello-rust`, see
+The Rust side (`sdk/rust/anvil-sys`, the safe crate `sdk/rust/anvil-sdk`,
+`examples/hello-rust` and `examples/panel-rust`, see
 [§9](docs/design.md#9-plugin-api-2)) is a Cargo workspace at the root; it needs
 Rust 1.82 or newer and the `anvil.exe` built above, which the hello's `build.rs`
 runs. CI uses Rust 1.99.1, and `sdk/rust/regen-bindings.ps1` (bindgen 0.73.2 and
-libclang) regenerates the committed bindings after a change to the header:
+libclang) regenerates the committed bindings after a change to a header:
 
 ```powershell
 $env:ANVIL = "$PWD\build\Release\anvil.exe"

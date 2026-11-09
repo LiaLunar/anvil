@@ -68,14 +68,21 @@ everything a plugin can see:
 - Behaviour a header documents (threads, event order, result codes) is part
   of the contract like the layout; changing it needs a new version.
 - `anvil.hpp`, `anvil_symbols.hpp`, `anvil gen` output and `anvil-sys` keep
-  source compatibility within an Anvil major version.
+  source compatibility within an Anvil major version. The safe Rust crate
+  `anvil-sdk` joins this at its 1.0; before that it has its own `0.x` version,
+  which the pull request that changes the crate bumps in
+  `sdk/rust/anvil-sdk/Cargo.toml` (a breaking change bumps the minor version).
+- **Rust parity:** a new service of Anvil's, or a function appended to one, gets
+  its wrapper in `anvil-sdk` in the same pull request as its C header (and its
+  bindings, below).
 - An API 3 comes only with a new Anvil major version, which still loads
   `api = 2` plugins. The reasons are in
   [ADR 0001](docs/adr/0001-plugin-api-2-compatibility.md).
 - `sdk/rust/anvil-sys/src/bindings.rs` is generated from `anvil_plugin.h` and
-  committed. After a change to the header run `sdk/rust/regen-bindings.ps1`
-  (bindgen and libclang, see the script) and commit the result; CI fails when
-  the file differs from what the header gives.
+  the service headers `anvil_game.h`, `anvil_panel.h` and `anvil_benchmark.h`
+  (`sdk/rust/bindings.h`), and committed. After a change to one of them run
+  `sdk/rust/regen-bindings.ps1` (bindgen and libclang, see the script) and
+  commit the result; CI fails when the file differs from what the headers give.
 
 ## The plugin catalog
 
@@ -111,16 +118,30 @@ Releases are automated with
    `anvil-windows-x64.zip`, `AnvilManager.exe`, `anvil-sdk-windows-x64.zip` and
    `SHA256SUMS.txt` with a build provenance attestation to the draft, and
    publishes it: the release is never public without its files, and nobody has
-   to click. It also publishes the `anvil-sys` crate to crates.io (only when the
+   to click. It also publishes the `anvil-sys` crate to crates.io, and
+   `anvil-sdk` when its version is not there yet (only when the
    `CARGO_REGISTRY_TOKEN` repository secret exists; otherwise it warns), and asks
    anvil.happydwarf.dev and happydwarf.dev to rebuild once the release is public
    (`website.yml`, which can also be run by hand). If the build or the upload
    fails, the draft stays a draft: rerun the failed jobs, or publish it by hand
    once its files are attached.
 
+The first version of `anvil-sdk` is published by hand, after a game test of
+the Rust examples and the maintainer's explicit approval; until it is on
+crates.io the workflow leaves the crate out with a warning. It depends on the
+`anvil-sys` of the same release, so it goes out with or after that release:
+
+```powershell
+cargo publish -p anvil-sys -p anvil-sdk --dry-run   # what CI runs
+cargo publish -p anvil-sdk                          # at the release tag, once anvil-sys is out
+```
+
+After that, the token needs `publish-update` for `anvil-sdk` too.
+
 `version.txt` is the only place the version is written by hand. CMake, the
 `anvil.log` line and the DLL version resource all read it, and release-please
-copies it to `sdk/rust/anvil-sys/Cargo.toml`. Do not edit `version.txt` or
+copies it to `sdk/rust/anvil-sys/Cargo.toml` and to the `anvil-sys` dependency
+of `sdk/rust/anvil-sdk/Cargo.toml`. Do not edit `version.txt` or
 `CHANGELOG.md` by hand; to force a specific next version, put
 `Release-As: x.y.z` in the body of a commit on `main`.
 

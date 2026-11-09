@@ -32,7 +32,7 @@ struct GeneratedHeaders {
 // symbols.gen.hpp (C++): namespace sym with an anvil::Function, Site, Slot or
 // Data constant per symbol (include/anvil/anvil_symbols.hpp), values as
 // static constexpr members, and an anvil::Data<T> for every typed value.
-// symbols.gen.rs (Rust): the ids as `pub const <NAME>: anvil_sys::AnvilSymbol`,
+// symbols.gen.rs (Rust): the ids as `pub const <NAME>: u32` (anvil_sys::AnvilSymbol),
 // `<Name>Fn` types (`unsafe extern "C" fn`) from `signature` and the values as
 // `pub const <SYMBOL>_<VALUE>: u64`. Pointers, integers, floating point and
 // bool translate; any other type passed by value becomes `*mut c_void` with a
@@ -48,7 +48,7 @@ GeneratedHeaders generate_headers(const SymbolFile& file, const std::string& sou
 // setting (cfg::<name>.get(), include/anvil/anvil.hpp) whose type
 // cfg::Types::<name> holds setting_name, restart, default_value, the limits,
 // and for an enum the options of its enum class cfg::Types::<name>_value.
-// settings.gen.rs (Rust): `pub const <NAME>: anvil_sys::AnvilSetting` ids,
+// settings.gen.rs (Rust): `pub const <NAME>: u32` ids (anvil_sys::AnvilSetting),
 // `<NAME>_<OPTION>: i64` indices of enum options and KEY_* modifier flags.
 GeneratedHeaders generate_settings_headers(const SettingsFile& file, const std::string& source, bool c, bool cpp,
                                            bool rust = false);

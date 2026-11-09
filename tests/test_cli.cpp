@@ -270,8 +270,8 @@ int main(int argc, char** argv) {
         const auto file = parse_symbols_text(kGoodSymbols);
         const GeneratedHeaders h = generate_headers(*file.file, "symbols.toml", false, false, true);
         CHECK(h.error.empty() && h.c.empty() && h.cpp.empty() && h.warnings.empty());
-        CHECK(contains(h.rust, "pub const SPEED_OBJECT: ::anvil_sys::AnvilSymbol = 0;"));
-        CHECK(contains(h.rust, "pub const SHORT_SITE: ::anvil_sys::AnvilSymbol = 6;"));
+        CHECK(contains(h.rust, "pub const SPEED_OBJECT: u32 = 0;"));
+        CHECK(contains(h.rust, "pub const SHORT_SITE: u32 = 6;"));
         CHECK(contains(h.rust, "/// function, rva 0x1000: returns the */ speed object\n"));
         CHECK(contains(h.rust, "pub type SpeedObjectFn = unsafe extern \"C\" fn(session: *mut c_void) -> *mut c_void;"));
         CHECK(contains(h.rust, "pub type ExportedFn = unsafe extern \"C\" fn(a: c_int, b: *const c_char) -> c_int;"));
@@ -424,9 +424,9 @@ int main(int argc, char** argv) {
         CHECK(file.file.has_value());
         const GeneratedHeaders h = generate_settings_headers(*file.file, "settings.toml", false, false, true);
         CHECK(h.error.empty() && h.c.empty() && h.cpp.empty());
-        CHECK(contains(h.rust, "pub const BUDGET: ::anvil_sys::AnvilSetting = 0;"));
-        CHECK(contains(h.rust, "pub const MODE: ::anvil_sys::AnvilSetting = 1;"));
-        CHECK(contains(h.rust, "pub const TOGGLE: ::anvil_sys::AnvilSetting = 2;"));
+        CHECK(contains(h.rust, "pub const BUDGET: u32 = 0;"));
+        CHECK(contains(h.rust, "pub const MODE: u32 = 1;"));
+        CHECK(contains(h.rust, "pub const TOGGLE: u32 = 2;"));
         CHECK(contains(h.rust, "/// Fast one\npub const MODE_FAST: i64 = 0;"));
         CHECK(contains(h.rust, "pub const MODE_SLOW: i64 = 1;"));
         CHECK(contains(h.rust, "pub const KEY_CTRL: i64 = 0x200;"));

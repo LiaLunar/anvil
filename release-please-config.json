@@ -11,6 +11,7 @@
       "force-tag-creation": true,
       "extra-files": [
         { "type": "toml", "path": "sdk/rust/anvil-sys/Cargo.toml", "jsonpath": "$.package.version" },
+        { "type": "generic", "path": "sdk/rust/anvil-sdk/Cargo.toml" },
         { "type": "toml", "path": "plugins/anvil-game/plugin.toml", "jsonpath": "$.version" },
         { "type": "toml", "path": "plugins/anvil-overlay/plugin.toml", "jsonpath": "$.version" },
         { "type": "toml", "path": "plugins/anvil-log-throttle/plugin.toml", "jsonpath": "$.version" }

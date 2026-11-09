@@ -1,5 +1,6 @@
 // Plugin API 2 end to end: the host table of src/core/host.cpp loads the
-// example plugins (hello-c, hello-cpp) and the test plugins (probe, throwing)
+// example plugins (hello-c, hello-cpp, and the Rust hello-rust and panel-rust
+// when cargo built them) and the test plugins (probe, throwing)
 // as the game would, against a synthetic image that holds the code their
 // symbols.toml declare, at the same RVAs (those of eu4.exe 1.37.5 for the
 // examples). Usage: anvil_plugin_tests <folder with one folder per plugin>
@@ -12,9 +13,12 @@
 #include "core/symbol_check.hpp"
 #include "test_support.hpp"
 
+#include <anvil/anvil_game.h>
+#include <anvil/anvil_panel.h>
 #include <anvil/anvil_plugin.h>
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
@@ -145,17 +149,20 @@ struct Loader {
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest.has_value());
         if (!parsed.manifest) return nullptr;
-        SymbolVerification verified;
-        SymbolFile declared;
-        const std::string reason = anvil::i18n::english(
-            check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes, game.address(0), &verified, &declared));
-        if (!reason.empty()) std::printf("  %s: %s\n", folder, reason.c_str());
-        CHECK(reason.empty());
-        if (!reason.empty()) return nullptr;
         auto plugin = std::make_unique<AnvilPlugin>();
+        // A plugin with no game addresses has no symbols.toml.
+        if (!parsed.manifest->symbols.empty()) {
+            SymbolVerification verified;
+            SymbolFile declared;
+            const std::string reason = anvil::i18n::english(check_plugin_symbols(
+                dir / parsed.manifest->symbols, kBuild, changes, game.address(0), &verified, &declared));
+            if (!reason.empty()) std::printf("  %s: %s\n", folder, reason.c_str());
+            CHECK(reason.empty());
+            if (!reason.empty()) return nullptr;
+            plugin->symbols = PluginSymbols(declared, verified, game.address(0));
+        }
         plugin->context = &context;
         plugin->manifest = *parsed.manifest;
-        plugin->symbols = PluginSymbols(declared, verified, game.address(0));
         plugin->owner = changes.add_owner(plugin->manifest.id);
         plugin->plugin_dir = dir.wstring();
         if (!parsed.manifest->settings.empty()) {
@@ -198,6 +205,131 @@ struct Loader {
         for (const auto& l : log) std::printf("    log: %s\n", l.c_str());
     }
 };
+
+// The services examples/panel-rust asks for, as anvil-game and the overlay give
+// them: a session in Russia on 1719.3.17 and a panel that keeps its rows.
+namespace fake {
+
+std::vector<std::string> rows;  // "label=value", "[button 1]", "---"
+AnvilPanelClick click = nullptr;
+void* click_context = nullptr;
+int shown = 0;
+
+AnvilResult panel_create(const char*, AnvilPanel** out) {
+    *out = reinterpret_cast<AnvilPanel*>(uintptr_t{0x10});
+    return ANVIL_OK;
+}
+AnvilResult panel_set_rows(AnvilPanel*, const AnvilPanelRow* r, uint32_t count, uint32_t row_size) {
+    if (row_size != sizeof(AnvilPanelRow)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    rows.clear();
+    for (uint32_t i = 0; i < count; ++i) {
+        if (r[i].kind == ANVIL_PANEL_SEPARATOR) {
+            rows.push_back("---");
+        } else if (r[i].kind == ANVIL_PANEL_BUTTON) {
+            rows.push_back("[" + std::string(r[i].label) + " " + std::to_string(r[i].id) + "]");
+        } else {
+            rows.push_back(std::string(r[i].label) + (r[i].value != nullptr ? "=" + std::string(r[i].value) : ""));
+        }
+    }
+    return ANVIL_OK;
+}
+AnvilResult panel_on_click(AnvilPanel*, AnvilPanelClick c, void* context) {
+    click = c;
+    click_context = context;
+    return ANVIL_OK;
+}
+AnvilResult panel_show(AnvilPanel*, int s) {
+    shown = s;
+    return ANVIL_OK;
+}
+int panel_shown(const AnvilPanel*) { return shown; }
+const char* panel_language() { return "en"; }
+
+bool in_session = false;
+int game_ready() { return 1; }
+uint32_t game_main_thread_id() { return GetCurrentThreadId(); }
+uint64_t game_frame_number() { return 1; }
+AnvilResult game_run_on_main_thread(AnvilGameWork work, void* context) {
+    work(context);
+    return ANVIL_OK;
+}
+int game_session(AnvilGameSession* out) {
+    if (out != nullptr && in_session) *out = {sizeof(AnvilGameSession), ANVIL_GAME_SESSION_STARTED, 0, 0, 1};
+    return in_session ? 1 : 0;
+}
+int game_date(AnvilGameDate* out) {
+    if (out != nullptr && in_session) *out = {sizeof(AnvilGameDate), 1719, 3, 17, 1};
+    return in_session ? 1 : 0;
+}
+
+void tag(AnvilGameTag* out, const char* text) { std::memcpy(out->text, text, 4); }
+AnvilResult world_player(AnvilGameTag* out) {
+    if (!in_session) return ANVIL_ERROR_WRONG_PHASE;
+    tag(out, "RUS");
+    return ANVIL_OK;
+}
+AnvilResult world_country(const char* t, AnvilGameCountry* out) {
+    if (std::string(t) != "RUS") return ANVIL_ERROR_NOT_FOUND;
+    if (out->size < sizeof(AnvilGameCountry)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    *out = {};
+    out->size = sizeof(AnvilGameCountry);
+    tag(&out->tag, "RUS");
+    out->capital = 295;
+    out->province_count = 123;
+    out->values = ANVIL_GAME_VALUE_TREASURY | ANVIL_GAME_VALUE_STABILITY;
+    out->treasury = 1234500;
+    out->stability = 1000;
+    return ANVIL_OK;
+}
+AnvilResult world_province_name(int32_t id, char* utf8, uint32_t capacity, uint32_t* length) {
+    if (id != 295) return ANVIL_ERROR_NOT_FOUND;
+    const std::string name = "Moskva";
+    *length = static_cast<uint32_t>(name.size());
+    if (capacity > 0) {
+        const size_t fits = std::min<size_t>(name.size(), capacity - 1);
+        std::memcpy(utf8, name.data(), fits);
+        utf8[fits] = 0;
+    }
+    return ANVIL_OK;
+}
+AnvilResult world_selected_units(AnvilGameUnitRef*, uint32_t, uint32_t* count) {
+    *count = 0;
+    return ANVIL_OK;
+}
+
+AnvilPanelService panel_service() {
+    AnvilPanelService s{};
+    s.size = sizeof(s);
+    s.create = panel_create;
+    s.set_rows = panel_set_rows;
+    s.on_click = panel_on_click;
+    s.show = panel_show;
+    s.shown = panel_shown;
+    s.language = panel_language;
+    return s;
+}
+AnvilGameService game_service() {
+    AnvilGameService s{};
+    s.size = sizeof(s);
+    s.ready = game_ready;
+    s.main_thread_id = game_main_thread_id;
+    s.frame_number = game_frame_number;
+    s.run_on_main_thread = game_run_on_main_thread;
+    s.session = game_session;
+    s.date = game_date;
+    return s;
+}
+AnvilGameWorldService world_service() {
+    AnvilGameWorldService s{};
+    s.size = sizeof(s);
+    s.player = world_player;
+    s.country = world_country;
+    s.province_name = world_province_name;
+    s.selected_units = world_selected_units;
+    return s;
+}
+
+}  // namespace fake
 
 template <class F> F export_of(const AnvilPlugin* plugin, const char* name) {
     return plugin != nullptr ? reinterpret_cast<F>(GetProcAddress(plugin->module, name)) : nullptr;
@@ -330,11 +462,12 @@ int main(int argc, char** argv) {
         if (g_failures != 0) loader.dump();
     });
 
-    // examples/hello-rust is built by cargo, not CMake: CI lays it out in the
-    // plugins folder before ctest (ANVIL_REQUIRE_HELLO_RUST then makes a missing
-    // plugin a failure); elsewhere the test is skipped when it is not there.
+    // The Rust examples are built by cargo, not CMake: CI lays them out in the
+    // plugins folder before ctest (ANVIL_REQUIRE_RUST_EXAMPLES then makes a
+    // missing plugin a failure); elsewhere a test is skipped when it is not there.
+    const bool rust_required = GetEnvironmentVariableA("ANVIL_REQUIRE_RUST_EXAMPLES", nullptr, 0) != 0;
     run("api 2: the Rust hello example", [&] {
-        const bool required = GetEnvironmentVariableA("ANVIL_REQUIRE_HELLO_RUST", nullptr, 0) != 0;
+        const bool required = rust_required;
         if (!std::filesystem::exists(plugins_dir / "hello-rust" / "hello_rust.dll")) {
             std::printf("  hello-rust is not built (cargo build -p hello-rust --release); skipped\n");
             CHECK(!required);
@@ -360,6 +493,60 @@ int main(int argc, char** argv) {
         CHECK(loader.logged_containing("hello-rust: returning to the menu (rcx=0x") == 1);
         loader.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr);
         CHECK(loader.logged("hello-rust: every plugin is loaded"));
+        if (g_failures != 0) loader.dump();
+    });
+
+    // The safe crate's services from Rust: the world read in anvil-game's
+    // events and in panel clicks, shown in an overlay panel.
+    static const AnvilGameService game_service = fake::game_service();
+    static const AnvilGameWorldService world_service = fake::world_service();
+    static const AnvilPanelService panel_service = fake::panel_service();
+    run("api 2: the Rust panel example", [&] {
+        if (!std::filesystem::exists(plugins_dir / "panel-rust" / "panel_rust.dll")) {
+            std::printf("  panel-rust is not built (cargo build -p panel-rust --release); skipped\n");
+            CHECK(!rust_required);
+            return;
+        }
+        CHECK(loader.bus.register_service("anvil-game", ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, &game_service) ==
+              ANVIL_OK);
+        CHECK(loader.bus.register_service("anvil-game", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
+                                          &world_service) == ANVIL_OK);
+        CHECK(loader.bus.register_service("anvil-overlay", ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION,
+                                          &panel_service) == ANVIL_OK);
+        LoadOutcome outcome;
+        AnvilPlugin* panel = loader.load("panel-rust", &outcome);
+        CHECK(panel != nullptr && outcome.result == ANVIL_OK && outcome.staged == 0);
+        if (panel == nullptr) return;
+        CHECK(loader.logged("panel-rust: country panel loaded (world service: yes, panel: yes)"));
+        CHECK(fake::shown == 1 && fake::click != nullptr);
+        CHECK((fake::rows == std::vector<std::string>{"No game is loaded."}));
+
+        fake::in_session = true;
+        const AnvilGameSession started{sizeof(AnvilGameSession), ANVIL_GAME_SESSION_STARTED, 0, 0, 1};
+        loader.bus.publish(ANVIL_GAME_EVENT_SESSION, &started);
+        const std::string summary = "RUS on 1719.3.17: capital Moskva (295), 123 provinces, treasury 1234.5, stability 1";
+        CHECK(loader.logged("panel-rust: session 1: " + summary));
+        CHECK((fake::rows == std::vector<std::string>{"Country=RUS", "Date=1719.3.17", "Capital=Moskva (295)",
+                                                       "Provinces=123", "Treasury=1234.5", "Monthly income=?",
+                                                       "Stability=1", "Prestige=?", "Manpower=?", "---",
+                                                       "[Refresh 1]", "[Log the selected units 2]"}));
+        // A month with nothing new: the rows again, no new log line.
+        AnvilGameDateChange month{};
+        month.size = sizeof(month);
+        month.days = 1;
+        loader.bus.publish(ANVIL_GAME_EVENT_MONTH, &month);
+        CHECK(loader.logged_containing(summary) == 1 && fake::rows.size() == 12);
+        // Clicks, as the overlay delivers them on the main thread.
+        fake::click(fake::click_context, 1);
+        CHECK(loader.logged("panel-rust: refresh: " + summary));
+        fake::click(fake::click_context, 2);
+        CHECK(loader.logged("panel-rust: selected units: none"));
+        fake::in_session = false;
+        const AnvilGameSession ended{sizeof(AnvilGameSession), ANVIL_GAME_SESSION_ENDED, 0, 0, 1};
+        loader.bus.publish(ANVIL_GAME_EVENT_SESSION, &ended);
+        CHECK((fake::rows == std::vector<std::string>{"No game is loaded."}));
+        // No adapter panicked on the way.
+        CHECK(loader.logged_containing("panicked") == 0);
         if (g_failures != 0) loader.dump();
     });
 

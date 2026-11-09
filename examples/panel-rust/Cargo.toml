@@ -1,0 +1,16 @@
+[package]
+name = "panel-rust"
+version = "0.1.0"
+description = "Example Anvil plugin in Rust: the player's country in an overlay panel"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+name = "panel_rust"
+crate-type = ["cdylib"]
+
+[dependencies]
+anvil-sdk = { path = "../../sdk/rust/anvil-sdk" }
