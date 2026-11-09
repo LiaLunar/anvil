@@ -79,7 +79,7 @@ typedef struct AnvilPanelService {
     AnvilResult (*show)(AnvilPanel *panel, int shown);
     int (*shown)(const AnvilPanel *panel);
     /* The player's language: "en", "fr", "de", "es", "zh-Hans", "zh-Hant",
-     * "ja" or "ko". Valid until the process ends. */
+     * "ja", "ko", or since 1.16 "pl". Valid until the process ends. */
     const char *(*language)(void);
 } AnvilPanelService;
 

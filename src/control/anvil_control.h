@@ -232,9 +232,10 @@ typedef struct AnvilControlService {
     AnvilResult (*revoke_mod_plugin)(uint32_t index, AnvilControlResult *out);
 
     /* --- the player's language (appended in 1.7, #158) --- */
-    /* "en", "fr", "de", "es", and since 1.9 "zh-Hans", "zh-Hant", "ja" or "ko":
-     * ANVIL_LANGUAGE, else EU4's settings.txt, else with Mei loaded Steam's or
-     * Windows' Chinese, Japanese or Korean, else "en" (i18n::choose_language). */
+    /* "en", "fr", "de", "es", since 1.9 "zh-Hans", "zh-Hant", "ja" or "ko", and
+     * since 1.16 "pl": ANVIL_LANGUAGE, else EU4's settings.txt, else with Mei
+     * loaded Steam's or Windows' Chinese, Japanese or Korean, else Steam's Polish,
+     * else "en" (i18n::choose_language). */
     const char *(*language)(void);
 
     /* --- a plugin by its handle (appended in 1.16, ADR 0008) --- */

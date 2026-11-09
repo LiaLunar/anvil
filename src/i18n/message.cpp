@@ -207,6 +207,7 @@ const char* language_code(Language language) {
     case Language::TraditionalChinese: return "zh-Hant";
     case Language::Japanese: return "ja";
     case Language::Korean: return "ko";
+    case Language::Polish: return "pl";
     }
     return "en";
 }
@@ -225,6 +226,7 @@ std::optional<Language> language_named(std::string_view name) {
     if (code == "zh-hant") return Language::TraditionalChinese;
     if (code == "ja") return Language::Japanese;
     if (code == "ko") return Language::Korean;
+    if (code == "pl") return Language::Polish;
     return std::nullopt;
 }
 
@@ -269,6 +271,11 @@ std::optional<Language> cjk_language_of_locale(std::string_view locale_name) {
     return Language::SimplifiedChinese;
 }
 
+std::optional<Language> language_of_steam(std::string_view steam_language) {
+    if (trimmed(steam_language) == "polish") return Language::Polish;
+    return std::nullopt;
+}
+
 std::optional<Language> forced_language() {
     char forced[16] = {};
     const DWORD n = GetEnvironmentVariableA("ANVIL_LANGUAGE", forced, sizeof(forced));
@@ -308,11 +315,12 @@ LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_t
         if (const auto language = cjk_language_of_steam(system.steam)) return {*language, "Steam"};
         if (const auto language = cjk_language_of_locale(system.windows)) return {*language, "Windows"};
     }
+    if (const auto language = language_of_steam(system.steam)) return {*language, "Steam"};
     return {Language::English, says_english ? "settings.txt" : "default"};
 }
 
 LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text) {
-    return choose_language(user_dir, cjk_text, cjk_text ? read_system_languages() : SystemLanguages{});
+    return choose_language(user_dir, cjk_text, read_system_languages());
 }
 
 LanguageChoice choose_manager_language(const std::filesystem::path& user_dir, const SystemLanguages& system) {

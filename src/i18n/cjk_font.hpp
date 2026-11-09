@@ -32,7 +32,7 @@ std::vector<uint32_t> catalog_characters(Language language);
 // The options of the overlay's `language` setting (plugins/anvil-overlay/
 // settings.toml), in their order: "game" follows choose_language().
 inline constexpr std::string_view kLanguageSettingOptions[] = {"game", "en", "fr", "de", "es",
-                                                               "zh_hans", "zh_hant", "ja", "ko"};
+                                                               "zh_hans", "zh_hant", "ja", "ko", "pl"};
 // The language an option names; nullopt for "game" and unknown names.
 std::optional<Language> language_of_setting(std::string_view option);
 

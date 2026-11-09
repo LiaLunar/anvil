@@ -191,8 +191,8 @@ it with `i18n::Message("code", {args})`.
 
 Every new or changed English text needs its entry in each catalog,
 `src/i18n/catalog_fr.cpp`, `catalog_de.cpp`, `catalog_es.cpp`,
-`catalog_zh_hans.cpp`, `catalog_zh_hant.cpp`, `catalog_ja.cpp` and
-`catalog_ko.cpp`. A Chinese, Japanese or Korean character that is new to its
+`catalog_zh_hans.cpp`, `catalog_zh_hant.cpp`, `catalog_ja.cpp`,
+`catalog_ko.cpp` and `catalog_pl.cpp`. A Chinese, Japanese or Korean character that is new to its
 catalog also needs the fonts written again (`src/i18n/fonts/README.md`).
 `anvil_i18n_tests` (in `ctest`) names what is missing or unused, a translation
 whose placeholders differ, and a character the fonts do not have;
@@ -200,7 +200,7 @@ whose placeholders differ, and a character the fonts do not have;
 A translation is checked by a native speaker before it counts as done; the
 pull request says which entries are not checked yet. To see a language without
 changing EU4's settings, start the game or the Manager with `ANVIL_LANGUAGE`
-set to `en`, `fr`, `de` or `es`.
+set to `en`, `fr`, `de`, `es` or `pl`.
 
 ## Benchmark receiver
 

@@ -59,9 +59,9 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   speaks Simplified or Traditional Chinese, Japanese or Korean when Steam or
   Windows is set to it, from its first start; the overlay does so with
   [Mei](https://github.com/happy-dwarf-team/mei), which shows a translation
-  mod's Chinese, Japanese or Korean. The overlay's
-  setting "Language" chooses one for both. `anvil.log` and `anvil check` stay
-  in English, for bug reports and plugin authors.
+  mod's Chinese, Japanese or Korean. They speak Polish when Steam is set to
+  Polish. The overlay's setting "Language" chooses one for both. `anvil.log`
+  and `anvil check` stay in English, for bug reports and plugin authors.
 - And `anvil-log-throttle` (`anvil/plugins/anvil-log-throttle/`): a line that
   repeats in the game's `error.log` is written 10 times, then only counted,
   with a line that gives the count every minute and when the game closes the

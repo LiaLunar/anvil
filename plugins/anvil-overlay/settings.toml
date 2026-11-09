@@ -56,10 +56,11 @@ values = [
     { name = "zh_hant", label = "Chinese (Traditional)" },
     { name = "ja", label = "Japanese" },
     { name = "ko", label = "Korean" },
+    { name = "pl", label = "Polish" },
 ]
 default = "game"
 label = "Language"
-description = "The language of the panel and the notices. Like the game: EU4's language, or with Mei the Chinese, Japanese or Korean of Steam or Windows. The Manager follows it too."
+description = "The language of the panel and the notices. Like the game: EU4's language, or with Mei the Chinese, Japanese or Korean of Steam or Windows, or Polish when Steam is in Polish. The Manager follows it too."
 restart = false
 [setting.release_check]
 type = "enum"

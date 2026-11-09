@@ -217,7 +217,8 @@ int main(int argc, char** argv) {
         CHECK(!language_of_settings("language=\"l_russian\""));  // EU4 or a mod may have more; Anvil speaks English
         CHECK(!language_of_settings("languages=\"l_french\"\nother=1"));
         CHECK(!language_of_settings(""));
-        CHECK(language_named("de") == Language::German && language_named(" fr ") == Language::French && !language_named("pl"));
+        CHECK(language_named("de") == Language::German && language_named(" fr ") == Language::French && language_named("PL") == Language::Polish);
+        CHECK(!language_named("l_polish") && !language_named("pl-PL"));
         CHECK(language_named("zh-Hans") == Language::SimplifiedChinese && language_named("ZH_HANT") == Language::TraditionalChinese);
         CHECK(language_named("ja") == Language::Japanese && language_named("ko") == Language::Korean && !language_named("zh"));
         for (const Language l : kLanguages) CHECK(language_named(language_code(l)) == l);
@@ -241,6 +242,12 @@ int main(int argc, char** argv) {
         CHECK(cjk_language_of_locale("ja-JP") == Language::Japanese && cjk_language_of_locale("ko-KR") == Language::Korean);
         CHECK(!cjk_language_of_locale("pl-PL") && !cjk_language_of_locale("en-US") && !cjk_language_of_locale("jav") &&
               !cjk_language_of_locale(""));
+    });
+
+    run("language: Steam's Polish", [] {
+        CHECK(language_of_steam("polish") == Language::Polish && language_of_steam(" polish ") == Language::Polish);
+        CHECK(!language_of_steam("english") && !language_of_steam("schinese") && !language_of_steam(""));
+        CHECK(!is_cjk(Language::Polish));
     });
 
     run("language: the options of the overlay's setting", [&] {
@@ -267,7 +274,8 @@ int main(int argc, char** argv) {
         const fs::path dir = fs::temp_directory_path() / ("anvil-i18n-" + std::to_string(GetCurrentProcessId()));
         fs::create_directories(dir);
         SetEnvironmentVariableA("ANVIL_LANGUAGE", nullptr);
-        CHECK(choose_language(dir).language == Language::English && choose_language(dir).source == "default");
+        // Without the system's languages: Steam on the machine may be Polish.
+        CHECK(choose_language(dir, false, {}).language == Language::English && choose_language(dir, false, {}).source == "default");
         std::ofstream(dir / "settings.txt") << "language=\"l_spanish\"\n";
         CHECK(choose_language(dir).language == Language::Spanish && choose_language(dir).source == "settings.txt");
         SetEnvironmentVariableA("ANVIL_LANGUAGE", "de");
@@ -293,6 +301,13 @@ int main(int argc, char** argv) {
         CHECK(choose_language(dir, true, {"tchinese", "ja-JP"}).language == Language::TraditionalChinese);
         CHECK(choose_language(dir, true, {"english", "pl-PL"}).language == Language::English);
         CHECK(choose_language(dir, true, {"english", "pl-PL"}).source == "settings.txt");
+        // Polish from Steam, with or without Mei: EU4 has no Polish, so settings.txt says English.
+        CHECK(choose_language(dir, false, {"polish", "en-US"}).language == Language::Polish);
+        CHECK(choose_language(dir, false, {"polish", "en-US"}).source == "Steam");
+        CHECK(choose_language(dir, true, {"polish", "ja-JP"}).language == Language::Japanese);  // Mei's language first
+        std::ofstream(dir / "settings.txt") << "language=\"l_german\"\n";
+        CHECK(choose_language(dir, false, {"polish", "pl-PL"}).language == Language::German);  // EU4's own language first
+        std::ofstream(dir / "settings.txt") << "language=\"l_english\"\n";
         // The Manager follows Steam and Windows without Mei (lab#93): it
         // installs Anvil before Mei is there.
         CHECK(choose_manager_language(dir, chinese_steam).language == Language::SimplifiedChinese);
@@ -300,6 +315,7 @@ int main(int argc, char** argv) {
         CHECK(choose_manager_language(dir, {"english", "zh-TW"}).language == Language::TraditionalChinese);
         CHECK(choose_manager_language(dir, {"english", "zh-TW"}).source == "Windows");
         CHECK(choose_manager_language(dir, {"english", "en-US"}).language == Language::English);
+        CHECK(choose_manager_language(dir, {"polish", "pl-PL"}).language == Language::Polish);
         std::ofstream(dir / "settings.txt") << "language=\"l_french\"\n";
         CHECK(choose_manager_language(dir, chinese_steam).language == Language::French);  // EU4's own language first
         SetEnvironmentVariableA("ANVIL_LANGUAGE", "en");

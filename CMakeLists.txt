@@ -46,7 +46,7 @@ target_include_directories(anvil_messages PUBLIC src)
 target_compile_definitions(anvil_messages PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_library(anvil_i18n STATIC src/i18n/translate.cpp src/i18n/cjk_font.cpp src/i18n/catalog_fr.cpp
     src/i18n/catalog_de.cpp src/i18n/catalog_es.cpp src/i18n/catalog_zh_hans.cpp src/i18n/catalog_zh_hant.cpp
-    src/i18n/catalog_ja.cpp src/i18n/catalog_ko.cpp)
+    src/i18n/catalog_ja.cpp src/i18n/catalog_ko.cpp src/i18n/catalog_pl.cpp)
 # The CJK fonts are resources of each binary that draws text (cjk_font.hpp):
 # target_sources(<target> PRIVATE ${ANVIL_CJK_FONTS_RC}).
 set(ANVIL_CJK_FONTS_RC ${CMAKE_CURRENT_SOURCE_DIR}/src/i18n/fonts/fonts.rc CACHE INTERNAL "")

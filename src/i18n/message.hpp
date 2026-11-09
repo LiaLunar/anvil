@@ -61,16 +61,17 @@ Message crash_message(std::string_view level, const std::vector<std::string>& pl
 
 // ---- the player's language -------------------------------------------------
 
-enum class Language { English, French, German, Spanish, SimplifiedChinese, TraditionalChinese, Japanese, Korean };
+enum class Language { English, French, German, Spanish, SimplifiedChinese, TraditionalChinese, Japanese, Korean, Polish };
 inline constexpr Language kLanguages[] = {Language::English,           Language::French,
                                           Language::German,            Language::Spanish,
                                           Language::SimplifiedChinese, Language::TraditionalChinese,
-                                          Language::Japanese,          Language::Korean};
+                                          Language::Japanese,          Language::Korean,
+                                          Language::Polish};
 
 // Chinese, Japanese or Korean: drawn with a CJK font (i18n/cjk_font.hpp).
 bool is_cjk(Language language);
 
-const char* language_code(Language language);  // "en", "fr", "de", "es", "zh-Hans", "zh-Hant", "ja", "ko"
+const char* language_code(Language language);  // "en", "fr", "de", "es", "zh-Hans", "zh-Hant", "ja", "ko", "pl"
 // A code (any case, "_" for "-": the overlay's setting writes "zh_hans") or
 // EU4's names ("l_french"); nullopt for others.
 std::optional<Language> language_named(std::string_view name);
@@ -85,6 +86,9 @@ std::optional<Language> cjk_language_of_steam(std::string_view steam_language);
 // Windows' display language as a locale name ("zh-CN", "zh-TW", "ja-JP",
 // "ko-KR"), when it is Chinese, Japanese or Korean.
 std::optional<Language> cjk_language_of_locale(std::string_view locale_name);
+// Steam's own language when it is one EU4 does not have and Anvil speaks
+// without a translation mod: "polish".
+std::optional<Language> language_of_steam(std::string_view steam_language);
 
 // ANVIL_LANGUAGE, when it names a language Anvil speaks.
 std::optional<Language> forced_language();
@@ -106,7 +110,9 @@ struct LanguageChoice {
 // 2. French, German or Spanish from settings.txt in EU4's user folder (only read);
 // 3. with `cjk_text` (Mei, which shows a translation mod's Chinese, Japanese or
 //    Korean text, loads): Steam's language, then Windows', when it is one of those;
-// 4. English.
+// 4. Polish when Steam's language is Polish and settings.txt names no language
+//    Anvil speaks other than English (EU4 has no Polish of its own);
+// 5. English.
 // EU4 has no Chinese, Japanese or Korean of its own: a translation mod replaces
 // its English text, so settings.txt says English for those players.
 LanguageChoice choose_language(const std::filesystem::path& user_dir, bool cjk_text = false);

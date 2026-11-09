@@ -20,6 +20,8 @@ extern const Translation kJapanese[];
 extern const size_t kJapaneseSize;
 extern const Translation kKorean[];
 extern const size_t kKoreanSize;
+extern const Translation kPolish[];
+extern const size_t kPolishSize;
 
 namespace {
 
@@ -46,6 +48,7 @@ const Index& index_of(Language language) {
     case Language::TraditionalChinese: { static const Index hant = build(Language::TraditionalChinese); return hant; }
     case Language::Japanese: { static const Index japanese = build(Language::Japanese); return japanese; }
     case Language::Korean: { static const Index korean = build(Language::Korean); return korean; }
+    case Language::Polish: { static const Index polish = build(Language::Polish); return polish; }
     case Language::English: break;
     }
     return none;
@@ -62,6 +65,7 @@ Catalog catalog(Language language) {
     case Language::TraditionalChinese: return {kTraditionalChinese, kTraditionalChineseSize};
     case Language::Japanese: return {kJapanese, kJapaneseSize};
     case Language::Korean: return {kKorean, kKoreanSize};
+    case Language::Polish: return {kPolish, kPolishSize};
     case Language::English: break;
     }
     return {nullptr, 0};
