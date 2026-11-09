@@ -27,6 +27,13 @@ on:
   schedule:
     - cron: "17 4 * * 1"
 
+# A new push to a pull request cancels its older runs of this workflow. Other
+# runs (main, the weekly scan, a release's build) get a group of their own and
+# are never cancelled.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

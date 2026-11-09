@@ -12,6 +12,13 @@ on:
         type: string
         default: ''
 
+# A new push to a pull request cancels its older runs of this workflow. Other
+# runs (main, the weekly scan, a release's build) get a group of their own and
+# are never cancelled.
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('{0}-{1}', github.workflow, github.ref) || github.run_id }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
@@ -24,12 +31,71 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      # Ninja with sccache in front of cl: a run compiles only the sources whose
+      # inputs changed since the cached run. The MSVC environment (cl, link, rc on
+      # PATH, INCLUDE, LIB) comes from vcvars64.bat, as a Developer prompt has it,
+      # saved to msvc.env and loaded only by the steps that run cl: for the whole
+      # job it would also make rustc in a bash step link with Git's link.exe.
+      - name: sccache
+        shell: pwsh
+        env:
+          SCCACHE_VERSION: v0.19.0
+          SCCACHE_SHA256: 28be8c61f6b2c89b9eb2869f6af7f78e6f992e78a8abae0ce855fcc129cbeac1
+        run: |
+          $name = "sccache-$env:SCCACHE_VERSION-x86_64-pc-windows-msvc"
+          $zip = Join-Path $env:RUNNER_TEMP "$name.zip"
+          Invoke-WebRequest "https://github.com/mozilla/sccache/releases/download/$env:SCCACHE_VERSION/$name.zip" -OutFile $zip
+          if ((Get-FileHash $zip -Algorithm SHA256).Hash -ne $env:SCCACHE_SHA256) { throw "$name.zip: SHA-256 mismatch" }
+          Expand-Archive $zip -DestinationPath $env:RUNNER_TEMP
+          Join-Path $env:RUNNER_TEMP $name | Out-File $env:GITHUB_PATH -Append -Encoding utf8
+          "SCCACHE_DIR=$(Join-Path $env:RUNNER_TEMP sccache)" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "SCCACHE_CACHE_SIZE=1G" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: MSVC environment
+        shell: pwsh
+        run: |
+          $vs = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          # Only what vcvars64.bat adds or changes, not the runner's own GITHUB_* and the rest.
+          cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set" | ForEach-Object {
+            $name, $value = $_ -split '=', 2
+            if ($name -and $null -ne $value -and [Environment]::GetEnvironmentVariable($name) -ne $value) { "$name=$value" }
+          } | Out-File (Join-Path $env:RUNNER_TEMP msvc.env) -Encoding utf8
+
+      # A release build (release.yml passes a ref) neither reads nor writes the
+      # cache: its package is compiled from the sources alone.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ inputs.ref == '' }}
+        with:
+          path: ${{ runner.temp }}/sccache
+          key: sccache-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: sccache-${{ runner.os }}-
+
+      # The sources FetchContent downloads and their sub-builds, keyed on the CMake
+      # files that pin them: Configure then skips the clones and downloads.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        if: ${{ inputs.ref == '' }}
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: fetchcontent-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
       - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+        shell: pwsh
+        run: |
+          Get-Content (Join-Path $env:RUNNER_TEMP msvc.env) |
+            ForEach-Object { $name, $value = $_ -split '=', 2; Set-Item "env:$name" $value }
+          cmake -S . -B build -G "Ninja Multi-Config" `
+            -DCMAKE_C_COMPILER_LAUNCHER=sccache -DCMAKE_CXX_COMPILER_LAUNCHER=sccache
 
       - name: Build
-        # --parallel: MSBuild builds independent projects at once (CMakeLists.txt adds /MP within one).
-        run: cmake --build build --config Release --parallel
+        shell: pwsh
+        run: |
+          Get-Content (Join-Path $env:RUNNER_TEMP msvc.env) |
+            ForEach-Object { $name, $value = $_ -split '=', 2; Set-Item "env:$name" $value }
+          cmake --build build --config Release
+          sccache --show-stats
 
       # The plugin catalog (ADR 0002): every pinned zip has the size and SHA-256
       # of its entry, the build provenance of its plugin's repository and the
@@ -95,7 +161,11 @@ jobs:
       - name: Test
         env:
           ANVIL_REQUIRE_HELLO_RUST: '1'
-        run: ctest --test-dir build -C Release --output-on-failure
+        shell: pwsh
+        run: |
+          Get-Content (Join-Path $env:RUNNER_TEMP msvc.env) |
+            ForEach-Object { $name, $value = $_ -split '=', 2; Set-Item "env:$name" $value }
+          ctest --test-dir build -C Release --output-on-failure
 
       # Microbenchmarks (design §17): three runs, gated on each case's ratio to a
       # plain call against bench/baseline-ci.json for this runner's CPU model.
