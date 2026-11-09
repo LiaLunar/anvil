@@ -3,7 +3,7 @@
 #include "benchmark_send.hpp"
 #include "catalog.hpp"
 #include "install.hpp"
-#include "release_check.hpp"
+#include "net/release_check.hpp"
 
 #include <windows.h>
 
@@ -58,12 +58,12 @@ bool remove_after_exit(const std::filesystem::path& exe);
 int run_remove_after_exit(const std::filesystem::path& exe, DWORD pid);
 void remove_stale_copies();
 
-// The opt-in release check: GET the latest release from the GitHub API.
+// The opt-in release check (anvil_net), sent as AnvilManager/<version>.
 // Runs on a worker thread; nothing is downloaded but this reply.
-struct ReleaseCheck {
-    std::optional<Release> release;  // set when the reply was a release
-    std::string error;
-};
+using net::Release;
+using net::ReleaseCheck;
+using net::newer_release;
+using net::kReleasesUrl;
 ReleaseCheck fetch_latest_release();
 
 // The catalog of this build (resource ANVIL_CATALOG, ADR 0002).

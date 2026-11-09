@@ -1,6 +1,6 @@
 // anvil-overlay (plugins/anvil-overlay) without a device: which notices it
-// shows (design §12, §13, §15), the panel key, and its client of anvil.control
-// against the core's service on fake plugins.
+// shows (design §12, §13, §15), its release check (ADR 0005), the panel key,
+// and its client of anvil.control against the core's service on fake plugins.
 #include "core/control.hpp"
 #include "core/host.hpp"
 #include "core/mod_plugins.hpp"
@@ -10,6 +10,7 @@
 #include "../plugins/anvil-overlay/src/control_client.hpp"
 #include "../plugins/anvil-overlay/src/notices.hpp"
 #include "../plugins/anvil-overlay/src/panels.hpp"
+#include "../plugins/anvil-overlay/src/release.hpp"
 
 #include <windows.h>
 
@@ -417,6 +418,61 @@ int main() {
         lines = menu_badge_tooltip(status, 2, true, "F11");
         CHECK(lines.size() == 3 && lines[1] == "2 plugins wait for this game version" &&
               lines[2] == "Click to close the Anvil panel.");
+    });
+
+    run("release check: the player's word, else the Manager's answer, else the question", [] {
+        CHECK(release_plan(ReleaseConsent::On, std::nullopt, false) == ReleasePlan::Check);
+        CHECK(release_plan(ReleaseConsent::On, false, false) == ReleasePlan::Check);
+        CHECK(release_plan(ReleaseConsent::Off, true, false) == ReleasePlan::None);
+        CHECK(release_plan(ReleaseConsent::Ask, true, false) == ReleasePlan::Check);
+        CHECK(release_plan(ReleaseConsent::Ask, false, false) == ReleasePlan::None);
+        CHECK(release_plan(ReleaseConsent::Ask, std::nullopt, false) == ReleasePlan::Question);
+        // A benchmark start neither asks nor checks.
+        CHECK(release_plan(ReleaseConsent::On, true, true) == ReleasePlan::None);
+        CHECK(release_plan(ReleaseConsent::Ask, std::nullopt, true) == ReleasePlan::None);
+    });
+
+    run("release check: settings.toml's options are ReleaseConsent's, ask by default", [] {
+        const fs::path file = fs::path(__FILE__).parent_path().parent_path() / "plugins" / "anvil-overlay" / "settings.toml";
+        const anvil::SettingsFileResult schema = anvil::load_settings(file);
+        CHECK(schema.file.has_value());
+        bool found = false;
+        for (const anvil::Setting& s : schema.file ? schema.file->settings : std::vector<anvil::Setting>{}) {
+            if (s.name != "release_check") continue;
+            found = true;
+            CHECK(s.type == anvil::SettingType::Enum && s.options.size() == 3 && !s.restart);
+            CHECK(s.options.size() == 3 && s.options[static_cast<size_t>(ReleaseConsent::Ask)].name == "ask" &&
+                  s.options[static_cast<size_t>(ReleaseConsent::On)].name == "on" &&
+                  s.options[static_cast<size_t>(ReleaseConsent::Off)].name == "off");
+            CHECK(s.default_value.integer == static_cast<int64_t>(ReleaseConsent::Ask));
+        }
+        CHECK(found);
+    });
+
+    run("release check: the question and the notice of a newer release", [] {
+        const Notice question = release_question();
+        CHECK(question.id == "release-question" && question.until_closed && question.actions.size() == 2);
+        CHECK(question.actions[0].type == NoticeAction::Type::ReleaseCheckOn &&
+              question.actions[1].type == NoticeAction::Type::ReleaseCheckOff);
+
+        anvil::net::Release latest{"v1.15.0", "https://github.com/happy-dwarf-team/anvil/releases/tag/v1.15.0"};
+        const auto notice = release_notice(latest, "1.14.0", "");
+        CHECK(notice.has_value());
+        if (notice) {
+            CHECK(notice->id == "release" && notice->kind == NoticeKind::Info && !notice->until_closed && !notice->lasting);
+            CHECK(notice->title == "Anvil v1.15.0 is available.");
+            CHECK(!notice->lines.empty() && notice->lines[0].find("Anvil 1.14.0") != std::string::npos &&
+                  notice->lines[0].find("AnvilManager.exe") != std::string::npos);
+            CHECK(notice->actions.size() == 2 && notice->actions[0].type == NoticeAction::Type::OpenLink &&
+                  notice->actions[0].url == latest.url && notice->actions[1].type == NoticeAction::Type::CopyLink);
+        }
+        CHECK(!release_notice(latest, "1.15.0", ""));        // the same version
+        CHECK(!release_notice(latest, "1.16.0", ""));        // a newer one runs
+        CHECK(!release_notice(latest, "1.14.0", "v1.15.0"));  // the player closed it
+        CHECK(release_notice(latest, "1.14.0", "v1.14.1"));   // a release after the closed one
+        CHECK(!release_notice({"nightly", latest.url}, "1.14.0", ""));
+        CHECK(dismissed_tag("v1.15.0\r\n") == "v1.15.0" && dismissed_tag("") == "" &&
+              dismissed_tag("  v1.2.0 \nx") == "v1.2.0");
     });
 
     run("panel key: exact match with modifiers", [] {

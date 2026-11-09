@@ -118,11 +118,12 @@ std::string read_file(const fs::path& file) {
 }
 
 // Every English text the catalogs must translate: the marked texts of the
-// overlay's and the Manager's sources, and the patterns of every code.
+// overlay's and the Manager's sources (and of anvil_net, which both use), and
+// the patterns of every code.
 std::set<std::string> catalog_keys(const fs::path& root) {
     std::set<std::string> keys;
     for (const fs::path dir : {root / "plugins" / "anvil-overlay" / "src", root / "tools" / "manager" / "app",
-                               root / "tools" / "manager" / "src"}) {
+                               root / "tools" / "manager" / "src", root / "src" / "net"}) {
         for (const auto& entry : fs::directory_iterator(dir)) {
             if (entry.path().extension() != ".cpp" && entry.path().extension() != ".hpp") continue;
             for (std::string& text : marked_texts(read_file(entry.path()))) keys.insert(std::move(text));

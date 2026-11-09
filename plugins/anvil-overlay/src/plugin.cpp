@@ -398,6 +398,14 @@ struct AnvilOverlay : anvil::Plugin {
         s.notifications.store(cfg::notifications.get());
         s.notification_seconds.store(cfg::notification_seconds.get());
         s.scale.store(cfg::scale.get());
+        s.data_dir = host.data_dir();
+        s.release_check.store(static_cast<int64_t>(cfg::release_check.get()));
+        s.release_check_setting = cfg::release_check.id;
+        host.subscribe_setting(cfg::release_check, [](cfg::Types::release_check_value value) {
+            shared().release_check.store(static_cast<int64_t>(value));
+            shared().release_consent_changed.store(true, std::memory_order_release);
+            shared().mark_dirty();
+        });
         host.subscribe_setting(cfg::panel_key, [](anvil::Key key) { shared().panel_key.store(key.code); });
         host.subscribe_setting(cfg::menu_badge, [](bool on) {
             shared().menu_badge.store(on);

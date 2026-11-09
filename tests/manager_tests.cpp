@@ -12,7 +12,7 @@
 #include "mods.hpp"
 #include "core/trust.hpp"
 #include "plugin_zip.hpp"
-#include "release_check.hpp"
+#include "net/release_check.hpp"
 #include "start_menu.hpp"
 #include "test_image.hpp"
 #include "test_support.hpp"
@@ -32,6 +32,7 @@ namespace {
 
 using namespace anvil;
 using namespace anvil::manager;
+using namespace anvil::net;
 namespace fs = std::filesystem;
 
 void write(const fs::path& path, const std::string& text) {
@@ -602,6 +603,22 @@ int main(int argc, char** argv) {
         CHECK(newer_release("v1.2.0", "1.1.0") && newer_release("1.1.1", "1.1.0"));
         CHECK(!newer_release("v1.1.0", "1.1.0") && !newer_release("v1.0.9", "1.1.0") && !newer_release("latest", "1.1.0"));
         CHECK(!newer_release("v1.2.0-rc.1", "1.2.0"));
+    });
+
+    run("release check: the Manager's answer as the overlay reads manager.toml", [] {
+        // As save_manager_settings writes it (toml++).
+        CHECK(manager_release_answer("# Anvil Manager's settings.\nasked_releases = true\ncheck_releases = true\n"
+                                     "game_folder = 'D:\\EU4'\n") == std::optional(true));
+        CHECK(manager_release_answer("check_releases = false\r\nasked_releases = true\r\n") == std::optional(false));
+        // Not answered yet, or nothing said.
+        CHECK(!manager_release_answer("asked_releases = false\ncheck_releases = false\n"));
+        CHECK(!manager_release_answer("check_releases = true\n"));
+        CHECK(!manager_release_answer("asked_releases = true\n"));
+        CHECK(!manager_release_answer(""));
+        CHECK(!manager_release_answer("asked_releases = yes\ncheck_releases = true\n"));
+        // Keys of a table are not the top level's.
+        CHECK(!manager_release_answer("[other]\nasked_releases = true\ncheck_releases = true\n"));
+        CHECK(manager_settings_file().filename() == "manager.toml");
     });
 
     run("catalog: a mod that presents itself as a catalog plugin is told apart from its Workshop item", [] {

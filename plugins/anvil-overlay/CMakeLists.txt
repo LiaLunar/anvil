@@ -35,8 +35,13 @@ target_compile_definitions(anvil_overlay_imgui PUBLIC
 set_target_properties(anvil_overlay_imgui PROPERTIES COMPILE_WARNING_AS_ERROR OFF POSITION_INDEPENDENT_CODE ON)
 set(ANVIL_OVERLAY_IMGUI_LICENSE ${imgui_SOURCE_DIR}/LICENSE.txt CACHE INTERNAL "")
 
-anvil_add_plugin(anvil_overlay SOURCES src/plugin.cpp src/ui.cpp src/notices.cpp src/control_client.cpp src/panels.cpp)
+anvil_add_plugin(anvil_overlay SOURCES src/plugin.cpp src/ui.cpp src/notices.cpp src/control_client.cpp src/panels.cpp
+    src/release.cpp)
 target_include_directories(anvil_overlay PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control)
-target_link_libraries(anvil_overlay PRIVATE anvil_overlay_imgui anvil_i18n)
+# anvil_net: the opt-in release check it shares with the Manager. Its DLLs are
+# delay-loaded, so the static imports stay KERNEL32 and USER32; winhttp.dll is
+# loaded from System32 before the first call (src/ui.cpp).
+target_link_libraries(anvil_overlay PRIVATE anvil_overlay_imgui anvil_i18n anvil_net delayimp)
+target_link_options(anvil_overlay PRIVATE /DELAYLOAD:winhttp.dll /DELAYLOAD:shell32.dll /DELAYLOAD:ole32.dll)
 target_sources(anvil_overlay PRIVATE ${ANVIL_CJK_FONTS_RC})
 target_compile_definitions(anvil_overlay PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)

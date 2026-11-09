@@ -11,6 +11,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <filesystem>
 #include <mutex>
 
 namespace overlay {
@@ -44,6 +45,14 @@ struct Shared {
     std::atomic<bool> notifications{true};
     std::atomic<int64_t> notification_seconds{30};
     std::atomic<double> scale{1.0};
+    // The release check (release.hpp): the `release_check` option (a
+    // ReleaseConsent) and that setting's id, for the question's answer.
+    std::atomic<int64_t> release_check{0};
+    AnvilSetting release_check_setting = 0;
+    std::atomic<bool> release_consent_changed{false};  // the next frame plans the check again
+    std::atomic<bool> release_done{false};             // the worker thread has an answer
+    // anvil/data/anvil-overlay/, set at load.
+    std::filesystem::path data_dir;
 
     // What ImGui wanted at the end of the last frame.
     std::atomic<bool> want_mouse{false};

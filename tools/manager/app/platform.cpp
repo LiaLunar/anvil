@@ -5,6 +5,7 @@
 #include "files.hpp"
 #include "game.hpp"
 #include "i18n/translate.hpp"
+#include "net/https.hpp"
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -24,13 +25,7 @@ namespace fs = std::filesystem;
 
 constexpr const wchar_t* kCopyPrefix = L"AnvilManager-remove-";
 
-fs::path settings_file() {
-    PWSTR local = nullptr;
-    fs::path out;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) out = fs::path(local) / "Anvil" / "manager.toml";
-    CoTaskMemFree(local);
-    return out;
-}
+fs::path settings_file() { return net::manager_settings_file(); }
 
 std::string utf8(const fs::path& path) {
     const auto u8 = path.u8string();
@@ -65,56 +60,15 @@ struct Internet {
     }
 };
 
-// One HTTPS GET of `host` + `path`, redirects followed as WinHTTP does
-// (never from https to http). The body when the answer is 200 and at most
-// `limit` bytes; nullopt with `error` (naming `name`) otherwise.
+// The GETs go through anvil_net's, as AnvilManager/<version>.
+const std::wstring& agent() {
+    static const std::wstring name = L"AnvilManager/" + widen(ANVIL_VERSION);
+    return name;
+}
+
 std::optional<std::string> https_get(const wchar_t* host, const wchar_t* path, const wchar_t* headers, size_t limit,
                                      const std::string& name, std::string& error) {
-    const std::wstring agent = L"AnvilManager/" + widen(ANVIL_VERSION);
-    Internet session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-                                 WINHTTP_NO_PROXY_BYPASS, 0)};
-    Internet connection{session.handle != nullptr ? WinHttpConnect(session.handle, host, INTERNET_DEFAULT_HTTPS_PORT, 0) : nullptr};
-    Internet request{connection.handle != nullptr
-                         ? WinHttpOpenRequest(connection.handle, L"GET", path, nullptr, WINHTTP_NO_REFERER,
-                                              WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
-                         : nullptr};
-    if (request.handle == nullptr ||
-        !WinHttpSendRequest(request.handle, headers, headers != nullptr ? static_cast<DWORD>(-1L) : 0, WINHTTP_NO_REQUEST_DATA,
-                            0, 0, 0) ||
-        !WinHttpReceiveResponse(request.handle, nullptr)) {
-        error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
-        return std::nullopt;
-    }
-    DWORD status = 0;
-    DWORD size = sizeof(status);
-    WinHttpQueryHeaders(request.handle, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
-                        &status, &size, WINHTTP_NO_HEADER_INDEX);
-    if (status != 200) {
-        error = i18n::trf("{0} answered {1}", {name, std::to_string(status)});
-        return std::nullopt;
-    }
-    std::string body;
-    for (;;) {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request.handle, &available)) {
-            error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
-            return std::nullopt;
-        }
-        if (available == 0) break;
-        const size_t at = body.size();
-        if (at + available > limit) {
-            error = i18n::trf("{0} sent more than expected", {name});
-            return std::nullopt;
-        }
-        body.resize(at + available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request.handle, body.data() + at, available, &read)) {
-            error = i18n::trf("cannot reach {0} (error {1})", {name, std::to_string(GetLastError())});
-            return std::nullopt;
-        }
-        body.resize(at + read);
-    }
-    return body;
+    return net::https_get(host, path, headers, limit, name, agent(), error);
 }
 
 }  // namespace
@@ -309,16 +263,7 @@ void remove_stale_copies() {
     }
 }
 
-ReleaseCheck fetch_latest_release() {
-    ReleaseCheck out;
-    const auto body = https_get(kReleaseApiHost, kReleaseApiPath,
-                                L"Accept: application/vnd.github+json\r\nX-GitHub-Api-Version: 2022-11-28\r\n", 1u << 20,
-                                "GitHub", out.error);
-    if (!body) return out;
-    out.release = parse_release(*body);
-    if (!out.release) out.error = i18n::tr("GitHub's reply is not a release of Anvil");
-    return out;
-}
+ReleaseCheck fetch_latest_release() { return net::fetch_latest_release(agent()); }
 
 std::optional<Catalog> load_embedded_catalog(std::string& error) {
     const HRSRC resource = FindResourceW(nullptr, L"ANVIL_CATALOG", MAKEINTRESOURCEW(10));  // RT_RCDATA
@@ -356,8 +301,7 @@ ZipDownload download_pinned_zip(const CatalogPlugin& plugin) {
 
 SendOutcome post_report(std::string body) {
     SendOutcome out;
-    const std::wstring agent = L"AnvilManager/" + widen(ANVIL_VERSION);
-    Internet session{WinHttpOpen(agent.c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
+    Internet session{WinHttpOpen(agent().c_str(), WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
                                  WINHTTP_NO_PROXY_BYPASS, 0)};
     Internet connection{session.handle != nullptr ? WinHttpConnect(session.handle, kReceiverHost, INTERNET_DEFAULT_HTTPS_PORT, 0)
                                                   : nullptr};

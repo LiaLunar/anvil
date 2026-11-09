@@ -15,14 +15,19 @@ namespace overlay {
 enum class NoticeKind { Info, Warning, Error };
 
 struct NoticeAction {
-    enum class Type { OpenPanel, DisablePlugin };
+    // OpenLink and CopyLink: `url`. ReleaseCheckOn and ReleaseCheckOff answer
+    // the release question (release.hpp).
+    enum class Type { OpenPanel, DisablePlugin, OpenLink, CopyLink, ReleaseCheckOn, ReleaseCheckOff };
     Type type = Type::OpenPanel;
     std::string plugin;  // DisablePlugin
     std::string label;
+    std::string url;  // OpenLink, CopyLink
 };
 
 struct Notice {
-    std::string id;  // stable: "safe-mode", "crash", "unknown-build", "waiting-for-build", "not-loaded", "approvals", "ironman", "multiplayer"
+    // Stable: "safe-mode", "crash", "unknown-build", "waiting-for-build", "not-loaded", "approvals",
+    // "release-question", "release" (release.hpp), "ironman", "multiplayer".
+    std::string id;
     NoticeKind kind = NoticeKind::Info;
     std::string title;
     std::vector<std::string> lines;

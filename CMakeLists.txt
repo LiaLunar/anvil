@@ -55,6 +55,26 @@ if(MSVC)
     target_compile_options(anvil_i18n PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
 endif()
 
+# anvil_semver: SemVer versions and ranges, part of anvil_core and on its own
+# for anvil_net.
+add_library(anvil_semver STATIC src/core/semver.cpp)
+target_include_directories(anvil_semver PUBLIC src)
+if(MSVC)
+    target_compile_options(anvil_semver PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
+endif()
+
+# anvil_net: the opt-in release check the Manager and anvil-overlay share
+# (design §15, ADR 0005): one HTTPS GET with WinHTTP, the GitHub release it
+# answers, the version comparison and the Manager's answer to its question.
+# Only the overlay and the Manager link it; the overlay delay-loads winhttp.dll.
+add_library(anvil_net STATIC src/net/https.cpp src/net/release_check.cpp)
+target_include_directories(anvil_net PUBLIC src)
+target_link_libraries(anvil_net PUBLIC anvil_i18n anvil_semver winhttp shell32 ole32)
+target_compile_definitions(anvil_net PRIVATE WIN32_LEAN_AND_MEAN NOMINMAX)
+if(MSVC)
+    target_compile_options(anvil_net PRIVATE /W4 /WX /utf-8 /permissive- /EHsc)
+endif()
+
 # anvil_core: the rules shared by version.dll and anvil.exe (manifests, SemVer,
 # the resolver, the game build identity, symbols.toml and its verification
 # against a PE image, settings.toml and the player's values, instruction
@@ -75,12 +95,11 @@ add_library(anvil_core STATIC
     src/core/playset.cpp
     src/core/plugin_hash.cpp
     src/core/resolver.cpp
-    src/core/semver.cpp
     src/core/settings.cpp
     src/core/symbols.cpp
     src/core/trust.cpp)
 target_include_directories(anvil_core PUBLIC include src)
-target_link_libraries(anvil_core PUBLIC anvil_messages tomlplusplus::tomlplusplus Zydis bcrypt)
+target_link_libraries(anvil_core PUBLIC anvil_messages anvil_semver tomlplusplus::tomlplusplus Zydis bcrypt)
 target_compile_definitions(anvil_core PUBLIC WIN32_LEAN_AND_MEAN NOMINMAX UNICODE _UNICODE
     ANVIL_VERSION="${PROJECT_VERSION}")
 if(MSVC)
@@ -342,12 +361,13 @@ if(ANVIL_BUILD_TESTS)
     add_dependencies(anvil_game_plugin_tests anvil_game)
     add_test(NAME anvil_game_plugin_tests COMMAND anvil_game_plugin_tests ${CMAKE_BINARY_DIR}/plugin)
 
-    # anvil-overlay's notices and key matching, and anvil check on its folder
+    # anvil-overlay's notices, its release check and key matching, and anvil check on its folder
     # (tests/overlay_tests.cpp).
     add_executable(anvil_overlay_tests tests/overlay_tests.cpp plugins/anvil-overlay/src/notices.cpp
-        plugins/anvil-overlay/src/control_client.cpp plugins/anvil-overlay/src/panels.cpp)
+        plugins/anvil-overlay/src/control_client.cpp plugins/anvil-overlay/src/panels.cpp
+        plugins/anvil-overlay/src/release.cpp)
     target_include_directories(anvil_overlay_tests PRIVATE src/control)
-    target_link_libraries(anvil_overlay_tests PRIVATE anvil_loader anvil_i18n)
+    target_link_libraries(anvil_overlay_tests PRIVATE anvil_loader anvil_i18n anvil_net)
     add_test(NAME anvil_overlay_tests COMMAND anvil_overlay_tests)
 
     # The player's language (issue #158): messages by code, the language from

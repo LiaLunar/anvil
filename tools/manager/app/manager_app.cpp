@@ -43,6 +43,24 @@ std::optional<i18n::Language> overlay_language(const fs::path& game) {
     return std::nullopt;
 }
 
+// The overlay's `release_check` setting in that game folder: true for "on",
+// false for "off", nullopt for "ask" (it follows the Manager) or no overlay.
+std::optional<bool> overlay_release_answer(const fs::path& game) {
+    const SettingsFileResult schema = load_settings(game / "anvil" / "plugins" / "anvil-overlay" / "settings.toml");
+    if (!schema.file) return std::nullopt;
+    const PlayerSettings player = load_player_settings(*schema.file, game / "anvil" / "data" / "anvil-overlay" / "settings.toml");
+    for (const Setting& setting : schema.file->settings) {
+        if (setting.name != "release_check" || setting.type != SettingType::Enum) continue;
+        const SettingValue value = player.values[setting.id].value_or(setting.default_value);
+        if (value.integer < 0 || static_cast<size_t>(value.integer) >= setting.options.size()) return std::nullopt;
+        const std::string& name = setting.options[static_cast<size_t>(value.integer)].name;
+        if (name == "on") return true;
+        if (name == "off") return false;
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
+
 // The player's language as the overlay chooses it (#158): ANVIL_LANGUAGE, the
 // overlay's `language` setting, EU4's settings in the game's user folder, or,
 // when Mei is in the load order of `report`, Steam's or Windows' Chinese,
@@ -130,7 +148,9 @@ ManagerApp::ManagerApp(HWND window, std::optional<Package> package, std::string 
     }
     follow_language(game);
     if (!game.empty() && package_) choose_game(game);
-    if (settings_.check_releases) release_pending_ = std::async(std::launch::async, fetch_latest_release);
+    if (settings_.check_releases && !release_pending_.valid()) {
+        release_pending_ = std::async(std::launch::async, fetch_latest_release);
+    }
     catalog_ = load_embedded_catalog(catalog_error_);
 }
 
@@ -148,6 +168,15 @@ void ManagerApp::choose_game(const fs::path& dir) {
     running_elsewhere_.clear();
     anvil_missed_ = false;
     launcher_opened_ = false;
+    // A player who answered the release question in the game (the overlay's
+    // setting) is not asked again here (design §15).
+    if (!settings_.asked_releases) {
+        if (const auto answer = overlay_release_answer(game_)) {
+            settings_.asked_releases = true;
+            settings_.check_releases = *answer;
+            if (*answer && !release_pending_.valid()) release_pending_ = std::async(std::launch::async, fetch_latest_release);
+        }
+    }
     if (settings_.game_folder != game_) {
         settings_.game_folder = game_;
         std::string error;
@@ -482,8 +511,8 @@ void ManagerApp::draw_anvil_tab() {
     if (!settings_.asked_releases) {
         ImGui::Spacing();
         ImGui::Separator();
-        wrapped(tr("Should the Manager ask GitHub for new Anvil releases when it starts? It only shows a link; "
-                   "nothing is downloaded. You can change this in About."));
+        wrapped(tr("Should Anvil ask GitHub for new Anvil releases when the Manager or the game starts? It only shows a "
+                   "link; nothing is downloaded. You can change this in About, and for the game in the Anvil panel's settings."));
         const auto answer = [&](bool yes) {
             settings_.asked_releases = true;
             settings_.check_releases = yes;
@@ -1211,13 +1240,14 @@ void ManagerApp::draw_about_tab() {
     ImGui::Spacing();
     ImGui::SeparatorText(tr("New releases"));
     bool check = settings_.check_releases;
-    if (ImGui::Checkbox(tr("Ask GitHub for the latest release when the Manager starts"), &check)) {
+    if (ImGui::Checkbox(tr("Ask GitHub for the latest release when the Manager or the game starts"), &check)) {
         settings_.check_releases = check;
         settings_.asked_releases = true;
         std::string error;
         save_manager_settings(settings_, error);
     }
     weak_wrapped(tr("Only a link is shown; nothing is downloaded. To update Anvil, run the Manager of the new release."));
+    weak_wrapped(tr("The game follows this answer unless the Anvil panel's setting \"Check for new Anvil releases\" says On or Off."));
     ImGui::BeginDisabled(release_pending_.valid());
     if (ImGui::Button(tr("Check now"))) release_pending_ = std::async(std::launch::async, fetch_latest_release);
     ImGui::EndDisabled();

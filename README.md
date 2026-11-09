@@ -49,8 +49,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   start", the crash report, the log and every plugin's settings. In the game's
   main menu a small "Anvil x.y.z" badge on the left edge shows that
   Anvil runs; a click on it opens the panel (the overlay's setting "Show Anvil
-  in the main menu" turns it off). It draws on the game's Direct3D 9 renderer
-  and stays off with OpenGL.
+  in the main menu" turns it off). If you agree (it asks once, or follows your
+  answer in the Manager), it asks GitHub for the latest Anvil release when the
+  game is ready and tells you when a newer one is out, with a link; nothing is
+  downloaded ([ADR 0005](docs/adr/0005-release-check-in-the-game.md)). It
+  draws on the game's Direct3D 9 renderer and stays off with OpenGL.
 - The overlay and the Manager speak the language EU4 is set to: English,
   French, German or Spanish (other languages show English). With
   [Mei](https://github.com/happy-dwarf-team/mei), which shows a translation

@@ -4,7 +4,8 @@
 # carries, plugin zips (checked with anvil check's own code, anvil_tool), the
 # release check, the problem report and the start-up benchmark (its series,
 # result, report, and the runner that starts the game) and the plugin
-# catalog. The tests link it directly.
+# catalog. The release check is anvil_net's, shared with anvil-overlay. The
+# tests link it directly.
 
 # miniz, pinned to a release tag and compiled here from its sources (its own
 # CMakeLists.txt is not used): reads and, for the tests, writes zip archives.
@@ -40,13 +41,12 @@ add_library(anvil_manager_core STATIC
     src/mods.cpp
     src/plugin_zip.cpp
     src/problem_report.cpp
-    src/release_check.cpp
     src/start_menu.cpp
     src/zip.cpp)
 target_include_directories(anvil_manager_core PUBLIC src)
 # wbemuuid, ole32, oleaut32: the antivirus names from Security Center (WMI).
 # shell32, uuid: the Start menu shortcut.
-target_link_libraries(anvil_manager_core PUBLIC anvil_tool anvil_i18n PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32 shell32 uuid)
+target_link_libraries(anvil_manager_core PUBLIC anvil_tool anvil_i18n anvil_net PRIVATE anvil_miniz advapi32 wbemuuid ole32 oleaut32 shell32 uuid)
 if(MSVC)
     target_compile_options(anvil_manager_core PRIVATE /W4 /WX)
 endif()
