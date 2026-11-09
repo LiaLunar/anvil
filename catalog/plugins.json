@@ -8,7 +8,7 @@
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
-      "version": "1.3.0",
+      "version": "1.4.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": false,
       "builds": [
@@ -16,9 +16,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.3.0/bellows-windows-x64.zip",
-        "size": 1145543,
-        "sha256": "386c09f662f3ec1a795ca3321c7ba7552324c2b3db5b0bacbb8eb19dcdf2cc56"
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.4.0/bellows-windows-x64.zip",
+        "size": 1147347,
+        "sha256": "d0da77b85596fb260ff88b78313d478736a30412dc85eafc7e2d41305efdef6c"
       }
     },
     {
@@ -28,7 +28,7 @@
       "repo": "https://github.com/happy-dwarf-team/tongs",
       "page": "https://anvil.happydwarf.dev/plugins/tongs/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093",
-      "version": "0.26.1",
+      "version": "0.27.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": true,
       "builds": [
@@ -36,9 +36,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/tongs/releases/download/v0.26.1/tongs-windows-x64.zip",
-        "size": 626765,
-        "sha256": "33f5f12842214a37bd71111dcca097185304896a9edcbad6b561283472de422c"
+        "url": "https://github.com/happy-dwarf-team/tongs/releases/download/v0.27.0/tongs-windows-x64.zip",
+        "size": 627938,
+        "sha256": "c17f62a498cdc79ca0acd866a3ebfb96b6c6dd4ef793632bda66898c32649b2b"
       }
     },
     {
@@ -48,7 +48,7 @@
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
-      "version": "1.2.0",
+      "version": "1.2.1",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -56,9 +56,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.2.0/hamweard-windows-x64.zip",
-        "size": 198832,
-        "sha256": "6d073f6ade743b27a87e628a392ba22836dcaab572c1b98ab2142bdaf2088b20"
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.2.1/hamweard-windows-x64.zip",
+        "size": 199233,
+        "sha256": "339b6f4346a6f7847ef21de76f22f07527c34e2062d2e69768bff2610ff677cb"
       }
     },
     {
@@ -69,7 +69,7 @@
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
       "note": "The zip holds the plugin. Mei's fonts come with its Workshop item; on GOG they are mei-fonts.zip in its release, for a local mod. Without them the game's own fonts stay.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -77,9 +77,9 @@
         "eu4-1.37.5.2-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.3.0/mei-windows-x64.zip",
-        "size": 1055825,
-        "sha256": "718e6143d7973a064b2671d22aac8842308560f47ae3ccca9e7ee588ba19012e"
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.3.1/mei-windows-x64.zip",
+        "size": 1055886,
+        "sha256": "09086cef6c43af8e9217460dc02dca0526d2d725ec08176312804f8e5eed9518"
       }
     }
   ]
