@@ -38,7 +38,43 @@ permissions:
   contents: read
 
 jobs:
+  # A pull request that changes no input of the C/C++ build CodeQL traces skips
+  # c-cpp: the analysis takes minutes on Windows and would find what main's last
+  # one found. Inputs: sources, headers, resources, CMake files, the TOML that
+  # `anvil gen` turns into headers, this workflow; files under tests/ do not
+  # count (CodeQL builds without the tests). Pushes to main and the weekly run
+  # always analyse.
+  changes:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    outputs:
+      cpp: ${{ steps.files.outputs.cpp }}
+    steps:
+      - name: C/C++ inputs changed
+        id: files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          CPP_INPUTS: '\.(c|cc|cpp|cxx|h|hh|hpp|hxx|inl|ipp|rc|def|toml)$|(^|/)CMakeLists\.txt$|\.cmake$|^\.github/workflows/codeql\.yml$|^\.gitmodules$'
+        run: |
+          if [ "$EVENT" != pull_request ]; then
+            echo "cpp=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --paginate --jq '.[].filename' > files.txt
+          cpp=false
+          # The API lists at most 3000 files: a larger pull request is analysed.
+          if [ "$(wc -l < files.txt)" -ge 3000 ] || grep -E -v '(^|/)tests?/' files.txt | grep -E -q "$CPP_INPUTS"; then
+            cpp=true
+          fi
+          echo "cpp=$cpp" >> "$GITHUB_OUTPUT"
+          echo "C/C++ inputs changed: $cpp"
+
   c-cpp:
+    needs: changes
+    if: needs.changes.outputs.cpp == 'true'
     runs-on: windows-2022
     permissions:
       contents: read
@@ -48,14 +84,33 @@ jobs:
         with:
           persist-credentials: false
 
+      # The FetchContent sources and sub-builds, keyed on the CMake files that pin
+      # them (a key of its own: build.yml configures them with Ninja).
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            build/_deps/*-src
+            build/_deps/*-subbuild
+          key: fetchcontent-vs-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', '**/*.cmake') }}
+
+      # What ships, in parallel: version.dll, anvil.exe, the Manager and the standard plugins.
+      # Configure and the third-party libraries (Zydis, SafetyHook, miniz, the two ImGui
+      # builds) run before init, so CodeQL neither traces nor analyses them (their
+      # results were dropped from the upload anyway).
+      - name: Configure
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DANVIL_BUILD_TESTS=OFF -DANVIL_BUILD_EXAMPLES=OFF -DANVIL_BUILD_BENCH=OFF
+
+      - name: Third-party libraries
+        run: >-
+          cmake --build build --config Release --parallel
+          --target Zycore Zydis safetyhook anvil_miniz anvil_manager_imgui anvil_overlay_imgui
+
+      # No tools: linked here, unlike the plugins: with the linked bundle (2.27.3)
+      # the traced build took 350-430 s, with the default one (2.27.4) 129 s.
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: c-cpp
           build-mode: manual
-
-      # What ships, in parallel: version.dll, anvil.exe, the Manager and the standard plugins.
-      - name: Configure
-        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64 -DANVIL_BUILD_TESTS=OFF -DANVIL_BUILD_EXAMPLES=OFF -DANVIL_BUILD_BENCH=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel
