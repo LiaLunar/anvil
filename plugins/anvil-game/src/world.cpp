@@ -13,6 +13,7 @@ constexpr std::int32_t kMaxBucketTags = 4096;  // likewise a bucket
 constexpr std::size_t kMaxText = 65536;        // likewise a string
 constexpr std::int32_t kMaxWars = 4096;        // likewise the running wars
 constexpr std::size_t kMaxWarSide = 1024;      // likewise one side of a war
+constexpr std::int64_t kMaxModifiers = 65536;  // likewise the definitions
 
 bool read_raw(std::uintptr_t address, void* out, std::size_t size) {
     __try {
@@ -171,6 +172,75 @@ bool valid_utf8(std::string_view text) {
 }
 
 }  // namespace
+
+namespace {
+
+// How many definitions there are: the types a modifier can be asked for.
+bool definition_range(const WorldLayout& l, std::uintptr_t& begin, std::int64_t& count) {
+    std::uintptr_t end = 0;
+    if (!read(l.definitions, begin) || !read(l.definitions_end, end) || begin == 0 || end < begin ||
+        l.definition_size == 0 || (end - begin) % l.definition_size != 0) {
+        return false;
+    }
+    count = static_cast<std::int64_t>((end - begin) / l.definition_size);
+    return count <= kMaxModifiers;
+}
+
+using ModifierValueFn = std::int32_t* (*)(const void* modifier, std::int32_t* out, std::int32_t type);
+
+bool call_modifier_value(std::uintptr_t function, std::uintptr_t modifier, std::int32_t id, std::int32_t& value) {
+    __try {
+        reinterpret_cast<ModifierValueFn>(function)(reinterpret_cast<const void*>(modifier), &value, id);
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
+AnvilResult modifier_value(const WorldLayout& l, std::uintptr_t modifier, std::int32_t id, std::int32_t& value) {
+    std::uintptr_t begin = 0;
+    std::int64_t count = 0;
+    if (!definition_range(l, begin, count)) return ANVIL_ERROR_INTERNAL;
+    if (id < 0 || id >= count) return ANVIL_ERROR_NOT_FOUND;  // the game's function does not check
+    return call_modifier_value(l.modifier_value, modifier, id, value) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+}  // namespace
+
+AnvilResult read_modifier_id(const WorldLayout& l, std::string_view key, std::int32_t& id) {
+    if (l.modifier_value == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t begin = 0;
+    std::int64_t count = 0;
+    if (!definition_range(l, begin, count)) return ANVIL_ERROR_INTERNAL;
+    std::string text;
+    for (std::int64_t i = 0; i < count; ++i) {
+        if (!read_string(begin + static_cast<std::uintptr_t>(i) * l.definition_size, text)) return ANVIL_ERROR_INTERNAL;
+        if (text == key) {
+            id = static_cast<std::int32_t>(i);
+            return ANVIL_OK;
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+AnvilResult read_country_modifier(const WorldLayout& l, std::string_view tag, std::int32_t id, std::int32_t& value) {
+    if (l.modifier_value == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    const std::uintptr_t modifiers = country + l.country_modifiers;
+    std::int32_t state = 0;
+    if (!read(modifiers, state) || state == static_cast<std::int32_t>(l.calculating)) return ANVIL_ERROR_INTERNAL;
+    return modifier_value(l, modifiers + l.country_total, id, value);
+}
+
+AnvilResult read_province_modifier(const WorldLayout& l, std::int32_t province, std::int32_t id, std::int32_t& value) {
+    if (l.modifier_value == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t p = 0;
+    if (const AnvilResult r = province_at(l, province, p); r != ANVIL_OK) return r;
+    return modifier_value(l, p + l.province_modifier, id, value);
+}
 
 std::uint32_t tag_bucket(std::string_view tag, std::uint32_t mask) {
     std::uint32_t sum = 0;

@@ -507,3 +507,61 @@ values.begin = { at = 10, size = 1 }
 note = "CWar::IsDefender: the defenders, a std::vector of tags at +0x78"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD89170 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD87920 }
+
+# --- modifiers ---
+# The game's function is called and nothing else: it answers 0 for a modifier
+# whose DLC is off, through a transformer per definition. It only reads.
+
+[symbol.modifier_value]
+bytes = "40 53 48 83 EC 20 80 79 10 00 48 8B DA 4C 8B D9"
+memory = "code"
+signature = "int32_t* (const void* modifier, int32_t* out, int32_t type)"
+note = "CModifier::GetValue: a modifier's value, with its definition's transformer"
+build."eu4-1.37.5-steam-win64" = { rva = 0x8E6BD0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x8E5E00 }
+
+[symbol.modifier_definitions]
+memory = "code"
+values.definitions_end = { at = 3, rip_relative = 7 }
+values.definitions = { at = 10, rip_relative = 14 }
+values.definition_size = { at = 37, size = 1 }
+note = "CModifier::DeinitDefinitions: the definitions by type, each starting with its script key, a std::string"
+
+[symbol.modifier_definitions.build."eu4-1.37.5-steam-win64"]
+rva = 0x8E5F96
+bytes = "48 8B 3D EB 20 A7 01 48 8B 1D DC 20 A7 01 48 3B DF 74 31 0F 1F 80 00 00 00 00 48 8B CB E8 E8 D0 E3 FF 48 83 C3 60"
+
+[symbol.modifier_definitions.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x8E51C6
+bytes = "48 8B 3D 33 6D A5 01 48 8B 1D 24 6D A5 01 48 3B DF 74 31 0F 1F 80 00 00 00 00 48 8B CB E8 88 D1 E3 FF 48 83 C3 60"
+
+[symbol.country_modifiers]
+bytes = "48 83 C3 08 48 39 18 0F 84 3F 02 00 00 83 3B 01 0F 85 36 02 00 00"
+memory = "code"
+values.modifiers = { at = 3, size = 1 }
+values.calculating = { at = 15, size = 1 }
+note = "CCountryCachedData::GetModifiers: the country's modifiers at +8; their state is their first int32, and while it says calculating the game hands out an empty set"
+build."eu4-1.37.5-steam-win64" = { rva = 0x93D77F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x93C9AF }
+
+[symbol.country_modifier_total]
+memory = "code"
+values.cached = { at = 3, size = 4 }
+values.total = { at = 15, size = 1 }
+note = "CCountry::GetGoverningCapacityPercentage: the cached data at country+0x28C0, then the sum of all the country's modifiers at +8 in its modifiers"
+
+[symbol.country_modifier_total.build."eu4-1.37.5-steam-win64"]
+rva = 0x9A20C
+bytes = "48 81 C1 C0 28 00 00 E8 38 35 8A 00 4C 8D 40 08"
+
+[symbol.country_modifier_total.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x9A23C
+bytes = "48 81 C1 C0 28 00 00 E8 38 27 8A 00 4C 8D 40 08"
+
+[symbol.province_modifier]
+bytes = "48 8D 81 98 09 00 00 C3"
+memory = "code"
+values.modifier = { at = 3, size = 4 }
+note = "CProvince::GetModifier: the sum of the province's own modifiers"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD0110 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD0140 }
