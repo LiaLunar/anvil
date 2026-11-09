@@ -29,3 +29,10 @@ default = true
 label = "Open links"
 description = "Off: Open only writes the vscode:// link to anvil.log."
 restart = true
+
+[setting.expand]
+type = "bool"
+default = false
+label = "Open every group at start"
+description = "For screenshots: every heading of B and C starts open."
+restart = true

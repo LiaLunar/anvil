@@ -172,6 +172,21 @@ void on_click(void*, std::uint64_t id) {
     publish_locked();
 }
 
+bool g_expand = false;
+
+// For screenshots (setting expand): every heading of B and C open.
+void expand_all_locked() {
+    for (int k = 0; k < se::kKinds; ++k) g_view.open.insert(static_cast<std::uint32_t>(k));
+    const int variant = g_view.variant;
+    for (int v = 1; v < se::kVariants; ++v) {
+        g_view.variant = v;
+        for (const se::Row& r : se::build_rows(g_log, g_view)) {
+            if (se::action_of(r.id) == se::Action::toggle) g_view.open.insert(se::first_of(r.id));
+        }
+    }
+    g_view.variant = variant;
+}
+
 // The reader: new bytes of the log every 2 s; a shorter file is a new log.
 void read_loop() {
     std::uint64_t offset = 0;
@@ -202,6 +217,7 @@ void read_loop() {
                 for (se::Message& m : g_log.messages()) {
                     if (!m.resolve_tried) se::resolve(m, g_roots);
                 }
+                if (g_expand) expand_all_locked();
                 publish_locked();
             }
             CloseHandle(f);
@@ -225,6 +241,7 @@ struct PrototypeScriptErrors : anvil::Plugin {
         const std::filesystem::path dlc = playset.empty() ? user / L"dlc_load.json" : se::path_from_utf8(playset);
         g_roots = se::playset_roots(dlc, dlc.parent_path(), game_dir());
         g_open_links = cfg::open_links.get();
+        g_expand = cfg::expand.get();
         for (const se::Root& r : g_roots) host.info("layer {}: {}", r.name, se::utf8_from_path(r.path));
         {
             std::lock_guard lock(g_mutex);
