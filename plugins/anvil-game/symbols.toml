@@ -972,3 +972,108 @@ bytes = "49 8B 85 28 03 00 00 4C 8B B0 70 03 00 00 B9 68 00 00 00 E8 ?? ?? ?? ??
 [symbol.merge_button.build."eu4-1.37.5.0-gog-win64"]
 rva = 0x147B2F5
 bytes = "49 8B 85 28 03 00 00 4C 8B B0 70 03 00 00 B9 68 00 00 00 E8 ?? ?? ?? ??"
+
+# --- choosing an event option (anvil-game.commands version 2) ---
+# The service does what the option button does: it finds the event window of the
+# local player's pending event and calls CEventWindow::OptionSelected. The
+# window's fields and the session's event windows as Tongs reads them (its
+# docs/design.md, "Events"); facts in eu4-engine-lab#90 and #126. A port may
+# declare these absent: EVENT_OPTION then answers ANVIL_ERROR_NOT_DECLARED.
+
+[symbol.option_selected]
+# mov [rsp+8],rbx; mov [rsp+10h],rsi; push rbp; push rdi; push r14; lea rbp,[rsp-40h]; sub rsp,140h;
+# mov r14d,edx; mov rsi,rcx; xor edi,edi; mov [rbp+70h],edi
+bytes = "48 89 5C 24 08 48 89 74 24 10 55 57 41 56 48 8D 6C 24 C0 48 81 EC 40 01 00 00 44 8B F2 48 8B F1 33 FF 89 7D 70"
+memory = "code"
+signature = "void (void* window, int32_t option)"
+note = "CEventWindow::OptionSelected: logs, builds CSelectEventOptionCommand from the window, posts it as CSession::Post does, and clears _KeepAlive also when the post is refused"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BC2D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BAAD0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x10BAAD0 }
+
+[symbol.option_window]
+# mov rcx,[rsi+40h]; mov rax,[rcx]; call [rax+80h]; mov rdi,rax; mov ecx,140h; call operator new;
+# mov [rbp+70h],rax; lea r8,[rsi+50h]; mov ecx,[rsi+120h]
+bytes = "48 8B 4E 40 48 8B 01 FF 90 80 00 00 00 48 8B F8 B9 40 01 00 00 E8 ?? ?? ?? ?? 48 89 45 70 4C 8D 46 50 8B 8E 20 01 00 00"
+memory = "code"
+values.idler = { at = 3, size = 1 }
+values.pending = { at = 36, size = 4 }
+note = "inside OptionSelected: the window's idler (+0x40) gives the session (slot 0x80), and the command takes the window's pending event id (+0x120)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BC4AD }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BACAD }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x10BACAD }
+
+[symbol.option_click]
+# push rdi; sub rsp,40h; cmp byte [rcx+124h],0; mov rdi,rcx; je; mov r8,[rcx+208h]; test r8,r8; je;
+# cmp [r8],rdx; mov r8,[r8+10h]; je; ...; lea rcx,[rdx+38h]; mov r8b,'_'
+bytes = "40 57 48 83 EC 40 80 B9 24 01 00 00 00 48 8B F9 0F 84 92 00 00 00 4C 8B 81 08 02 00 00 4D 85 C0 0F 84 82 00 00 00 49 39 10 4D 8B 40 10 74 0B 4D 85 C0 75 F2 48 83 C4 40 5F C3 48 85 D2 74 69 48 8D 4A 38 41 B0 5F"
+memory = "code"
+values.keep_alive = { at = 8, size = 4 }
+values.buttons = { at = 25, size = 4 }
+values.next = { at = 44, size = 1 }
+values.name = { at = 66, size = 1 }
+note = "CEventWindow::Select: nothing while _KeepAlive (+0x124) is clear; else the clicked button in _Buttons (+0x208, a list: button +0, next +0x10), whose name (+0x38) is '<event id>_<option index>'"
+build."eu4-1.37.5-steam-win64" = { rva = 0x10BC220 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x10BAA20 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x10BAA20 }
+
+[symbol.button_state]
+bytes = "8B 81 24 01 00 00 C3"
+memory = "code"
+values.state = { at = 2, size = 4 }
+note = "a button's state getter (slot 0x258): +0x124, 3 = disabled (the option's trigger, or the half second after the window opens)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1148250 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x11425C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x11425C0 }
+
+[symbol.event_window]
+memory = "code"
+values.vtable = { at = 3, rip_relative = 7 }
+note = "CEventWindow's constructor: its vtable (CUpdateable), which tells an event window among the idler's pop-ups"
+
+[symbol.event_window.build."eu4-1.37.5-steam-win64"]
+rva = 0x10B9B3B
+bytes = "48 8D 05 B6 F5 C9 00 48 89 03 48 8D 05 94 F5 C9 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+
+[symbol.event_window.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10B833B
+bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+
+[symbol.event_window.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10B833B
+bytes = "48 8D 05 A6 98 C8 00 48 89 03 48 8D 05 84 98 C8 00 48 89 43 08 C7 43 30 FF FF FF FF 33 F6 48 89 73 38 48 89 7B 40 4C 89 7B 48"
+
+[symbol.popup_list_tail]
+memory = "code"
+values.tail = { at = 3, size = 1 }
+note = "the idler's pop-up list (event windows among them): its tail at idler+0x80 Steam, +0x78 GOG; the head is 8 bytes before"
+
+[symbol.popup_list_tail.build."eu4-1.37.5-steam-win64"]
+rva = 0x6ECB39
+bytes = "48 8B 9E 80 00 00 00"   # mov rbx,[rsi+80h]
+
+[symbol.popup_list_tail.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6EC4F9
+bytes = "48 8B 5E 78"            # mov rbx,[rsi+78h]
+
+[symbol.popup_list_tail.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x6EC4F9
+bytes = "48 8B 5E 78"
+
+[symbol.popup_list_append]
+memory = "code"
+values.node_next = { at = 20, size = 1 }
+values.node_removed = { at = 27, size = 1 }
+note = "pop-up list append, after popup_list_tail: node {pop-up, previous, next +0x10, being removed +0x18}"
+
+[symbol.popup_list_append.build."eu4-1.37.5-steam-win64"]
+rva = 0x6ECB40
+bytes = "B9 20 00 00 00 E8 8A 67 34 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+
+[symbol.popup_list_append.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x6EC4FD
+bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+
+[symbol.popup_list_append.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x6EC4FD
+bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"

@@ -593,6 +593,28 @@ struct FakeCommands final : anvil_game::CommandBackend {
         return true;
     }
     void destroy(void* command) override { destroyed.push_back(static_cast<int>(reinterpret_cast<uintptr_t>(command)) - 1); }
+
+    // Event windows by pending id: whether one waits, and its buttons by option (enabled or not).
+    std::map<int32_t, bool> windows;
+    std::map<int32_t, std::map<int32_t, bool>> buttons;
+    bool post_ok = true;
+    std::vector<std::string> chosen;  // "<pending> <option>"
+    AnvilResult find_event_window(int32_t pending, int32_t option, anvil_game::EventWindow& out) override {
+        const auto w = windows.find(pending);
+        if (w == windows.end()) return ANVIL_ERROR_NOT_FOUND;
+        out = {};
+        out.object = 0x5000 + static_cast<uintptr_t>(pending);
+        out.keep_alive = w->second;
+        const auto b = buttons[pending].find(option);
+        out.has_button = b != buttons[pending].end();
+        out.enabled = out.has_button && b->second;
+        return ANVIL_OK;
+    }
+    bool post_allowed() override { return post_ok; }
+    void choose_option(const anvil_game::EventWindow& w, int32_t option) override {
+        chosen.push_back(std::to_string(w.object - 0x5000) + " " + std::to_string(option));
+        windows[static_cast<int32_t>(w.object - 0x5000)] = false;  // OptionSelected clears _KeepAlive
+    }
 };
 
 // The game's side of anvil-game.commands in FakeEu4: its functions are
@@ -656,6 +678,12 @@ bool fake_command_post(void* session, void* command) {
     if (!g_game_commands.allowed) return false;
     g_game_commands.posted.push_back(command);
     return true;
+}
+
+// CEventWindow::OptionSelected in FakeEu4: what the button does, as far as the service sees it.
+void fake_option_selected(void* window, int32_t option) {
+    g_game_commands.calls.push_back("option " + pointer_text(window) + " " + std::to_string(option));
+    static_cast<uint8_t*>(window)[0x124] = 0;
 }
 
 // anvil.control's plugin_of, for one gameplay plugin.
@@ -956,6 +984,70 @@ int main(int argc, char** argv) {
         CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 64);
     });
 
+    run("anvil-game.commands: choosing an event option, with a fake game", [] {
+        FakeCommands game;
+        anvil_game::CommandPoster poster;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(&game);
+        game.windows[41] = true;
+        game.buttons[41] = {{0, true}, {2, false}};  // option 1 has no button: its trigger is false
+        AnvilGameCommand c{};
+        c.size = sizeof(c);
+        c.type = ANVIL_GAME_COMMAND_EVENT_OPTION;
+        c.pending_event_id = 41;
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 0 && out.refused == 0);
+        CHECK((game.chosen == std::vector<std::string>{"41 0"}));
+        // The same frame again: the window is there, already chosen.
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.skipped == 1 && game.chosen.size() == 1);
+        game.windows[41] = true;
+        c.option_index = 1;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_INVALID_ARGUMENT);  // no button
+        c.option_index = 2;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_WRONG_PHASE);  // disabled
+        c.option_index = -1;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+        c.option_index = 0;
+        c.pending_event_id = 42;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_NOT_FOUND);
+        c.pending_event_id = 41;
+        // The post's conditions fail: refused, the window left alone.
+        game.post_ok = false;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.refused == 1 && out.posted == 0 && game.chosen.size() == 1 &&
+              game.windows[41]);
+        game.post_ok = true;
+        // Bad calls: units, flags, a version 1 size; the moment and the build.
+        AnvilGameUnitRef unit = {1, {"RUS"}, ANVIL_GAME_UNIT_ARMY};
+        AnvilGameCommand bad = c;
+        bad.count = 1;
+        bad.units = &unit;
+        CHECK(poster.post(game, self, &bad, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+        bad = c;
+        bad.flags = ANVIL_GAME_COMMAND_START;
+        CHECK(poster.post(game, self, &bad, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+        bad = c;
+        bad.size = offsetof(AnvilGameCommand, pending_event_id);
+        CHECK(poster.post(game, self, &bad, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+        game.hot = true;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_WRONG_PHASE);
+        game.hot = false;
+        game.suspended = true;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_SUSPENDED);
+        game.suspended = false;
+        game.absent = ANVIL_GAME_COMMAND_EVENT_OPTION;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_ERROR_NOT_DECLARED);
+        game.absent = 0;
+        CHECK(game.chosen.size() == 1);
+        // A caller built against version 1 still posts its types.
+        game.units[1] = {0x1001, 1, ANVIL_GAME_UNIT_ARMY, 1, true, 3};
+        AnvilGameCommand v1{};
+        v1.size = offsetof(AnvilGameCommand, pending_event_id);
+        v1.type = ANVIL_GAME_COMMAND_DRILL;
+        v1.count = 1;
+        v1.units = &unit;
+        CHECK(poster.post(game, self, &v1, &out) == ANVIL_OK && out.posted == 1);
+    });
+
     // As in the game, the image, the host and the policy outlive the plugin.
     FakeEu4& image = *new FakeEu4;
     GameObjects& game = *new GameObjects;
@@ -1027,7 +1119,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 70);
+        CHECK(reason.empty() && verified.symbols.size() == 77);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -1756,7 +1848,8 @@ int main(int argc, char** argv) {
         const auto* commands = static_cast<const AnvilGameCommandsService*>(
             bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION));
         CHECK(commands != nullptr && ANVIL_GAME_COMMANDS_HAS(commands, post));
-        CHECK(contains(log, "anvil-game: service anvil-game.commands v1: drill yes, merge yes, split yes"));
+        CHECK(contains(log, "anvil-game: service anvil-game.commands v1 and v2: drill yes, merge yes, split yes, event option yes"));
+        CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 1) == commands);
         if (commands == nullptr) return;
         // The game's functions, verified at load, now jump to the stand-ins.
         const auto jump = [&](uint32_t rva, const void* target) {
@@ -1769,6 +1862,7 @@ int main(int argc, char** argv) {
         jump(0xD671A0, reinterpret_cast<const void*>(&fake_drill_command));
         jump(0xD63680, reinterpret_cast<const void*>(&fake_split_command));
         jump(0xD5FF20, reinterpret_cast<const void*>(&fake_merge_command));
+        jump(0x10BC2D0, reinterpret_cast<const void*>(&fake_option_selected));
         // The idler's game (+0x330 on Steam) and its session (+0x370), with the hot-join flag at +0x7D7.
         alignas(8) static uint8_t application[0x400] = {};
         alignas(8) static uint8_t session[0x880] = {};
@@ -1872,6 +1966,54 @@ int main(int argc, char** argv) {
             CHECK(commands->post(caller, &c, &out) == ANVIL_ERROR_NOT_FOUND);
             FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
             CHECK(g_game_commands.calls.empty());
+
+            // An event window in the idler's pop-ups (head at +0x78 on Steam), after another pop-up:
+            // pending id 7, waiting, the buttons of options 0 (enabled) and 2 (disabled).
+            alignas(8) static uint8_t other[0x10] = {};
+            alignas(8) static uint8_t window[0x3E8] = {};
+            alignas(8) static uint8_t nodes[2][0x20] = {};
+            alignas(8) static uint8_t button0[0x130] = {}, button2[0x130] = {};
+            alignas(8) static uint8_t button_nodes[2][0x20] = {};
+            FakeWorld::set(window, 0, image.address(0x1D590F8));  // CEventWindow's vtable on Steam
+            FakeWorld::set(window, 0x120, int32_t{7});
+            window[0x124] = 1;
+            FakeWorld::set_short_string(button0 + 0x38, "6053_0");
+            FakeWorld::set_short_string(button2 + 0x38, "6053_2");
+            FakeWorld::set(button2, 0x124, int32_t{3});
+            FakeWorld::set(button_nodes[0], 0, reinterpret_cast<uintptr_t>(button0));
+            FakeWorld::set(button_nodes[0], 0x10, reinterpret_cast<uintptr_t>(button_nodes[1]));
+            FakeWorld::set(button_nodes[1], 0, reinterpret_cast<uintptr_t>(button2));
+            FakeWorld::set(window, 0x208, reinterpret_cast<uintptr_t>(button_nodes[0]));
+            FakeWorld::set(nodes[0], 0, reinterpret_cast<uintptr_t>(other));
+            FakeWorld::set(nodes[0], 0x10, reinterpret_cast<uintptr_t>(nodes[1]));
+            FakeWorld::set(nodes[1], 0, reinterpret_cast<uintptr_t>(window));
+            FakeWorld::set(game.session, 0x78, reinterpret_cast<uintptr_t>(nodes[0]));
+            FakeWorld::set(session, 0x58, uintptr_t{1});  // a server
+            session[0x55] = 1;                               // single player
+            AnvilGameCommand e{};
+            e.size = sizeof(e);
+            e.type = ANVIL_GAME_COMMAND_EVENT_OPTION;
+            e.pending_event_id = 7;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_OK && out.posted == 1);
+            CHECK((g_game_commands.calls == std::vector<std::string>{"option " + pointer_text(window) + " 0"}));
+            CHECK(commands->post(caller, &e, &out) == ANVIL_OK && out.skipped == 1);  // _KeepAlive is clear now
+            window[0x124] = 1;
+            e.option_index = 2;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_ERROR_WRONG_PHASE);
+            e.option_index = 1;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_ERROR_INVALID_ARGUMENT);
+            e.option_index = 0;
+            e.pending_event_id = 8;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_ERROR_NOT_FOUND);
+            e.pending_event_id = 7;
+            // Neither a dummy session nor posting allowed: refused, the window untouched.
+            session[0x55] = 0;
+            session[0x80D] = 0;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_OK && out.refused == 1 && window[0x124] == 1);
+            session[0x80D] = 1;
+            CHECK(commands->post(caller, &e, &out) == ANVIL_OK && out.posted == 1);
+            CHECK(g_game_commands.calls.size() == 2);
+            FakeWorld::set(game.session, 0x78, uintptr_t{0});
         };
         frame(game.app, 1);
         CHECK(ran);

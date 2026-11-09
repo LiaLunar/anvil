@@ -1,6 +1,7 @@
 #include "commands.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 #include <new>
 
@@ -19,10 +20,14 @@ bool same_ref(const AnvilGameUnitRef& a, const AnvilGameUnitRef& b) {
     return a.id == b.id && a.kind == b.kind && std::memcmp(a.country.text, b.country.text, 3) == 0;
 }
 
+// What a caller built against version 1 sets, and what EVENT_OPTION reads.
+constexpr std::uint32_t kVersion1Size = offsetof(AnvilGameCommand, pending_event_id);
+constexpr std::uint32_t kEventOptionSize = offsetof(AnvilGameCommand, option_index) + sizeof(std::int32_t);
+
 // The checks that need no unit: the arguments, the caller, the type, the moment.
 AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGameCommand* c,
                        const AnvilGameCommandResult* out) {
-    if (c == nullptr || c->size < sizeof(AnvilGameCommand)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (c == nullptr || c->size < kVersion1Size) return ANVIL_ERROR_INVALID_ARGUMENT;
     if (out != nullptr && out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
     bool affects = false, suspended = false;
     if (!b.caller(self, affects, suspended) || !affects) return ANVIL_ERROR_UNSUPPORTED;
@@ -35,10 +40,16 @@ AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGa
     case ANVIL_GAME_COMMAND_SPLIT:
         if (c->flags != 0) return ANVIL_ERROR_INVALID_ARGUMENT;
         break;
+    case ANVIL_GAME_COMMAND_EVENT_OPTION:
+        if (c->flags != 0 || c->size < kEventOptionSize || c->count != 0 || c->units != nullptr) {
+            return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
+        break;
     default: return ANVIL_ERROR_INVALID_ARGUMENT;
     }
     if (!b.declared(c->type)) return ANVIL_ERROR_NOT_DECLARED;
     if (!b.open() || b.hot_join()) return ANVIL_ERROR_WRONG_PHASE;
+    if (c->type == ANVIL_GAME_COMMAND_EVENT_OPTION) return ANVIL_OK;
     if (c->count == 0 || c->units == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     if (c->count > ANVIL_GAME_COMMAND_MAX_UNITS) return ANVIL_ERROR_LIMIT;
     return ANVIL_OK;
@@ -70,12 +81,46 @@ AnvilResult find_units(CommandBackend& b, const AnvilGameCommand& c, std::vector
 
 }  // namespace
 
+AnvilResult CommandPoster::choose(CommandBackend& b, const AnvilGameCommand& c, AnvilGameCommandResult* out) {
+    AnvilGameCommandResult result{};
+    result.size = sizeof(result);
+    if (c.option_index < 0) return ANVIL_ERROR_INVALID_ARGUMENT;
+    EventWindow window;
+    if (const AnvilResult r = b.find_event_window(c.pending_event_id, c.option_index, window); r != ANVIL_OK) return r;
+    if (!window.keep_alive) {
+        // Chosen in this frame already: the window goes at the game's next update.
+        result.skipped = 1;
+        give(out, result);
+        return ANVIL_OK;
+    }
+    if (!window.has_button) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!window.enabled) return ANVIL_ERROR_WRONG_PHASE;
+    if (!b.post_allowed()) {
+        // The game would close the window and drop the command: leave both alone.
+        result.refused = 1;
+        give(out, result);
+        return ANVIL_OK;
+    }
+    const std::uint64_t frame = b.frame();
+    if (frame != frame_) {
+        frame_ = frame;
+        used_ = 0;
+    }
+    if (used_ + 1 > ANVIL_GAME_COMMAND_MAX_PER_FRAME) return ANVIL_ERROR_LIMIT;
+    ++used_;
+    b.choose_option(window, c.option_index);
+    result.posted = 1;
+    give(out, result);
+    return ANVIL_OK;
+}
+
 std::int32_t split_count(std::uint32_t subunits) { return static_cast<std::int32_t>((subunits + 1) / 2); }
 
 AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, const AnvilGameCommand* command,
                                 AnvilGameCommandResult* out) {
     if (const AnvilResult r = check_call(b, self, command, out); r != ANVIL_OK) return r;
     const AnvilGameCommand& c = *command;
+    if (c.type == ANVIL_GAME_COMMAND_EVENT_OPTION) return choose(b, c, out);
     std::vector<CommandUnit> units;
     std::vector<const CommandUnit*> drills;
     try {

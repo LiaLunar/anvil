@@ -114,6 +114,10 @@ _Avoid_: send, execute
 The state a plugin asks for, such as "drilling", which `anvil-game.commands` turns into a command only for the units whose state differs.
 _Avoid_: toggle
 
+**Pending event**:
+An event the game waits on a choice for, known by its pending id; one pending event has at most one event window.
+_Avoid_: open event, pop-up
+
 ### The game's day
 
 **Day end**:

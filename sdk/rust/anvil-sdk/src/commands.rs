@@ -1,5 +1,6 @@
 //! `anvil-game.commands`: the commands a player's click on the unit panel
-//! would post, through the game's own queue (anvil-game 1.17.0).
+//! would post, through the game's own queue, and the choice of an event
+//! option as its button makes it (anvil-game 1.17.0, service versions 1 and 2).
 //!
 //! **Who.** Only a plugin with `affects_gameplay = true`, and only while Anvil
 //! has not suspended it (ironman or multiplayer without the player's opt-in):
@@ -37,8 +38,9 @@ use crate::host::Host;
 use crate::sys::{
     AnvilGameCommand, AnvilGameCommandResult, AnvilGameCommandsService, AnvilGameUnitRef,
     AnvilPlugin, ANVIL_GAME_COMMANDS_SERVICE_VERSION, ANVIL_GAME_COMMAND_DRILL,
-    ANVIL_GAME_COMMAND_MAX_PER_FRAME, ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE,
-    ANVIL_GAME_COMMAND_SPLIT, ANVIL_GAME_COMMAND_START, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
+    ANVIL_GAME_COMMAND_EVENT_OPTION, ANVIL_GAME_COMMAND_MAX_PER_FRAME,
+    ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_SPLIT,
+    ANVIL_GAME_COMMAND_START, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
 };
 use crate::world::{UnitKind, UnitRef};
 
@@ -67,6 +69,7 @@ pub struct Posted {
 pub struct Commands {
     table: &'static AnvilGameCommandsService,
     plugin: *mut AnvilPlugin,
+    version: u32,
 }
 
 // SAFETY: the table lives for the process and its function may be called from
@@ -100,15 +103,24 @@ fn raw_ref(unit: &UnitRef) -> AnvilGameUnitRef {
 }
 
 impl Commands {
-    /// The service, posting for this plugin; `None` without anvil-game 1.17.0
-    /// or on a game build whose symbols for it are declared absent.
+    /// The service, posting for this plugin: version 2 when anvil-game has
+    /// it, else version 1; `None` without anvil-game 1.17.0 or on a game build
+    /// whose symbols for it are declared absent.
     pub fn get(host: &Host) -> Option<Self> {
-        // SAFETY: the table type of anvil-game.commands version 1.
-        let table = unsafe { host.service::<AnvilGameCommandsService>(SERVICE, VERSION) }?;
-        Some(Self {
-            table,
-            plugin: host.raw_plugin(),
+        [VERSION, 1].into_iter().find_map(|version| {
+            // SAFETY: the table type of anvil-game.commands; version 2 only appends.
+            let table = unsafe { host.service::<AnvilGameCommandsService>(SERVICE, version) }?;
+            Some(Self {
+                table,
+                plugin: host.raw_plugin(),
+                version,
+            })
         })
+    }
+
+    /// The service version found: 2 chooses event options, 1 does not.
+    pub fn version(&self) -> u32 {
+        self.version
     }
 
     /// The C table, for what this crate does not wrap.
@@ -117,16 +129,31 @@ impl Commands {
     }
 
     fn post(&self, kind: u32, flags: u32, units: &[UnitRef], what: &str) -> Result<Posted> {
-        let f = function!(self.table, AnvilGameCommandsService, post)?;
         let raw: Vec<AnvilGameUnitRef> = units.iter().map(raw_ref).collect();
         let command = AnvilGameCommand {
-            size: size_of::<AnvilGameCommand>() as u32,
+            // Version 1 takes the fields up to `units` only.
+            size: if self.version >= 2 {
+                size_of::<AnvilGameCommand>()
+            } else {
+                std::mem::offset_of!(AnvilGameCommand, pending_event_id)
+            } as u32,
             type_: kind,
             flags,
             // Over u32::MAX is over the limit too: the service answers Limit.
             count: u32::try_from(raw.len()).unwrap_or(u32::MAX),
-            units: raw.as_ptr(),
+            units: if raw.is_empty() {
+                std::ptr::null()
+            } else {
+                raw.as_ptr()
+            },
+            pending_event_id: 0,
+            option_index: 0,
         };
+        self.send(&command, what, units.len())
+    }
+
+    fn send(&self, command: &AnvilGameCommand, what: &str, units: usize) -> Result<Posted> {
+        let f = function!(self.table, AnvilGameCommandsService, post)?;
         let mut out = AnvilGameCommandResult {
             size: size_of::<AnvilGameCommandResult>() as u32,
             posted: 0,
@@ -135,8 +162,8 @@ impl Commands {
         };
         // SAFETY: this plugin's handle, a command whose units live until the
         // call returns, and a result the service fills as far as its size says.
-        check(unsafe { f(self.plugin, &command, &mut out) }, || {
-            format!("commands {what} ({} units)", units.len())
+        check(unsafe { f(self.plugin, command, &mut out) }, || {
+            format!("commands {what} ({units} units)")
         })?;
         Ok(Posted {
             posted: out.posted,
@@ -165,5 +192,31 @@ impl Commands {
             std::slice::from_ref(unit),
             "split",
         )
+    }
+
+    /// Version 2: chooses `option` (the event file's order, from 0) of the
+    /// local player's pending event `pending_event_id`, as its button does.
+    /// `NotFound` without its event window, `InvalidArgument` for an option
+    /// without a button, `WrongPhase` while the button is disabled (the half
+    /// second after the window opens: try a frame later); `skipped` when the
+    /// window is already chosen, `refused` when the session would not take it.
+    /// `Unsupported` on version 1.
+    pub fn choose_event_option(&self, pending_event_id: i32, option: i32) -> Result<Posted> {
+        if self.version < 2 {
+            return Err(crate::Error::new(
+                crate::ErrorCode::Unsupported,
+                "commands event option: anvil-game.commands version 1",
+            ));
+        }
+        let command = AnvilGameCommand {
+            size: size_of::<AnvilGameCommand>() as u32,
+            type_: ANVIL_GAME_COMMAND_EVENT_OPTION,
+            flags: 0,
+            count: 0,
+            units: std::ptr::null(),
+            pending_event_id,
+            option_index: option,
+        };
+        self.send(&command, "event option", 0)
     }
 }

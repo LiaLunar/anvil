@@ -478,12 +478,43 @@ typedef struct AnvilGameWorldService {
  * NULL from get_service with an older anvil-game, or when the post function's
  * own symbols are absent.
  *
- * Within version 1 types and fields are only appended; check `size`. */
+ * Version 2 (also anvil-game 1.17.0) adds ANVIL_GAME_COMMAND_EVENT_OPTION and
+ * the two fields it reads; anvil-game registers the same table as version 1
+ * too, so a plugin built against version 1 keeps working. Ask for version 2
+ * first and fall back to version 1 for an anvil-game that has only that.
+ *
+ * Choosing an event option. The type does what the option's button does: it
+ * finds the event window of the local player's pending event by its id and
+ * calls the game's CEventWindow::OptionSelected, which posts the command and
+ * closes the window. A command posted beside the window would leave it open,
+ * and a click in it would run the option's effects a second time, so there is
+ * no other path. Before the call the service checks the conditions the game's
+ * post function checks (a session with a server; a dummy session, or one that
+ * allows posting): when they fail it answers `refused` and leaves the window
+ * alone, since the game would close the window and drop the command.
+ *   - Only an option whose button is in the window and enabled now: that
+ *     covers the option's trigger and the half second (real time, also while
+ *     paused) the game keeps the buttons disabled after the window opens. The
+ *     service does not wait: ANVIL_ERROR_WRONG_PHASE, try a frame later.
+ *   - `count` is 0 and `units` NULL; `size` covers `option_index`.
+ *   - Results: `posted` 1 when OptionSelected was called; `skipped` 1 when the
+ *     window is there but already chosen (the same frame); ANVIL_ERROR_NOT_FOUND
+ *     without a window for the id (chosen already, an AI's or another
+ *     country's event, or the game's event windows turned off);
+ *     ANVIL_ERROR_INVALID_ARGUMENT for an option without a button, or units;
+ *     ANVIL_ERROR_WRONG_PHASE for a disabled button, a hot-join, or outside the
+ *     main thread between frames; `refused` 1 when the post's conditions fail.
+ *   - Known limit: a pending event without a window (the console's `msg`, an
+ *     observer's save, a player whose country was annexed) has no choice
+ *     through the service, and the game's own auto-choice does not run either.
+ *
+ * Within a version types and fields are only appended; check `size`. */
 
 /* AnvilGameCommand.type */
 #define ANVIL_GAME_COMMAND_DRILL 1u /* armies: start or stop drilling, an intent (ANVIL_GAME_COMMAND_START) */
 #define ANVIL_GAME_COMMAND_MERGE 2u /* two or more armies, or navies, in one province: into the first */
 #define ANVIL_GAME_COMMAND_SPLIT 3u /* one army or navy: in half, rounded up, as the button does */
+#define ANVIL_GAME_COMMAND_EVENT_OPTION 4u /* version 2: the local player's pending event, choose an option */
 
 /* AnvilGameCommand.flags */
 #define ANVIL_GAME_COMMAND_START 0x1u /* DRILL: start; without it, stop */
@@ -492,11 +523,14 @@ typedef struct AnvilGameWorldService {
 #define ANVIL_GAME_COMMAND_MAX_PER_FRAME 256u
 
 typedef struct AnvilGameCommand {
-    uint32_t size;                 /* sizeof(AnvilGameCommand), set by the caller */
+    uint32_t size;                 /* sizeof(AnvilGameCommand) as the caller knows it */
     uint32_t type;                 /* ANVIL_GAME_COMMAND_* */
     uint32_t flags;                /* ANVIL_GAME_COMMAND_START; other bits: ANVIL_ERROR_INVALID_ARGUMENT */
     uint32_t count;                /* units, 1 .. ANVIL_GAME_COMMAND_MAX_UNITS */
     const AnvilGameUnitRef *units; /* from anvil-game.world */
+    /* Version 2, read only for EVENT_OPTION. */
+    int32_t pending_event_id;      /* the pending event's id, as its event window holds it */
+    int32_t option_index;          /* the option in the event file's order, from 0 */
 } AnvilGameCommand;
 
 typedef struct AnvilGameCommandResult {
@@ -507,7 +541,7 @@ typedef struct AnvilGameCommandResult {
 } AnvilGameCommandResult;
 
 #define ANVIL_GAME_COMMANDS_SERVICE "anvil-game.commands"
-#define ANVIL_GAME_COMMANDS_SERVICE_VERSION 1
+#define ANVIL_GAME_COMMANDS_SERVICE_VERSION 2
 
 typedef struct AnvilGameCommandsService {
     uint32_t size; /* sizeof(AnvilGameCommandsService) as known by anvil-game */

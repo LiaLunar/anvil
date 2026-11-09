@@ -122,7 +122,7 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-overlay.panel", 1) => ptr::from_ref(&*FAKE_PANEL).cast(),
         ("anvil-game.world", 1) => ptr::from_ref(&*FAKE_WORLD).cast(),
         ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
-        ("anvil-game.commands", 1) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
+        ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
         _ => ptr::null(),
     }
 }
@@ -137,7 +137,18 @@ unsafe extern "C" fn commands_post(
     out: *mut AnvilGameCommandResult,
 ) -> AnvilResult {
     let c = unsafe { &*command };
-    if c.size as usize != std::mem::size_of::<AnvilGameCommand>() || c.count == 0 {
+    if c.type_ == ANVIL_GAME_COMMAND_EVENT_OPTION {
+        let line = format!(
+            "{:x} event {} {} size {}",
+            plugin as usize, c.pending_event_id, c.option_index, c.size
+        );
+        with(|r| r.commands.push(line));
+        let out = unsafe { &mut *out };
+        out.posted = 1;
+        return ANVIL_OK;
+    }
+    if (c.size as usize) < std::mem::offset_of!(AnvilGameCommand, pending_event_id) || c.count == 0
+    {
         return ANVIL_ERROR_INVALID_ARGUMENT;
     }
     let units = unsafe { std::slice::from_raw_parts(c.units, c.count as usize) };
@@ -691,10 +702,16 @@ fn commands_post_for_this_plugin_with_the_units_as_given() {
         }
     );
     assert_eq!(c.split(&navy).unwrap().posted, 1);
+    assert_eq!(c.version(), 2);
+    assert_eq!(c.choose_event_option(41, 2).unwrap().posted, 1);
     assert_eq!(c.merge(&[]).unwrap_err().code(), ErrorCode::InvalidArgument);
     assert_eq!(
         with(|r| r.commands.clone()),
-        ["5e1f 1 1 36/RUS/0 36/RUS/0", "5e1f 3 0 37/RUS/1"]
+        [
+            "5e1f 1 1 36/RUS/0 36/RUS/0",
+            "5e1f 3 0 37/RUS/1",
+            "5e1f event 41 2 size 32"
+        ]
     );
     assert_eq!(commands::MAX_UNITS, 64);
     assert_eq!(

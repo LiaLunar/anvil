@@ -21,6 +21,14 @@ struct CommandUnit {
     std::uint32_t subunits = 0;  // regiments or ships
 };
 
+// The local player's event window for a pending event, as the backend found it.
+struct EventWindow {
+    std::uintptr_t object = 0;  // the game's CEventWindow
+    bool keep_alive = false;    // no option chosen yet
+    bool has_button = false;    // the asked option has a button in the window
+    bool enabled = false;       // and it is enabled now
+};
+
 class CommandBackend {
 public:
     virtual ~CommandBackend() = default;
@@ -49,6 +57,14 @@ public:
     virtual bool submit(void* command) = 0;
     // Frees a command the session refused, through its deleting destructor.
     virtual void destroy(void* command) = 0;
+
+    // Version 2. The event window whose pending event has `pending`, and the
+    // button of `option` in it: ANVIL_ERROR_NOT_FOUND without such a window.
+    virtual AnvilResult find_event_window(std::int32_t pending, std::int32_t option, EventWindow& out) = 0;
+    // The conditions of the game's post function hold for the session now.
+    virtual bool post_allowed() = 0;
+    // CEventWindow::OptionSelected: what the button does.
+    virtual void choose_option(const EventWindow& window, std::int32_t option) = 0;
 };
 
 // The regiments or ships the split button moves: half, rounded up.
@@ -61,6 +77,8 @@ public:
                      AnvilGameCommandResult* out);
 
 private:
+    AnvilResult choose(CommandBackend& backend, const AnvilGameCommand& command, AnvilGameCommandResult* out);
+
     std::uint64_t frame_ = 0;
     std::uint32_t used_ = 0;  // commands posted in frame_
 };

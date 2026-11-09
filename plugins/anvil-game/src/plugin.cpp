@@ -844,6 +844,21 @@ struct CommandsLayout {
     std::uint32_t split_size = 0;
     sym::Types::merge_command::Pointer merge = nullptr;
     std::uint32_t merge_size = 0;
+    // The post function's conditions, for EVENT_OPTION's pre-check.
+    std::uint32_t server = 0;   // CSession: pointer, the session's server
+    std::uint32_t dummy = 0;    // CSession: byte, a single-player session
+    std::uint32_t allowed = 0;  // CSession: byte, posting allowed now
+    // EVENT_OPTION: `option_selected` 0 when absent on this build.
+    sym::Types::option_selected::Pointer option_selected = nullptr;
+    std::uintptr_t window_vtable = 0;  // CEventWindow's
+    std::uint32_t popups = 0;          // idler: the pop-up list's head
+    std::uint32_t node_next = 0;       // a pop-up node: the next one
+    std::uint32_t pending = 0;         // window: int32, its pending event's id
+    std::uint32_t keep_alive = 0;      // window: byte, no option chosen yet
+    std::uint32_t buttons = 0;         // window: the option buttons' list head
+    std::uint32_t button_next = 0;     // a button node: the next one
+    std::uint32_t button_name = 0;     // button: std::string "<event id>_<option index>"
+    std::uint32_t button_state = 0;    // button: int32, 3 = disabled
 };
 
 CommandsLayout g_commands;
@@ -895,6 +910,92 @@ std::uint8_t read_hotjoin(std::uintptr_t session) {
     }
 }
 
+// MSVC's std::string: the text in place below 16 characters, else a pointer;
+// the size at +0x10 and the capacity at +0x18.
+struct GameString {
+    union {
+        char buffer[16];
+        const char* pointer;
+    };
+    std::uint64_t size;
+    std::uint64_t capacity;
+};
+
+// The option index after the last '_' of a button's name, as CEventWindow::Select
+// reads it; -1 for a name that has none. No objects with destructors: it runs under __try.
+std::int32_t button_option_unguarded(std::uintptr_t button) {
+    const auto* s = reinterpret_cast<const GameString*>(button + g_commands.button_name);
+    if (s->size == 0 || s->size > 64 || s->size > s->capacity) return -1;
+    const char* text = s->capacity >= 16 ? s->pointer : s->buffer;
+    std::int64_t underscore = -1;
+    for (std::uint64_t i = 0; i < s->size; ++i) {
+        if (text[i] == '_') underscore = static_cast<std::int64_t>(i);
+    }
+    if (underscore < 0 || static_cast<std::uint64_t>(underscore) + 1 >= s->size) return -1;
+    std::int32_t value = 0;
+    for (std::uint64_t i = static_cast<std::uint64_t>(underscore) + 1; i < s->size; ++i) {
+        if (text[i] < '0' || text[i] > '9' || value > 100000) return -1;
+        value = value * 10 + (text[i] - '0');
+    }
+    return value;
+}
+
+constexpr int kMaxPopups = 1000;
+constexpr int kMaxButtons = 256;
+
+// The window of `pending` in the idler's pop-ups, and the button of `option`.
+// Returns false when it found none. No objects with destructors: under __try.
+bool find_event_window_unguarded(std::int32_t pending, std::int32_t option, anvil_game::EventWindow* out) {
+    const std::uintptr_t root = *g_layout.root;
+    if (root == 0) return false;
+    const std::uintptr_t idler = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
+    if (idler == 0 || *reinterpret_cast<const std::uintptr_t*>(idler) != g_layout.session_vtable) return false;
+    std::uintptr_t node = *reinterpret_cast<const std::uintptr_t*>(idler + g_commands.popups);
+    for (int i = 0; node != 0 && i < kMaxPopups; ++i) {
+        const std::uintptr_t popup = *reinterpret_cast<const std::uintptr_t*>(node);
+        node = *reinterpret_cast<const std::uintptr_t*>(node + g_commands.node_next);
+        if (popup == 0 || *reinterpret_cast<const std::uintptr_t*>(popup) != g_commands.window_vtable) continue;
+        if (*reinterpret_cast<const std::int32_t*>(popup + g_commands.pending) != pending) continue;
+        out->object = popup;
+        out->keep_alive = *reinterpret_cast<const std::uint8_t*>(popup + g_commands.keep_alive) != 0;
+        std::uintptr_t b = *reinterpret_cast<const std::uintptr_t*>(popup + g_commands.buttons);
+        for (int j = 0; b != 0 && j < kMaxButtons; ++j) {
+            const std::uintptr_t button = *reinterpret_cast<const std::uintptr_t*>(b);
+            b = *reinterpret_cast<const std::uintptr_t*>(b + g_commands.button_next);
+            if (button == 0 || button_option_unguarded(button) != option) continue;
+            out->has_button = true;
+            out->enabled = *reinterpret_cast<const std::int32_t*>(button + g_commands.button_state) != 3;
+            break;
+        }
+        return true;
+    }
+    return false;
+}
+
+// ANVIL_OK, ANVIL_ERROR_NOT_FOUND, or ANVIL_ERROR_INTERNAL when memory faulted.
+AnvilResult find_event_window(std::int32_t pending, std::int32_t option, anvil_game::EventWindow& out) {
+    out = anvil_game::EventWindow{};
+    anvil_game::EventWindow* const where = &out;
+    __try {
+        return find_event_window_unguarded(pending, option, where) ? ANVIL_OK : ANVIL_ERROR_NOT_FOUND;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+}
+
+// The post function's conditions: a server, and a dummy session or posting allowed.
+bool post_allowed_on(std::uintptr_t session) {
+    __try {
+        const auto* s = reinterpret_cast<const volatile std::uint8_t*>(session);
+        if (*reinterpret_cast<const volatile std::uintptr_t*>(session + g_commands.server) == 0) return false;
+        return s[g_commands.dummy] != 0 || s[g_commands.allowed] != 0;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
 class GameCommands final : public anvil_game::CommandBackend {
 public:
     bool caller(const AnvilPlugin* self, bool& affects_gameplay, bool& suspended) override {
@@ -921,6 +1022,7 @@ public:
         case ANVIL_GAME_COMMAND_DRILL: return g_commands.drill != nullptr;
         case ANVIL_GAME_COMMAND_SPLIT: return g_commands.split != nullptr;
         case ANVIL_GAME_COMMAND_MERGE: return g_commands.merge != nullptr;
+        case ANVIL_GAME_COMMAND_EVENT_OPTION: return g_commands.option_selected != nullptr;
         }
         return false;
     }
@@ -980,6 +1082,13 @@ public:
         using DeletingDestructor = void* (*)(void*, unsigned);
         (*static_cast<DeletingDestructor* const*>(command))[0](command, 1);
     }
+    AnvilResult find_event_window(std::int32_t pending, std::int32_t option, anvil_game::EventWindow& out) override {
+        return ::find_event_window(pending, option, out);
+    }
+    bool post_allowed() override { return post_allowed_on(session_); }
+    void choose_option(const anvil_game::EventWindow& window, std::int32_t option) override {
+        g_commands.option_selected(reinterpret_cast<void*>(window.object), option);
+    }
 
 private:
     std::uintptr_t session_ = 0;  // as found by open() in this call
@@ -1030,11 +1139,33 @@ void load_commands(anvil::Host& host) {
         c.merge = host.function(sym::merge_command);
         c.merge_size = static_cast<std::uint32_t>(host.value(sym::merge_button, "size"));
     }
+    c.server = static_cast<std::uint32_t>(host.value(sym::command_post, "server"));
+    c.dummy = static_cast<std::uint32_t>(host.value(sym::command_post, "dummy"));
+    c.allowed = static_cast<std::uint32_t>(host.value(sym::command_post, "allowed"));
+    if (host.present(sym::option_selected) && host.present(sym::option_window) && host.present(sym::option_click) &&
+        host.present(sym::button_state) && host.present(sym::event_window) && host.present(sym::popup_list_tail) &&
+        host.present(sym::popup_list_append)) {
+        // OptionSelected takes the session from the window's idler, as the buttons
+        // of the unit panel do: the same path as the other types.
+        c.option_selected = host.function(sym::option_selected);
+        c.window_vtable = host.game().image_base + host.value(sym::event_window, "vtable");
+        c.popups = static_cast<std::uint32_t>(host.value(sym::popup_list_tail, "tail")) - 8;  // head, tail
+        c.node_next = static_cast<std::uint32_t>(host.value(sym::popup_list_append, "node_next"));
+        c.pending = static_cast<std::uint32_t>(host.value(sym::option_window, "pending"));
+        c.keep_alive = static_cast<std::uint32_t>(host.value(sym::option_click, "keep_alive"));
+        c.buttons = static_cast<std::uint32_t>(host.value(sym::option_click, "buttons"));
+        c.button_next = static_cast<std::uint32_t>(host.value(sym::option_click, "next"));
+        c.button_name = static_cast<std::uint32_t>(host.value(sym::option_click, "name"));
+        c.button_state = static_cast<std::uint32_t>(host.value(sym::button_state, "state"));
+    }
     g_commands = c;
+    // Version 2 only appends a type and two fields, so version 1 callers get the same table.
+    host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 1, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, kCommandsService);
-    host.info("service {} v{}: drill {}, merge {}, split {}", ANVIL_GAME_COMMANDS_SERVICE,
+    host.info("service {} v1 and v{}: drill {}, merge {}, split {}, event option {}", ANVIL_GAME_COMMANDS_SERVICE,
               ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
-              c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent");
+              c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent",
+              c.option_selected != nullptr ? "yes" : "absent");
 }
 
 struct AnvilGame : anvil::Plugin {
