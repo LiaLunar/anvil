@@ -1,0 +1,20 @@
+id = "player-cores"
+name = "Player's cores"
+version = "0.1.0"
+authors = ["Happy Dwarf Team"]
+description = "Example plugin: a map mode that shows the player's cores, held or lost, with a line in the province tooltip."
+api = 2
+entry = "player_cores.dll"
+phase = "main"
+# No symbols: it reads the world through anvil-game and runs on every build.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+[[dependencies]]
+id = "anvil-game"
+version = "^1.11.0"
+
+[[dependencies]]
+id = "anvil-map"
+version = "^1"

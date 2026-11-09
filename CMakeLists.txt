@@ -200,6 +200,8 @@ if(ANVIL_BUILD_EXAMPLES)
     set(CMAKE_COMPILE_WARNING_AS_ERROR ON)
     add_subdirectory(examples/hello-c)
     add_subdirectory(examples/hello-cpp)
+    # A plugin map mode on anvil-game.world and anvil-map.modes (docs/spec/map-modes-v1.md).
+    add_subdirectory(examples/player-cores)
     unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 endif()
 
@@ -214,10 +216,13 @@ add_subdirectory(plugins/anvil-overlay)
 # anvil-log-throttle, the standard plugin that counts the repeats of a line of
 # the game's logs instead of writing them (anvil#172), released next to them.
 add_subdirectory(plugins/anvil-log-throttle)
+# anvil-map, the standard plugin of plugin map modes (ADR 0007,
+# docs/spec/map-modes-v1.md), released next to them.
+add_subdirectory(plugins/anvil-map)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 # The standard plugins ship only inside the package, so their version is
 # Anvil's: release-please bumps their manifests with version.txt.
-foreach(_standard anvil-game anvil-overlay anvil-log-throttle)
+foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map)
     set(_manifest plugins/${_standard}/plugin.toml)
     file(STRINGS ${_manifest} _manifest_version LIMIT_COUNT 1 REGEX "^version = \"[^\"]*\"$")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_manifest})
@@ -398,11 +403,20 @@ if(ANVIL_BUILD_TESTS)
     add_dependencies(anvil_log_throttle_tests anvil_log_throttle)
     add_test(NAME anvil_log_throttle_tests COMMAND anvil_log_throttle_tests ${CMAKE_BINARY_DIR}/plugin)
 
+    # anvil-map's registry, colour buffers and text rules on their own
+    # (tests/map_modes_tests.cpp).
+    add_executable(anvil_map_tests tests/map_modes_tests.cpp plugins/anvil-map/src/modes.cpp
+        plugins/anvil-map/src/text.cpp)
+    target_include_directories(anvil_map_tests PRIVATE include)
+    target_link_libraries(anvil_map_tests PRIVATE anvil_loader)
+    add_test(NAME anvil_map_tests COMMAND anvil_map_tests)
+
     # The symbols.lock of anvil-game and of every example matches its
     # symbols.toml (anvil check without --exe; the locks come from anvil check
     # --exe on the real eu4.exe).
     add_test(NAME anvil_game_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-game)
     add_test(NAME anvil_log_throttle_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-log-throttle)
+    add_test(NAME anvil_map_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-map)
     foreach(example hello-c hello-cpp hello-rust)
         add_test(NAME anvil_${example}_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/examples/${example})
     endforeach()
@@ -448,6 +462,8 @@ install(FILES $<TARGET_FILE:anvil_overlay> plugins/anvil-overlay/plugin.toml plu
 install(FILES $<TARGET_FILE:anvil_log_throttle> plugins/anvil-log-throttle/plugin.toml
     plugins/anvil-log-throttle/symbols.toml plugins/anvil-log-throttle/settings.toml
     DESTINATION anvil/plugins/anvil-log-throttle COMPONENT anvil)
+install(FILES $<TARGET_FILE:anvil_map> plugins/anvil-map/plugin.toml plugins/anvil-map/symbols.toml
+    DESTINATION anvil/plugins/anvil-map COMPONENT anvil)
 install(FILES LICENSE README.md DESTINATION anvil/docs COMPONENT anvil)
 # Third-party code compiled into version.dll: ship its license texts.
 # Zydis is declared inside SafetyHook's scope; fetch its properties here.
@@ -478,8 +494,8 @@ include(CMakePackageConfigHelpers)
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/sdk/AnvilPluginConfigVersion.cmake
     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
 install(FILES include/anvil/anvil_plugin.h include/anvil/anvil_panel.h include/anvil/anvil.hpp include/anvil/anvil_symbols.hpp
-    include/anvil/anvil_game.h include/anvil/anvil_benchmark.h include/anvil/anvil_benchmark.hpp
-    DESTINATION include/anvil COMPONENT sdk)
+    include/anvil/anvil_game.h include/anvil/anvil_map.h include/anvil/anvil_benchmark.h
+    include/anvil/anvil_benchmark.hpp DESTINATION include/anvil COMPONENT sdk)
 install(TARGETS anvil RUNTIME DESTINATION bin COMPONENT sdk)
 install(FILES sdk/cmake/AnvilPluginConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/sdk/AnvilPluginConfigVersion.cmake
     DESTINATION cmake COMPONENT sdk)

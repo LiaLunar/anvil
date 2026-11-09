@@ -29,107 +29,17 @@ Not in v1 (each can be appended after `size` or come as a service of its own):
 - `plugin.toml`: `phase = "main"`, `affects_gameplay = false`, a dependency on `anvil-game` (`^1`) and an optional one on `mei` for the service `mei.text` version 1. No settings in v1.
 - `symbols.toml` declares the symbols of §8 for every build `anvil-game` knows; `symbols.lock` is committed and checked in CI.
 - It installs its hooks in `anvil_plugin_load`, as one group. With no plugin mode registered every hook passes the call on unchanged, so the player sees the game's list, colours and tooltips.
-- **europagiga.** When `eu4agent.dll` is loaded in the process at `anvil_plugin_load` or at `anvil-game.ready`, `anvil-map` writes one line to its log, installs no hooks (or removes the installed ones), and `register_mode` answers `ANVIL_ERROR_UNSUPPORTED`. That loader hooks the same functions and lends the same numbers.
+- **europagiga.** When `eu4agent.dll` is loaded in the process at `anvil_plugin_load` or at `anvil-game.ready`, `anvil-map` writes one line to its log, installs no hooks (found at load) or lets every hook pass the call on (found at `anvil-game.ready`), and `register_mode` answers `ANVIL_ERROR_UNSUPPORTED`. That loader hooks the same functions and lends the same numbers.
 
 ## 3. C interface
 
-`include/anvil/anvil_map.h`, plain C11 like `anvil_plugin.h`. Within service version 1, functions and fields are only appended; check `size` (`ANVIL_MAP_HAS`).
+[`include/anvil/anvil_map.h`](../../include/anvil/anvil_map.h), plain C11 like `anvil_plugin.h`; the header is the contract and this section only names its parts. Within service version 1, functions and fields are only appended; check `size` (`ANVIL_MAP_HAS`).
 
-```c
-#define ANVIL_MAP_ID "anvil-map"
-
-#define ANVIL_MAP_MODES_SERVICE "anvil-map.modes"
-#define ANVIL_MAP_MODES_SERVICE_VERSION 1
-
-/* A plugin mode became the map mode shown, or stopped being it (the player
- * picked another, the session ended). Payload const AnvilMapModeChange*.
- * Published on the main thread in anvil-map's step after a frame of the main
- * loop, where anvil-game.world may be read: hidden for the old mode first,
- * then shown for the new one. */
-#define ANVIL_MAP_EVENT_SHOWN "anvil-map.shown"
-#define ANVIL_MAP_EVENT_HIDDEN "anvil-map.hidden"
-
-/* A colour is 0x00RRGGBB. ANVIL_MAP_NO_COLOR: the province keeps the colour
- * the game gives it in the political map mode (sea, wasteland and empty land
- * look as players know them). Any other value with a nonzero top byte is an
- * error. */
-#define ANVIL_MAP_RGB(r, g, b) ((uint32_t)(((r) & 0xFF) << 16 | ((g) & 0xFF) << 8 | ((b) & 0xFF)))
-#define ANVIL_MAP_NO_COLOR 0xFF000000u
-
-/* The four tabs of the minimap's list of map modes, in the order the list
- * shows them. */
-typedef enum AnvilMapTab {
-    ANVIL_MAP_TAB_1 = 1,
-    ANVIL_MAP_TAB_2 = 2,
-    ANVIL_MAP_TAB_3 = 3,
-    ANVIL_MAP_TAB_4 = 4,
-    ANVIL_MAP_TAB_DEFAULT = 0 /* the last tab */
-} AnvilMapTab;
-
-typedef struct AnvilMapMode AnvilMapMode; /* opaque; valid until the process ends */
-
-/* The mode's lines of the tooltip of `province` (a province ID), as UTF-8 in
- * `text` (`capacity` bytes, room for the terminating zero included). Returns
- * the length of the whole text without the zero; a longer text than fits is
- * cut at a character boundary. 0: no lines. Called on the main thread in
- * anvil-map's step after a frame of the main loop (anvil-game.world may be
- * read), only for the province under the cursor in this mode. */
-typedef size_t (*AnvilMapDescribe)(void *context, const AnvilMapMode *mode, int32_t province, char *text,
-                                   size_t capacity);
-
-typedef struct AnvilMapModeInfo {
-    uint32_t size;           /* sizeof(AnvilMapModeInfo) as known by the caller */
-    uint32_t tab;            /* AnvilMapTab */
-    const char *id;          /* "<plugin-id>.<name>": the caller's own plugin id, then [a-z0-9_-]{1,32} */
-    const char *label;       /* UTF-8, the button's name; at most 64 bytes */
-    const char *description; /* UTF-8, the button's tooltip; at most 512 bytes; may be NULL */
-    const char *sprite;      /* a sprite (GFX_...) of the game or of the plugin's mod; NULL: the game's generic one */
-    AnvilMapDescribe describe; /* may be NULL: the tooltip shows the province's name only */
-    void *context;           /* passed to describe */
-} AnvilMapModeInfo;
-
-typedef struct AnvilMapModeChange {
-    uint32_t size;              /* sizeof(AnvilMapModeChange) as known by anvil-map */
-    uint32_t reserved;
-    const AnvilMapMode *mode;
-    const char *id;             /* the mode's id */
-} AnvilMapModeChange;
-
-typedef struct AnvilMapModesService {
-    uint32_t size; /* sizeof(AnvilMapModesService) as known by anvil-map */
-
-    /* Registers a mode and lends it a number from the pool. The strings are
-     * copied. Callable from any thread at any time; the button appears the
-     * next time the game builds the list (the next session). *out is the
-     * mode. Errors: INVALID_ARGUMENT (a bad id, label, tab or size),
-     * ALREADY_EXISTS (the id is taken), UNSUPPORTED (the pool is empty, or
-     * anvil-map runs without its hooks). */
-    AnvilResult (*register_mode)(const AnvilMapModeInfo *info, const AnvilMapMode **out);
-
-    /* Hands over the colours of `mode`: colors[i] for the province with ID i,
-     * `count` entries; provinces from `count` on have no colour. The buffer is
-     * copied; the map shows it from the next step on, if the mode is shown.
-     * Callable from any thread while a session runs. Errors: INVALID_ARGUMENT
-     * (NULL, count above the session's province limit, a bad colour),
-     * WRONG_PHASE (no session runs). */
-    AnvilResult (*set_colors)(const AnvilMapMode *mode, const uint32_t *colors, uint32_t count);
-
-    /* The id of the plugin mode that has borrowed `number`, a value of the
-     * game's map mode enum; NULL for the game's own modes and for numbers no
-     * plugin mode has. Callable from any thread. */
-    const char *(*mode_id)(int32_t number);
-
-    /* The plugin mode shown on the map as of the last step, or NULL. Callable
-     * from any thread. */
-    const AnvilMapMode *(*shown)(void);
-
-    /* The id of `mode`. */
-    const char *(*id)(const AnvilMapMode *mode);
-} AnvilMapModesService;
-
-#define ANVIL_MAP_HAS(service, field) \
-    ((service)->size >= offsetof(AnvilMapModesService, field) + sizeof((service)->field))
-```
+- `ANVIL_MAP_MODES_SERVICE` `"anvil-map.modes"`, version 1: `register_mode(info, &out)`, `set_colors(mode, colors, count)`, `mode_id(number)`, `shown()` and `id(mode)`.
+- `AnvilMapModeInfo`: `size`, `tab` (`ANVIL_MAP_TAB_DEFAULT` is the last tab, or `ANVIL_MAP_TAB_1` to `_4`), `id` (`<plugin-id>.<name>`, a name of `[a-z0-9_-]{1,32}`), `label` (UTF-8, 1 to 64 bytes), `description` (UTF-8, at most 512 bytes, may be NULL), `sprite` (a GFX name of `[A-Za-z0-9_]`, may be NULL), `describe` and `context`.
+- `AnvilMapDescribe(context, mode, province, text, capacity)`: the tooltip's lines in UTF-8, lines separated by `\n`; the return value is the text's length.
+- Colours: `ANVIL_MAP_RGB(r, g, b)` is `0x00RRGGBB`; a top byte of `0xFF` (`ANVIL_MAP_NO_COLOR`) leaves the province its political colour; any other top byte is an error. Province 0 never has a colour.
+- The events `ANVIL_MAP_EVENT_SHOWN` (`"anvil-map.shown"`) and `ANVIL_MAP_EVENT_HIDDEN`, with `AnvilMapModeChange` (`size`, `mode`, `id`).
 
 The id's prefix cannot be checked by the service (a service does not know its caller); a plugin uses its own id, as it does for its events. Every pointer the service gives stays valid until the process ends (CONTRIBUTING, "Nothing is unloaded in API 2").
 
@@ -155,28 +65,28 @@ The id's prefix cannot be checked by the service (a service does not know its ca
 
 ## 5. The button, the label and the sprite
 
-- The button is added to the tab's list every time the game builds the list (`CMinimapPanel::ShowMapModesList`, which calls `AddMapModes` once for the quick bar and once per tab), because the list is built anew for each session and a plugin such as Hamweard rebuilds the minimap. The service recognises a tab by the address of the game's array for it and hands the game a copy with its modes appended, in the order they registered. The quick bar's call is passed on unchanged.
+- The button is added to the tab's list every time the game builds the list. `CMinimapPanel::ShowMapModesList` calls `AddMapModes` for the quick bar and then only for the tab shown (bits 1, 2, 4 and 8 of its argument), so the list is built anew whenever the player opens a tab, in each session, and when a plugin such as Hamweard rebuilds the minimap. The service recognises a tab by the address of the game's array for it and hands the game a copy with its modes appended, in the order they registered. The quick bar's call is passed on unchanged.
 - The label and the description come from the hook of `GetMapModeNameOrDesc`; the string is built with the game's own `CString` constructor. The original labels of borrowed numbers are not used.
-- The sprite comes from the hook of `GetMapModeSpriteName`. A plugin's own sprite lives in its mod's GFX files (`<mod>/anvil/<plugin-id>/` is the plugin, design §14; the sprite is defined by the mod's `interface/*.gfx`). Anvil ships no graphics; without a sprite the button uses a generic one of the game **[to check]: which generic sprite reads as a button**.
+- The sprite comes from the hook of `GetMapModeSpriteName`. A plugin's own sprite lives in its mod's GFX files (`<mod>/anvil/<plugin-id>/` is the plugin, design §14; the sprite is defined by the mod's `interface/*.gfx`). Anvil ships no graphics; without a sprite the button shows `GFX_mapmode_notselected`, the game's empty button frame, so the label alone tells the modes apart (lab run, GOG 1.37.5.2). A sprite of the game, such as `GFX_mapmode_religion`, works as well.
 - **`settings.txt`.** `CSettings::WriteMembers` saves the quick bar under sprite names. Its call of `GetMapModeSpriteName` is redirected: for a borrowed number it answers `GFX_mapmode_notselected`, which the writer skips, so `settings.txt` never stores a plugin mode under the name of the debug mode it borrowed. A plugin mode on the quick bar is therefore not kept across starts in v1.
 
 ## 6. Colours
 
-- The plugin's buffer is copied under a lock into the mode's slot; the paint hook takes the last full copy. A copy costs `count` × 4 bytes; the service keeps at most two copies per mode.
-- The paint hook, for a borrowed number of a registered mode: when any entry is "none", it first lets the game paint the political map mode into the buffer, then writes the plugin's colours as BGRA with alpha 0xFF, indexed by province ID, at most up to the session's province limit (§4). For any other number it passes the call on.
+- The plugin's buffer is copied; the paint hook takes the last full copy (a shared pointer swapped under a lock). A copy costs `count` × 4 bytes.
+- The paint hook, for a borrowed number of a registered mode: unless the buffer gives a colour to every province up to the province limit, it first lets the game paint the political map mode (1) into the game's buffer; then it writes the plugin's colours as BGRA with alpha 0xFF, indexed by province ID, for at most as many provinces as the game's own function paints (`map_color_count`). For any other number it passes the call on.
 - A mode that is not shown costs nothing at paint. The game itself marks some borrowed numbers dirty (57, 58, 59, 66, 68); that only repaints them when they are shown.
 
 ## 7. Text
 
 - The API takes UTF-8 only: `label`, `description` and the text of `describe`.
 - **To the game.** When `mei.text` version 1 answers `game_text_utf8()` nonzero, the bytes go to the game unchanged; Mei draws them. Otherwise (no Mei, an older Mei, or `utf8_localization` off) the text is written in Windows-1252, and a character it lacks becomes `?`. Text that is not valid UTF-8 is cut at the first bad byte. The service never reads Mei's `settings.toml`.
-- **Literal.** Text is shown as written: the service makes `§` (the game's colour codes) and `$` (its keys) show as themselves **[to check]: how each is written so the game shows it literally**. Colour may come later as a field appended after `size`.
-- **The tooltip.** In a plugin mode, the game's `CProvince::GetTooltip` writes the province's name and owner; `SetupMapmodeTooltip`, the part that depends on the mode, is not called for a borrowed number, and the plugin's kept lines are appended instead. The plugin's text replaces the borrowed debug mode's lines.
+- **Literal.** Text is shown as written. `$` (the game's keys) needs nothing: a label or a tooltip line with `$PROV$` shows `$PROV$`. `§` (the game's colour codes) has no escape in the game, so the service writes it as `?` (lab run, GOG 1.37.5.2). Colour may come later as a field appended after `size`.
+- **The tooltip.** In a plugin mode, the game's `CProvince::GetTooltip` writes the province's name and owner and a separator, `Oka (Russia) - `; `SetupMapmodeTooltip`, the part that depends on the mode, is not called for a borrowed number, and the plugin's kept lines are appended instead, the first on the same line as the name. The plugin's text replaces the borrowed debug mode's lines. A mode with no text for the province (no `describe`, or it returned 0) leaves the separator at the end of the line.
 - **No game function builds text.** The service calls no game function that computes values for a tooltip, so it never sends a command into the session (such as the opinion cache update the diplomacy tooltip posts). It works in multiplayer and ironman without suspension. A plugin that needs opinion reads it from `anvil-game.world` when the diplomacy reads arrive there, never by asking the game for a description.
 
 ## 8. Symbols
 
-One `symbols.toml`, the builds `anvil-game` knows (Steam 1.37.5 and GOG 1.37.5.2 now; GOG 1.37.5.0 has the same addresses and bytes in these functions). Addresses are RVAs from the lab's reading of the PDB and both builds; every symbol has its `bytes`.
+One `symbols.toml`, the builds `anvil-game` knows (Steam 1.37.5, GOG 1.37.5.2 and GOG 1.37.5.0; the last has the same addresses and bytes as 1.37.5.2 here, placed by `anvil port`). Addresses are RVAs from the lab's reading of the PDB and both builds; every symbol has its `bytes`.
 
 | Symbol | What | Steam | GOG | Change |
 | --- | --- | --- | --- | --- |
@@ -186,14 +96,15 @@ One `symbols.toml`, the builds `anvil-game` knows (Steam 1.37.5 and GOG 1.37.5.2
 | `add_map_modes` | `CMinimapPanel::AddMapModes(const EPdxMapColorUpdateMode*, int, bool)` | `0x124B1F0` | `0x1245540` | function hook |
 | `mapmode_tooltip` | `CProvince::SetupMapmodeTooltip(const bool, const CProvince*, CToolTip&)` | `0x9E3210` | `0x9E21F0` | function hook |
 | `settings_sprite_call` | the call of `GetMapModeSpriteName` in `CSettings::WriteMembers` | `0xAD4BFE` | `0xAD378E` | call redirect |
-| `tab_1` … `tab_4` | the game's arrays of the four tabs (14, 11, 16 and 13 modes) | `0x1FD4E88`, `0x1FD79D8`, `0x1FD7A50`, `0x1FD50C8` | `0x1FB8E88`, `0x1FBB9D8`, `0x1FBBA50`, `0x1FB90C8` | data, compared by address only **[to check]: which array is which tab** |
+| `map_color_count` | inside `map_color`: the provinces it paints, `((map+0x6F0).end - begin) >> 4` times the inverse of 737 | `0x12F0BCF` | `0x12EAD2F` | values from bytes |
+| `tab_1` … `tab_4` | the game's arrays of the four tabs, which `ShowMapModesList` adds for the bits 1, 2, 4 and 8 of its argument: 14 modes from political (1), 13 from terrain (0), 16 from trade (4), 11 from diplomacy (5) | `0x1FD4E88`, `0x1FD50C8`, `0x1FD7A50`, `0x1FD79D8` | `0x1FB8E88`, `0x1FB90C8`, `0x1FBBA50`, `0x1FBB9D8` | data in `.data`, compared by address only; tabs 1 to 4 are the buttons with a building, a globe, a sack and a dove (lab run, GOG 1.37.5.2) |
 | `cstring_from_text` | `CString::CString(const char*)` | `0x1703550` | `0x16ED320` | called |
-| `tooltip_append` | `CString::append(const char*, size_t)` on `CToolTip::_Instant` | `0x932F0` | `0x93320` | called |
+| `text_append` | `CString::append(const char*, size_t)` on `CToolTip::_Instant` | `0x932F0` | `0x93320` | called |
 | `set_map_mode_dirty` | `CEU3Idler::SetMapModeDirty(EPdxMapColorUpdateMode)`; its bytes give the current mode's offset in the session (`+0x2C`, GOG `+0x24`) | `0x6EA0B0` | `0x6E9A90` | called; value from bytes |
 | `session_of_root` | the root object and its session (`root+0x1E00`), as `anvil-game` reads them | as `anvil-game` | as `anvil-game` | value from bytes |
-| `province_id` | the province's own ID in `CProvince`, as `anvil-game` reads it | as `anvil-game` | as `anvil-game` | value from bytes |
+| `province_own_id` | the province's own ID in `CProvince` (`+0x20`), as `anvil-game` reads it | as `anvil-game` | as `anvil-game` | value from bytes |
 
-That is 6 changes, 4 data symbols, 3 calls and 2 symbols that only give values, 15 per build. None of them is a byte patch or a write to `.rdata`; the only writes to the game's image are the trampolines of Anvil's hooks.
+That is 6 changes, 4 data symbols, 3 calls and 3 symbols that only give values, 16 per build. None of them is a byte patch or a write to `.rdata`; the only writes to the game's image are the trampolines of Anvil's hooks.
 
 The pool, with the console names that reach each number (lab run, both builds):
 

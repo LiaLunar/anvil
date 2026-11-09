@@ -56,8 +56,9 @@ What it gives over the C ABI:
   `settings.gen.rs`, written by a build script).
 - Typed wrappers for the services Anvil ships: `anvil::game`
   (`anvil-game.game` and its events), `anvil::world` (`anvil-game.world`),
-  `anvil::panel` (`anvil-overlay.panel`) and `anvil::benchmark`
-  (`anvil.benchmark`). A function a running service is too old to have answers
+  `anvil::panel` (`anvil-overlay.panel`), `anvil::benchmark`
+  (`anvil.benchmark`) and `anvil::map` (`anvil-map.modes` and its events). A
+  function a running service is too old to have answers
   `ErrorCode::Unsupported`.
 
 Host and service calls are safe. What reaches the game's memory by address, or

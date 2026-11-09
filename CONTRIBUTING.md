@@ -79,8 +79,8 @@ everything a plugin can see:
   `api = 2` plugins. The reasons are in
   [ADR 0001](docs/adr/0001-plugin-api-2-compatibility.md).
 - `sdk/rust/anvil-sys/src/bindings.rs` is generated from `anvil_plugin.h` and
-  the service headers `anvil_game.h`, `anvil_panel.h` and `anvil_benchmark.h`
-  (`sdk/rust/bindings.h`), and committed. After a change to one of them run
+  the service headers `anvil_game.h`, `anvil_panel.h`, `anvil_benchmark.h` and
+  `anvil_map.h` (`sdk/rust/bindings.h`), and committed. After a change to one of them run
   `sdk/rust/regen-bindings.ps1` (bindgen and libclang, see the script) and
   commit the result; CI fails when the file differs from what the headers give.
 

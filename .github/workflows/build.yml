@@ -204,9 +204,9 @@ jobs:
           # AnvilManager.exe next to version.dll (design §3); it is also an asset of its own.
           cmake --install build --config Release --component manager --prefix dist/anvil-package
           cmake --install build --config Release --component manager --prefix dist/anvil-manager
-          # The hello examples, laid out as plugin folders (not installed: docs only).
+          # The examples, laid out as plugin folders (not installed: docs only).
           New-Item -ItemType Directory -Force dist/anvil-package/anvil/docs/examples | Out-Null
-          foreach ($example in 'hello-c', 'hello-cpp', 'hello-rust', 'panel-rust') {
+          foreach ($example in 'hello-c', 'hello-cpp', 'hello-rust', 'panel-rust', 'player-cores') {
             Copy-Item build/plugin/$example -Destination dist/anvil-package/anvil/docs/examples/$example -Recurse
           }
           $files = Get-ChildItem dist/anvil-package -Recurse -File

@@ -1,0 +1,25 @@
+id = "anvil-map"
+name = "Anvil map"
+version = "1.15.0"
+authors = ["Happy Dwarf Team"]
+description = "Standard plugin: map modes from plugins, with a button on the minimap's list, a colour for each province and lines in the province's tooltip."
+api = 2
+entry = "anvil_map.dll"
+phase = "main"
+symbols = "symbols.toml"
+# It changes only what the map, its buttons and the province tooltip show,
+# and calls no game function that changes the game's state.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+[[dependencies]]
+id = "anvil-game"
+version = "^1.11.0"
+
+# Mei's mei.text tells whether the game's text is UTF-8; without it the
+# plugin writes Windows-1252.
+[[dependencies]]
+id = "mei"
+version = ">=0.0.0"
+optional = true

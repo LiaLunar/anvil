@@ -13,8 +13,8 @@
 //!   callback and never crosses the FFI.
 //! - [`Change`] is a handle whose `Drop` removes the change.
 //! - Typed wrappers of the services Anvil ships: [`game`] (`anvil-game.game`),
-//!   [`world`] (`anvil-game.world`), [`panel`] (`anvil-overlay.panel`) and
-//!   [`benchmark`] (`anvil.benchmark`).
+//!   [`world`] (`anvil-game.world`), [`panel`] (`anvil-overlay.panel`),
+//!   [`benchmark`] (`anvil.benchmark`) and [`map`] (`anvil-map.modes`).
 //!
 //! # Where `unsafe` stays
 //!
@@ -88,6 +88,7 @@ mod text;
 
 pub mod benchmark;
 pub mod game;
+pub mod map;
 pub mod panel;
 pub mod world;
 

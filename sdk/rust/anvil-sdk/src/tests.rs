@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 
 use crate::sys::*;
-use crate::{game, panel, world, Change, ErrorCode, FunctionHook, Host, Plugin, Tag};
+use crate::{game, map, panel, world, Change, ErrorCode, FunctionHook, Host, Payload, Plugin, Tag};
 
 /// One test at a time: the host is global to the crate, as in a plugin DLL.
 static SERIAL: Mutex<()> = Mutex::new(());
@@ -21,6 +21,9 @@ struct Recorded {
     subscriptions: Vec<(String, usize, usize)>,
     rows: Vec<String>,
     clicks: Vec<(usize, usize)>,
+    map_infos: Vec<String>,
+    describes: Vec<(usize, usize)>,
+    colors: Vec<u32>,
 }
 
 static RECORDED: Mutex<Option<Recorded>> = Mutex::new(None);
@@ -115,6 +118,7 @@ unsafe extern "C" fn fake_get_service(
     match (text(name).as_str(), version) {
         ("anvil-overlay.panel", 1) => ptr::from_ref(&*FAKE_PANEL).cast(),
         ("anvil-game.world", 1) => ptr::from_ref(&*FAKE_WORLD).cast(),
+        ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
         _ => ptr::null(),
     }
 }
@@ -188,6 +192,77 @@ static FAKE_PANEL: Shared<AnvilPanelService> = Shared(AnvilPanelService {
     show: Some(panel_show),
     shown: None,
     language: None,
+});
+
+// --- a fake map modes service: one mode, 0x88 --------------------------------------
+
+const MAP_MODE: *const AnvilMapMode = 0x88 as *const AnvilMapMode;
+
+unsafe extern "C" fn map_register(
+    info: *const AnvilMapModeInfo,
+    out: *mut *const AnvilMapMode,
+) -> AnvilResult {
+    let info = unsafe { &*info };
+    assert_eq!(info.size as usize, std::mem::size_of::<AnvilMapModeInfo>());
+    let optional = |p: *const c_char| if p.is_null() { String::new() } else { text(p) };
+    let id = text(info.id);
+    if id == "p.taken" {
+        return ANVIL_ERROR_ALREADY_EXISTS;
+    }
+    with(|r| {
+        r.map_infos.push(format!(
+            "{}:{id}:{}:{}:{}",
+            info.tab,
+            text(info.label),
+            optional(info.description),
+            optional(info.sprite)
+        ));
+        if let Some(describe) = info.describe {
+            r.describes.push((describe as usize, info.context as usize));
+        }
+    });
+    unsafe { *out = MAP_MODE };
+    ANVIL_OK
+}
+
+unsafe extern "C" fn map_set_colors(
+    mode: *const AnvilMapMode,
+    colors: *const u32,
+    count: u32,
+) -> AnvilResult {
+    assert_eq!(mode, MAP_MODE);
+    let colors = unsafe { std::slice::from_raw_parts(colors, count as usize) };
+    with(|r| r.colors = colors.to_vec());
+    ANVIL_OK
+}
+
+unsafe extern "C" fn map_mode_id(number: i32) -> *const c_char {
+    if number == 80 {
+        c"p.cores".as_ptr()
+    } else {
+        ptr::null()
+    }
+}
+
+unsafe extern "C" fn map_shown() -> *const AnvilMapMode {
+    MAP_MODE
+}
+
+unsafe extern "C" fn map_id(mode: *const AnvilMapMode) -> *const c_char {
+    if mode == MAP_MODE {
+        c"p.cores".as_ptr()
+    } else {
+        ptr::null()
+    }
+}
+
+static FAKE_MAP: Shared<AnvilMapModesService> = Shared(AnvilMapModesService {
+    size: std::mem::size_of::<AnvilMapModesService>() as u32,
+    register_mode: Some(map_register),
+    set_colors: Some(map_set_colors),
+    mode_id: Some(map_mode_id),
+    shown: Some(map_shown),
+    id: Some(map_id),
 });
 
 // --- a fake world: a province name that grows between the calls, a list ------------
@@ -550,6 +625,104 @@ fn world_reads_grow_their_buffers_and_old_services_answer_unsupported() {
 }
 
 #[test]
+fn map_modes_register_paint_and_cut_tooltips_at_a_whole_character() {
+    let (_guard, table) = fake_host();
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let modes = map::MapModes::get(&host).unwrap();
+    let info = map::ModeInfo {
+        tab: map::Tab::Trade,
+        description: Some("Yours"),
+        ..map::ModeInfo::new("p.cores", "Cores")
+    };
+    let mode = modes
+        .register_with_tooltip(&info, |_, province| match province {
+            1 => Some("Krak\u{f3}w \u{17c}\nline".to_string()),
+            2 => panic!("province 2"),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(with(|r| r.map_infos.clone()), ["3:p.cores:Cores:Yours:"]);
+    modes
+        .register(&map::ModeInfo::new("p.plain", "Plain"))
+        .unwrap();
+    assert_eq!(
+        with(|r| (r.map_infos[1].clone(), r.describes.len())),
+        ("0:p.plain:Plain::".to_string(), 1)
+    );
+    assert_eq!(
+        modes
+            .register(&map::ModeInfo::new("p.taken", "X"))
+            .unwrap_err()
+            .code(),
+        ErrorCode::AlreadyExists
+    );
+
+    modes
+        .set_colors(mode, &[map::NO_COLOR, map::rgb(1, 2, 3)])
+        .unwrap();
+    assert_eq!(with(|r| r.colors.clone()), [0xFF00_0000, 0x0001_0203]);
+    assert_eq!(
+        (modes.mode_id(80), modes.mode_id(1)),
+        (Some("p.cores"), None)
+    );
+    assert_eq!(
+        (modes.shown(), modes.id(mode)),
+        (Some(mode), Some("p.cores"))
+    );
+
+    let (describe, context) = with(|r| r.describes[0]);
+    let describe: unsafe extern "C" fn(
+        *mut c_void,
+        *const AnvilMapMode,
+        i32,
+        *mut c_char,
+        usize,
+    ) -> usize = unsafe { std::mem::transmute(describe) };
+    let context = context as *mut c_void;
+    // "Kraków " is 8 bytes and "ż" 2 more: 9 fit, so the cut is before "ż".
+    let mut buffer = [0x55 as c_char; 10];
+    assert_eq!(
+        unsafe { describe(context, mode.as_raw(), 1, buffer.as_mut_ptr(), 10) },
+        8
+    );
+    assert_eq!(text(buffer.as_ptr()), "Krak\u{f3}w ");
+    let mut wide = [0 as c_char; 64];
+    assert_eq!(
+        unsafe { describe(context, mode.as_raw(), 1, wide.as_mut_ptr(), 64) },
+        15
+    );
+    assert_eq!(
+        unsafe { describe(context, mode.as_raw(), 3, wide.as_mut_ptr(), 64) },
+        0
+    );
+    for _ in 0..2 {
+        assert_eq!(
+            unsafe { describe(context, mode.as_raw(), 2, wide.as_mut_ptr(), 64) },
+            0
+        );
+    }
+    let log = logged();
+    assert_eq!(log.len(), 1, "{log:?}");
+    assert!(
+        log[0].starts_with("map mode tooltip: the callback panicked (province 2 at "),
+        "{log:?}"
+    );
+
+    let change = AnvilMapModeChange {
+        size: std::mem::size_of::<AnvilMapModeChange>() as u32,
+        reserved: 0,
+        mode: MAP_MODE,
+        id: c"p.cores".as_ptr(),
+    };
+    let read = unsafe { map::ModeChange::read(ptr::from_ref(&change).cast()) }.unwrap();
+    assert_eq!((read.mode, read.id), (Some(mode), Some("p.cores")));
+    let old = AnvilMapModeChange { size: 8, ..change };
+    let read = unsafe { map::ModeChange::read(ptr::from_ref(&old).cast()) }.unwrap();
+    assert_eq!((read.mode, read.id), (None, None));
+}
+
+#[test]
 fn milli_tags_and_errors_read_as_people_write_them() {
     assert_eq!(world::Milli(4500).to_string(), "4.5");
     assert_eq!(world::Milli(-12000).to_string(), "-12");
@@ -573,7 +746,7 @@ fn milli_tags_and_errors_read_as_people_write_them() {
 
 #[test]
 fn event_and_service_names_are_the_headers() {
-    let pairs: [(&CStr, &[u8]); 9] = [
+    let pairs: [(&CStr, &[u8]); 10] = [
         (crate::PLUGINS_LOADED.name(), ANVIL_EVENT_PLUGINS_LOADED),
         (crate::SUSPENDED.name(), ANVIL_EVENT_SUSPENDED),
         (crate::RESUMED.name(), ANVIL_EVENT_RESUMED),
@@ -583,6 +756,7 @@ fn event_and_service_names_are_the_headers() {
         (world::SERVICE, ANVIL_GAME_WORLD_SERVICE),
         (panel::SERVICE, ANVIL_PANEL_SERVICE),
         (crate::benchmark::SERVICE, ANVIL_BENCHMARK_SERVICE),
+        (map::SERVICE, ANVIL_MAP_MODES_SERVICE),
     ];
     for (ours, header) in pairs {
         assert_eq!(ours.to_bytes_with_nul(), header);
@@ -597,6 +771,8 @@ fn event_and_service_names_are_the_headers() {
         (game::YEAR.name(), ANVIL_GAME_EVENT_YEAR),
         (game::PLAYER.name(), ANVIL_GAME_EVENT_PLAYER),
         (crate::benchmark::QUIT.name(), ANVIL_BENCHMARK_EVENT_QUIT),
+        (map::SHOWN.name(), ANVIL_MAP_EVENT_SHOWN),
+        (map::HIDDEN.name(), ANVIL_MAP_EVENT_HIDDEN),
     ] {
         assert_eq!(ours.to_bytes_with_nul(), header);
     }
