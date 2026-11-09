@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.14.1](https://github.com/happy-dwarf-team/anvil/compare/v1.14.0...v1.14.1) (2026-11-09)
+
+
+### Bug Fixes
+
+* **overlay:** show each settings group once, in the overlay and the Manager ([#266](https://github.com/happy-dwarf-team/anvil/issues/266)) ([9c7e115](https://github.com/happy-dwarf-team/anvil/commit/9c7e115208e28e0a06c758b2ddcdcb5514fb6f24))
+
 ## [1.14.0](https://github.com/happy-dwarf-team/anvil/compare/v1.13.0...v1.14.0) (2026-11-09)
 
 

@@ -1,6 +1,6 @@
 id = "anvil-log-throttle"
 name = "Anvil log throttle"
-version = "1.14.0"
+version = "1.14.1"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log."
 api = 2
