@@ -105,8 +105,10 @@ jobs:
           cmake --build build --config Release --parallel
           --target Zycore Zydis safetyhook anvil_miniz anvil_manager_imgui anvil_overlay_imgui
 
-      # No tools: linked here, unlike the plugins: with the linked bundle (2.27.3)
-      # the traced build took 350-430 s, with the default one (2.27.4) 129 s.
+      # Not tools: linked here, unlike the plugins: the traced build took 350 and 429 s
+      # in the two runs with the linked bundle (2.27.3), 126 and 129 s in the two with
+      # the default one (2.27.4). Before the libraries were built first, main's traced
+      # builds took 200-474 s.
       - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
         with:
           languages: c-cpp
