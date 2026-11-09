@@ -90,6 +90,16 @@ _Avoid_: slot, map mode id (the id is the text), enum value (for a lent one)
 The 13 values of the game's map mode enum that `anvil-map` may lend: 80–83 first, then the debug modes 50, 57–60, 66, 68, 71 and 84.
 _Avoid_: slots, free modes
 
+### Script effects
+
+**Script effect**:
+A word of the game's script language that does something when the game runs it, such as `add_treasury = 50` in an event option. A plugin's script effect is one that a gameplay plugin adds through `anvil-script` and a mod writes like the game's own.
+_Avoid_: command (the game's commands are what its clients exchange), script hook, custom effect (for the service)
+
+**Effect key**:
+The word on the left of a script effect, `chisel_set_terrain` in `chisel_set_terrain = mountain`. A plugin's key starts with its id.
+_Avoid_: effect name, keyword (for the game's own lexer words)
+
 ### When the game crashes
 
 **Crash report**:
