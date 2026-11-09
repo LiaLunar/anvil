@@ -15,6 +15,10 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # Static CRT: version.dll must not depend on a redistributable being installed.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+if(MSVC)
+    # Compile a target's sources on every core; the Visual Studio generator runs cl one file at a time.
+    add_compile_options(/MP)
+endif()
 
 option(ANVIL_BUILD_TESTS "Build unit tests" ON)
 option(ANVIL_BUILD_EXAMPLES "Build the example plugins" ON)

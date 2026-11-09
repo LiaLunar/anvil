@@ -43,14 +43,14 @@ $configure = @('-G', 'Visual Studio 17 2022', '-A', 'x64', '-DCMAKE_COMPILE_WARN
 $fetch = Join-Path $work 'fetch'
 $url = $archive.Replace('\', '/')   # a local path stands for the release URL
 Run 'configure (FetchContent)' { cmake -S (Join-Path $root 'tests/sdk') -B $fetch @configure "-DANVIL_SDK_URL=$url" "-DANVIL_SDK_SHA256=$hash" "-DANVIL_EXAMPLES=$examples" }
-Run 'build (FetchContent)' { cmake --build $fetch --config Release }
+Run 'build (FetchContent)' { cmake --build $fetch --config Release --parallel }
 Run 'hello_cpp-check' { cmake --build $fetch --config Release --target hello_cpp-check }
 Run 'hello_cpp-deploy' { cmake --build $fetch --config Release --target hello_cpp-deploy }
 
 # 3. find_package on the unpacked archive.
 $pkg = Join-Path $work 'package'
 Run 'configure (find_package)' { cmake -S (Join-Path $examples 'hello-c') -B $pkg @configure "-DAnvilPlugin_DIR=$(Join-Path $sdk 'cmake')" }
-Run 'build (find_package)' { cmake --build $pkg --config Release }
+Run 'build (find_package)' { cmake --build $pkg --config Release --parallel }
 Run 'hello_c-check' { cmake --build $pkg --config Release --target hello_c-check }
 Run 'hello_c-deploy' { cmake --build $pkg --config Release --target hello_c-deploy }
 

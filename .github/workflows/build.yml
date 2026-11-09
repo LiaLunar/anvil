@@ -28,7 +28,8 @@ jobs:
         run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
 
       - name: Build
-        run: cmake --build build --config Release
+        # --parallel: MSBuild builds independent projects at once (CMakeLists.txt adds /MP within one).
+        run: cmake --build build --config Release --parallel
 
       # The plugin catalog (ADR 0002): every pinned zip has the size and SHA-256
       # of its entry, the build provenance of its plugin's repository and the

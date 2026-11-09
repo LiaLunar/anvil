@@ -187,7 +187,7 @@ SafetyHook 0.7.0 with Zydis 4.1.0).
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Release
+cmake --build build --config Release --parallel
 ctest --test-dir build -C Release --output-on-failure
 cmake --install build --config Release --component anvil --prefix dist   # version.dll + anvil/ layout
 ```
