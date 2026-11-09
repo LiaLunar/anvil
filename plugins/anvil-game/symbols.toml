@@ -565,3 +565,130 @@ values.modifier = { at = 3, size = 4 }
 note = "CProvince::GetModifier: the sum of the province's own modifiers"
 build."eu4-1.37.5-steam-win64" = { rva = 0xD0110 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD0140 }
+# --- units and the selection (anvil-game.world) -----------------------------------
+# Getters and short loops whose bytes hold the offsets; a port may declare them
+# all absent on a new build, and the unit calls then answer NOT_DECLARED.
+
+[symbol.unit_list]
+bytes = "48 8D 81 18 0D 00 00 C3"
+memory = "code"
+values.units = { at = 3, size = 4 }
+note = "a country's units: a linked list at +0xD18"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A360 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A390 }
+
+[symbol.unit_country]
+bytes = "48 8B 81 D0 00 00 00 4C 8B C2 48 89 02 48 C1 E8 20 98"
+memory = "code"
+values.country = { at = 3, size = 4 }
+note = "the country a unit belongs to: a tag at +0xD0"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD46770 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD44F20 }
+
+[symbol.unit_leader]
+bytes = "48 8B 81 D8 00 00 00 C3"
+memory = "code"
+values.leader = { at = 3, size = 4 }
+note = "a unit's leader: a pointer at +0xD8, null without one"
+build."eu4-1.37.5-steam-win64" = { rva = 0x99A80 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x99AB0 }
+
+[symbol.unit_location]
+bytes = "48 8B 81 E8 00 00 00 C3"
+memory = "code"
+values.location = { at = 3, size = 4 }
+note = "a unit's province: a pointer at +0xE8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x98890 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x988C0 }
+
+[symbol.unit_mission]
+bytes = "48 8B 81 F8 01 00 00 C3"
+memory = "code"
+values.mission = { at = 3, size = 4 }
+note = "a unit's mission object: a pointer at +0x1F8; an idle unit has a default one"
+build."eu4-1.37.5-steam-win64" = { rva = 0x144490 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1444C0 }
+
+[symbol.unit_name]
+bytes = "48 8D 81 48 01 00 00 C3"
+memory = "code"
+values.name = { at = 3, size = 4 }
+note = "a unit's name: a std::string at +0x148"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD46E00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD455B0 }
+
+[symbol.unit_id]
+# mov [rdx+50h],rdi; mov rax,[rdi+20h]; mov [rdx+58h],rax
+bytes = "48 89 7A 50 48 8B 47 20 48 89 42 58"
+memory = "code"
+values.offset = { at = 7, size = 1 }
+note = "a unit command takes the unit and its id, 8 bytes at +0x20"
+build."eu4-1.37.5-steam-win64" = { rva = 0x147EE96 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1478D16 }
+
+[symbol.unit_strength]
+bytes = """
+C7 02 00 00 00 00 4C 8B CA 48 8B 41 30 4C 8B C1 49 3B 40 30 72 15 49 3B 40 38
+73 0F 48 8B 08 48 83 C0 08 8B 51 28 41 01 11 EB E5 49 8B C1 C3
+"""
+memory = "code"
+values.begin = { at = 12, size = 1 }
+values.end = { at = 25, size = 1 }
+values.strength = { at = 37, size = 1 }
+note = "a unit's total strength: its regiments or ships, a std::vector of pointers at +0x30, each one's strength (x 1000) at +0x28"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD46D50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD45500 }
+
+[symbol.unit_mission_type]
+# mov rcx,[rdi+1F8h]; mov rax,[rcx]; call [rax+50h]; cmp eax,10h
+bytes = "48 8B 8F F8 01 00 00 48 8B 01 FF 50 50 83 F8 10"
+memory = "code"
+values.slot = { at = 12, size = 1 }
+values.limit = { at = 15, size = 1 }
+note = "a mission's type: vtable slot 0x50, a constant in each mission class; the switch after it takes 0..0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD417A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD41AA }
+
+[symbol.selection]
+memory = "code"
+values.input = { at = 3, size = 4 }
+values.list = { at = 10, size = 1 }
+note = "the session's selection: its map input at a build's own offset, the selection list at +0x28 in it"
+
+[symbol.selection.build."eu4-1.37.5-steam-win64"]
+rva = 0x833C80
+bytes = "48 8B 81 80 1B 00 00 48 83 C0 28 C3"
+
+[symbol.selection.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x832FE0
+bytes = "48 8B 81 70 1B 00 00 48 83 C0 28 C3"
+
+[symbol.selection_walk]
+bytes = """
+48 89 5C 24 08 57 48 83 EC 20 83 79 38 00 0F 84 7D 00 00 00 48 8B 59 28 48 85 DB 74 67
+0F 1F 00 48 8B 3B 48 8B 5B 10 48 8B CF 48 8B 07 FF 50 08
+"""
+memory = "code"
+values.count = { at = 12, size = 1 }
+values.head = { at = 23, size = 1 }
+values.next = { at = 38, size = 1 }
+values.kind_slot = { at = 47, size = 1 }
+note = "the walk over the selection: count +0x38 and head +0x28 of the map input, a node's object at +0 and next at +0x10, each object's kind from vtable slot 8 (0 army, 1 navy)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1170B00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x116AE60 }
+
+[symbol.leader_id]
+bytes = "48 8D 41 10 C3"
+memory = "code"
+values.offset = { at = 3, size = 1 }
+note = "the id of a game object, a leader among them: 8 bytes at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A920 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A950 }
+
+[symbol.leader_name]
+bytes = "48 8D 41 20 C3"
+memory = "code"
+values.name = { at = 3, size = 1 }
+note = "a leader's name: a std::string at +0x20"
+build."eu4-1.37.5-steam-win64" = { rva = 0xCF460 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xCF490 }

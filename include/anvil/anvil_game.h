@@ -282,6 +282,52 @@ typedef struct AnvilGameWar {
 #define ANVIL_GAME_WAR_ATTACKERS 0u
 #define ANVIL_GAME_WAR_DEFENDERS 1u
 
+/* --- Since anvil-game 1.15.0: units ---------------------------------------- */
+
+/* AnvilGameUnit.kind, AnvilGameUnitRef.kind */
+#define ANVIL_GAME_UNIT_ARMY 0u
+#define ANVIL_GAME_UNIT_NAVY 1u
+
+/* AnvilGameUnit.mission: what the unit does on its own, by the game's numbers. */
+#define ANVIL_GAME_MISSION_UNKNOWN (-1) /* not one the service could read */
+#define ANVIL_GAME_MISSION_NONE 0       /* no mission: the player moves it */
+#define ANVIL_GAME_MISSION_PROTECT_TRADE 1
+#define ANVIL_GAME_MISSION_PRIVATEER 2
+#define ANVIL_GAME_MISSION_HUNT_PIRATES 3
+#define ANVIL_GAME_MISSION_PATROL 4
+#define ANVIL_GAME_MISSION_EXPLORE 5
+#define ANVIL_GAME_MISSION_EVADE 6
+#define ANVIL_GAME_MISSION_HUNT_FLEETS 7
+#define ANVIL_GAME_MISSION_BLOCKADE 8
+#define ANVIL_GAME_MISSION_INTERCEPT 9
+#define ANVIL_GAME_MISSION_REPAIR 10
+#define ANVIL_GAME_MISSION_CIRCUMNAVIGATE 11
+#define ANVIL_GAME_MISSION_EXPLORE_LAND 12
+#define ANVIL_GAME_MISSION_HUNT_REBELS 13
+#define ANVIL_GAME_MISSION_SIEGE 14     /* besiege the enemy's provinces on its own */
+#define ANVIL_GAME_MISSION_DRILL 15
+
+typedef struct AnvilGameUnit {
+    uint32_t size;
+    uint32_t kind;        /* ANVIL_GAME_UNIT_* */
+    uint64_t id;          /* the game's id: stays the same while the unit exists */
+    AnvilGameTag country; /* the country it belongs to */
+    int32_t location;     /* the province it is in or at; 0: none */
+    int32_t mission;      /* ANVIL_GAME_MISSION_* */
+    uint32_t subunits;    /* regiments or ships */
+    int32_t strength;     /* the sum of the regiments' or ships' strength, x 1000: men for an army */
+    uint32_t reserved;
+    uint64_t leader;      /* the leader's id; 0: no leader */
+} AnvilGameUnit;
+
+/* One unit of the player's selection. It comes in arrays and has no `size`,
+ * so it never grows within version 1: more about a unit comes from unit(). */
+typedef struct AnvilGameUnitRef {
+    uint64_t id;
+    AnvilGameTag country;
+    uint32_t kind; /* ANVIL_GAME_UNIT_* */
+} AnvilGameUnitRef;
+
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
 
@@ -356,6 +402,22 @@ typedef struct AnvilGameWorldService {
     /* The same for a province: only what the province has itself, not its
      * owner's values. */
     AnvilResult (*province_modifier)(int32_t province, int32_t id, int32_t *value);
+    /* Since anvil-game 1.15.0, for the five calls below. The ids of a
+     * country's armies and navies, in the game's order. A unit is read by its
+     * country and its id: ANVIL_ERROR_NOT_FOUND when the country has no unit
+     * with that id (it was disbanded, merged or destroyed). All five answer
+     * ANVIL_ERROR_NOT_DECLARED when a port declared the unit symbols absent.
+     * A read costs the country's list: a few hundred ns for a large one. */
+    AnvilResult (*country_units)(const char *tag, uint64_t *ids, uint32_t capacity, uint32_t *count);
+    AnvilResult (*unit)(const char *tag, uint64_t id, AnvilGameUnit *out);
+    /* The name the game shows ("1st Army"), in UTF-8 with a NUL. */
+    AnvilResult (*unit_name)(const char *tag, uint64_t id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* Its leader's name; ANVIL_ERROR_NOT_FOUND also for a unit without one. */
+    AnvilResult (*unit_leader_name)(const char *tag, uint64_t id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* The armies and navies the player has selected, in the game's order;
+     * provinces and other things on the map are left out. Units of other
+     * countries can be in it: the game lets a player select them to look. */
+    AnvilResult (*selected_units)(AnvilGameUnitRef *out, uint32_t capacity, uint32_t *count);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

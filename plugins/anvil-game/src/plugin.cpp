@@ -606,11 +606,88 @@ AnvilResult world_province_modifier(std::int32_t province, std::int32_t id, std:
     return anvil_game::read_province_modifier(g_world, province, id, *value);
 }
 
+// A name into the caller's buffer, cut at a whole character; *length gets its whole size.
+AnvilResult give_text(const std::string& text, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0) {
+        const std::size_t fits = anvil_game::fit_utf8(text, capacity);
+        std::memcpy(utf8, text.data(), fits);
+        utf8[fits] = '\0';
+    }
+    if (length != nullptr) *length = static_cast<std::uint32_t>(text.size());
+    return ANVIL_OK;
+}
+
+AnvilResult world_country_units(const char* tag, std::uint64_t* ids, std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr || (capacity != 0 && ids == nullptr)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<std::uint64_t> list;
+        const AnvilResult r = anvil_game::read_country_units(g_world, tag, list);
+        if (r == ANVIL_OK) give_list(list, ids, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_unit(const char* tag, std::uint64_t id, AnvilGameUnit* out) {
+    if (tag == nullptr || out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        AnvilGameUnit unit{};
+        const AnvilResult r = anvil_game::read_unit(g_world, tag, id, unit);
+        return r == ANVIL_OK ? give(out, unit) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_unit_name(const char* tag, std::uint64_t id, char* utf8, std::uint32_t capacity,
+                            std::uint32_t* length) {
+    if (tag == nullptr || (capacity != 0 && utf8 == nullptr)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string name;
+        const AnvilResult r = anvil_game::read_unit_name(g_world, tag, id, name);
+        return r == ANVIL_OK ? give_text(name, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_unit_leader_name(const char* tag, std::uint64_t id, char* utf8, std::uint32_t capacity,
+                                   std::uint32_t* length) {
+    if (tag == nullptr || (capacity != 0 && utf8 == nullptr)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string name;
+        const AnvilResult r = anvil_game::read_unit_leader_name(g_world, tag, id, name);
+        return r == ANVIL_OK ? give_text(name, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_selected_units(AnvilGameUnitRef* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<AnvilGameUnitRef> list;
+        const AnvilResult r = anvil_game::read_selected_units(g_world, list);
+        if (r == ANVIL_OK) give_list(list, out, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
     world_war_ids,                 world_war,            world_war_name,       world_war_side,
     world_modifier_id,             world_country_modifier, world_province_modifier,
+    world_country_units,           world_unit,             world_unit_name,      world_unit_leader_name,
+    world_selected_units,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -702,6 +779,42 @@ void load_world(anvil::Host& host) {
         l.calculating = sym::country_modifiers.calculating;
         l.country_total = sym::country_modifier_total.total;
         l.province_modifier = sym::province_modifier.modifier;
+    }
+    if (host.present(sym::unit_list) && host.present(sym::unit_country) && host.present(sym::unit_leader) &&
+        host.present(sym::unit_location) && host.present(sym::unit_mission) && host.present(sym::unit_name) &&
+        host.present(sym::unit_id) && host.present(sym::unit_strength) && host.present(sym::unit_mission_type) &&
+        host.present(sym::selection) && host.present(sym::selection_walk) && host.present(sym::leader_id) &&
+        host.present(sym::leader_name)) {
+        l.image_begin = base;
+        l.image_end = base + host.game().image_size;
+        // The walk over the selection reads the same kind of list from the
+        // map input as a country holds its units in: head, count, next.
+        l.list_head = 0;
+        l.list_count = sym::selection_walk.count - sym::selection_walk.head;
+        l.node_object = 0;
+        l.node_next = sym::selection_walk.next;
+        l.kind_slot = sym::selection_walk.kind_slot;
+        l.units = sym::unit_list.units;
+        l.unit_id = sym::unit_id.offset;
+        l.unit_country = sym::unit_country.country;
+        l.unit_leader = sym::unit_leader.leader;
+        l.unit_location = sym::unit_location.location;
+        l.unit_mission = sym::unit_mission.mission;
+        l.unit_name = sym::unit_name.name;
+        l.subunits = sym::unit_strength.begin;
+        l.subunits_end = sym::unit_strength.end;
+        l.subunit_strength = sym::unit_strength.strength;
+        l.mission_slot = sym::unit_mission_type.slot;
+        l.mission_limit = sym::unit_mission_type.limit;
+        l.leader_id = sym::leader_id.offset;
+        l.leader_name = sym::leader_name.name;
+        l.session = sym::session_of_root.session;
+        l.map_input = static_cast<std::uint32_t>(host.value(sym::selection, "input"));
+        l.selection = sym::selection.list;
+        if (sym::selection_walk.head != l.selection || sym::unit_mission_type.slot == 0) {
+            host.warn("the unit symbols disagree on the selection: no unit reads");
+            l.units = 0;
+        }
     }
     g_world = l;
     g_world_available = true;

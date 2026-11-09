@@ -90,6 +90,32 @@ struct WorldLayout {
     std::uint32_t calculating = 0;        // the state while they are worked out
     std::uint32_t country_total = 0;      // from that state: the sum, a modifier
     std::uint32_t province_modifier = 0;  // province: the sum of its own, a modifier
+    // Units: `units` 0 when absent on this build. A list is the game's linked
+    // list: head, count, and nodes with the object and the next node.
+    std::uintptr_t image_begin = 0;  // eu4.exe in memory: a getter decoded from a vtable must be in it
+    std::uintptr_t image_end = 0;
+    std::uint32_t units = 0;            // country: the list of its units
+    std::uint32_t list_head = 0;        // list: first node
+    std::uint32_t list_count = 0;       // list: int32
+    std::uint32_t node_object = 0;      // node: the object
+    std::uint32_t node_next = 0;        // node: the next node, null at the end
+    std::uint32_t unit_id = 0;          // unit: 8 bytes
+    std::uint32_t unit_country = 0;     // unit: tag
+    std::uint32_t unit_leader = 0;      // unit: pointer, may be null
+    std::uint32_t unit_location = 0;    // unit: province pointer, may be null
+    std::uint32_t unit_mission = 0;     // unit: mission object pointer
+    std::uint32_t unit_name = 0;        // unit: std::string
+    std::uint32_t subunits = 0;         // unit: std::vector of pointers, its begin
+    std::uint32_t subunits_end = 0;
+    std::uint32_t subunit_strength = 0; // regiment or ship: int32, x 1000
+    std::uint32_t kind_slot = 0;        // unit's vtable: the getter of its kind
+    std::uint32_t mission_slot = 0;     // mission's vtable: the getter of its type
+    std::uint32_t mission_limit = 0;    // mission types are below this
+    std::uint32_t leader_id = 0;        // leader: 8 bytes
+    std::uint32_t leader_name = 0;      // leader: std::string
+    std::uint32_t session = 0;          // root: the session
+    std::uint32_t map_input = 0;        // session: pointer to its map input
+    std::uint32_t selection = 0;        // map input: the selection list
 };
 
 // Main thread only, after an outer frame, in a session: the service checks.
@@ -109,6 +135,15 @@ AnvilResult read_war_side(const WorldLayout& l, std::uint64_t id, std::uint32_t 
 AnvilResult read_modifier_id(const WorldLayout& l, std::string_view key, std::int32_t& id);
 AnvilResult read_country_modifier(const WorldLayout& l, std::string_view tag, std::int32_t id, std::int32_t& value);
 AnvilResult read_province_modifier(const WorldLayout& l, std::int32_t province, std::int32_t id, std::int32_t& value);
+AnvilResult read_country_units(const WorldLayout& l, std::string_view tag, std::vector<std::uint64_t>& out);
+AnvilResult read_unit(const WorldLayout& l, std::string_view tag, std::uint64_t id, AnvilGameUnit& out);
+AnvilResult read_unit_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8);
+AnvilResult read_unit_leader_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8);
+AnvilResult read_selected_units(const WorldLayout& l, std::vector<AnvilGameUnitRef>& out);
+
+// The constant a getter of 3 or 6 bytes returns: xor eax,eax; ret (0) or
+// mov eax,imm32; ret. False for any other code.
+bool decode_constant_getter(const std::uint8_t* code, std::size_t size, std::int64_t& value);
 
 // The bucket the game files a tag in: its three characters, upper-cased, summed, & mask.
 std::uint32_t tag_bucket(std::string_view tag, std::uint32_t mask);

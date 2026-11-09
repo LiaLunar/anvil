@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstring>
 
 namespace anvil_game {
@@ -450,6 +451,196 @@ AnvilResult read_player(const WorldLayout& l, AnvilGameTag& out) {
     // The rule of every reader in the game (player_country).
     const bool observer = byte_of(player, l.tag_kind) == l.observer_kind;
     out = tag_text(observer && byte_of(observed, l.tag_valid) != 0 ? observed : player, l);
+    return ANVIL_OK;
+}
+
+// ---- units --------------------------------------------------------------------
+
+bool decode_constant_getter(const std::uint8_t* code, std::size_t size, std::int64_t& value) {
+    if (size >= 3 && (code[0] == 0x33 || code[0] == 0x31) && code[1] == 0xC0 && code[2] == 0xC3) {
+        value = 0;  // xor eax,eax; ret
+        return true;
+    }
+    if (size >= 6 && code[0] == 0xB8 && code[5] == 0xC3) {  // mov eax,imm32; ret
+        std::int32_t imm = 0;
+        std::memcpy(&imm, code + 1, sizeof imm);
+        value = imm;
+        return true;
+    }
+    return false;
+}
+
+namespace {
+
+constexpr std::int32_t kMaxListNodes = 100000;  // a longer unit list or selection is taken as garbage
+constexpr std::size_t kMaxSubunits = 4096;
+
+// The constant that the getter in `slot` of `object`'s vtable returns, read from
+// its code: the getter is not called. False when it is not such a getter.
+bool constant_of(const WorldLayout& l, std::uintptr_t object, std::uint32_t slot, std::int64_t& value) {
+    std::uintptr_t vtable = 0, getter = 0;
+    if (!read(object, vtable) || vtable == 0 || !read(vtable + slot, getter)) return false;
+    if (getter < l.image_begin || getter + 6 > l.image_end) return false;
+    std::uint8_t code[6] = {};
+    return read_raw(getter, code, sizeof code) && decode_constant_getter(code, sizeof code, value);
+}
+
+// The objects of one of the game's linked lists, in order.
+bool read_list(const WorldLayout& l, std::uintptr_t list, std::vector<std::uintptr_t>& out) {
+    std::uintptr_t node = 0;
+    std::int32_t count = 0;
+    if (!read(list + l.list_head, node) || !read(list + l.list_count, count) || count < 0 || count > kMaxListNodes) {
+        return false;
+    }
+    out.clear();
+    while (node != 0) {
+        if (static_cast<std::int32_t>(out.size()) >= kMaxListNodes) return false;  // a loop
+        std::uintptr_t object = 0, next = 0;
+        if (!read(node + l.node_object, object) || !read(node + l.node_next, next)) return false;
+        if (object != 0) out.push_back(object);
+        node = next;
+    }
+    return true;
+}
+
+AnvilResult country_unit_list(const WorldLayout& l, std::string_view tag, std::vector<std::uintptr_t>& units) {
+    if (l.units == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    return read_list(l, country + l.units, units) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+// The unit of `tag` with `id`, found in that country's list.
+AnvilResult unit_at(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::uintptr_t& unit) {
+    std::vector<std::uintptr_t> units;
+    if (const AnvilResult r = country_unit_list(l, tag, units); r != ANVIL_OK) return r;
+    for (const std::uintptr_t each : units) {
+        std::uint64_t own = 0;
+        if (!read(each + l.unit_id, own)) return ANVIL_ERROR_INTERNAL;
+        if (own == id) {
+            unit = each;
+            return ANVIL_OK;
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+// A province pointer as its ID, checked against the province array; 0 for none.
+bool province_id_of(const WorldLayout& l, std::uintptr_t province, std::int32_t& id) {
+    id = 0;
+    if (province == 0) return true;
+    std::int32_t own = 0;
+    std::uintptr_t at = 0;
+    if (!read(province + l.province_id, own)) return false;
+    if (province_at(l, own, at) != ANVIL_OK || at != province) return false;
+    id = own;
+    return true;
+}
+
+bool unit_kind(const WorldLayout& l, std::uintptr_t unit, std::uint32_t& kind) {
+    std::int64_t value = 0;
+    if (!constant_of(l, unit, l.kind_slot, value) ||
+        (value != ANVIL_GAME_UNIT_ARMY && value != ANVIL_GAME_UNIT_NAVY)) {
+        return false;
+    }
+    kind = static_cast<std::uint32_t>(value);
+    return true;
+}
+
+}  // namespace
+
+AnvilResult read_country_units(const WorldLayout& l, std::string_view tag, std::vector<std::uint64_t>& out) {
+    std::vector<std::uintptr_t> units;
+    if (const AnvilResult r = country_unit_list(l, tag, units); r != ANVIL_OK) return r;
+    out.clear();
+    for (const std::uintptr_t unit : units) {
+        std::uint64_t id = 0;
+        if (!read(unit + l.unit_id, id)) return ANVIL_ERROR_INTERNAL;
+        out.push_back(id);
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_unit(const WorldLayout& l, std::string_view tag, std::uint64_t id, AnvilGameUnit& out) {
+    std::uintptr_t unit = 0;
+    if (const AnvilResult r = unit_at(l, tag, id, unit); r != ANVIL_OK) return r;
+    std::uint64_t country = 0;
+    std::uintptr_t leader = 0, location = 0, mission = 0, begin = 0, end = 0;
+    if (!read(unit + l.unit_country, country) || !read(unit + l.unit_leader, leader) ||
+        !read(unit + l.unit_location, location) || !read(unit + l.unit_mission, mission) ||
+        !read(unit + l.subunits, begin) || !read(unit + l.subunits_end, end) || end < begin || (end - begin) % 8 != 0 ||
+        (end - begin) / 8 > kMaxSubunits) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.id = id;
+    out.country = tag_text(country, l);
+    if (!unit_kind(l, unit, out.kind) || !province_id_of(l, location, out.location)) return ANVIL_ERROR_INTERNAL;
+    std::int64_t type = 0;
+    out.mission = mission != 0 && constant_of(l, mission, l.mission_slot, type) && type >= 0 && type < l.mission_limit
+                      ? static_cast<std::int32_t>(type)
+                      : ANVIL_GAME_MISSION_UNKNOWN;
+    out.subunits = static_cast<std::uint32_t>((end - begin) / 8);
+    std::int64_t strength = 0;
+    for (std::uintptr_t at = begin; at < end; at += 8) {
+        std::uintptr_t subunit = 0;
+        std::int32_t each = 0;
+        if (!read(at, subunit) || subunit == 0 || !read(subunit + l.subunit_strength, each)) return ANVIL_ERROR_INTERNAL;
+        strength += each;
+    }
+    out.strength = static_cast<std::int32_t>(std::clamp<std::int64_t>(strength, INT32_MIN, INT32_MAX));
+    out.reserved = 0;
+    out.leader = 0;
+    if (leader != 0 && !read(leader + l.leader_id, out.leader)) return ANVIL_ERROR_INTERNAL;
+    if ((out.leader >> 32) == 0) out.leader = 0;  // the game's placeholder for "no leader" has id 0
+    return ANVIL_OK;
+}
+
+AnvilResult read_unit_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8) {
+    std::uintptr_t unit = 0;
+    if (const AnvilResult r = unit_at(l, tag, id, unit); r != ANVIL_OK) return r;
+    std::string name;
+    if (!read_string(unit + l.unit_name, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_unit_leader_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8) {
+    std::uintptr_t unit = 0, leader = 0;
+    if (const AnvilResult r = unit_at(l, tag, id, unit); r != ANVIL_OK) return r;
+    if (!read(unit + l.unit_leader, leader)) return ANVIL_ERROR_INTERNAL;
+    if (leader == 0) return ANVIL_ERROR_NOT_FOUND;
+    // A unit without a leader points at the game's placeholder leader, whose id is 0.
+    std::uint64_t leader_id = 0;
+    if (!read(leader + l.leader_id, leader_id)) return ANVIL_ERROR_INTERNAL;
+    if ((leader_id >> 32) == 0) return ANVIL_ERROR_NOT_FOUND;
+    std::string name;
+    if (!read_string(leader + l.leader_name, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_selected_units(const WorldLayout& l, std::vector<AnvilGameUnitRef>& out) {
+    if (l.units == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t root = 0, session = 0, input = 0;
+    if (!read_root(l, root) || !read(root + l.session, session) || session == 0 || !read(session + l.map_input, input)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.clear();
+    if (input == 0) return ANVIL_OK;  // no map input yet: nothing selected
+    std::vector<std::uintptr_t> objects;
+    if (!read_list(l, input + l.selection, objects)) return ANVIL_ERROR_INTERNAL;
+    for (const std::uintptr_t object : objects) {
+        std::int64_t kind = 0;
+        if (!constant_of(l, object, l.kind_slot, kind)) continue;  // not a constant getter: not a unit
+        if (kind != ANVIL_GAME_UNIT_ARMY && kind != ANVIL_GAME_UNIT_NAVY) continue;
+        AnvilGameUnitRef ref{};
+        std::uint64_t country = 0;
+        if (!read(object + l.unit_id, ref.id) || !read(object + l.unit_country, country)) return ANVIL_ERROR_INTERNAL;
+        ref.country = tag_text(country, l);
+        ref.kind = static_cast<std::uint32_t>(kind);
+        out.push_back(ref);
+    }
     return ANVIL_OK;
 }
 
