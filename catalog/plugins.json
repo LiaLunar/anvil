@@ -72,7 +72,7 @@
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
       "note": "The zip holds the plugin. Mei's fonts come with its Workshop item; on GOG they are mei-fonts.zip in its release, for a local mod. Without them the game's own fonts stay.",
-      "version": "0.5.0",
+      "version": "0.7.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -81,9 +81,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.5.0/mei-windows-x64.zip",
-        "size": 1061354,
-        "sha256": "85f7a15cc477f5c391b50e124c74446a855bf217a6093b551a904b45d8aa9511"
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.7.0/mei-windows-x64.zip",
+        "size": 1067455,
+        "sha256": "e9fd88c877f80e1a76d8dd39f476ecf499d05caeb89eed452d9f239ba2292c38"
       }
     }
   ]
