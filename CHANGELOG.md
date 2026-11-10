@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.18.0](https://github.com/happy-dwarf-team/anvil/compare/v1.17.0...v1.18.0) (2026-11-10)
+
+
+### Features
+
+* **api:** add the anvil-overlay.input service for plugin keys ([#249](https://github.com/happy-dwarf-team/anvil/issues/249)) ([1f1c43c](https://github.com/happy-dwarf-team/anvil/commit/1f1c43c02f3b8606cabf187690858911afffffca))
+* **api:** call gameplay plugins back at the day end through anvil-script ([#296](https://github.com/happy-dwarf-team/anvil/issues/296)) ([83eb418](https://github.com/happy-dwarf-team/anvil/commit/83eb41853c67e5535cd1adb5a6c7293b94d2f9d1))
+
 ## [1.17.0](https://github.com/happy-dwarf-team/anvil/compare/v1.16.0...v1.17.0) (2026-11-09)
 
 
