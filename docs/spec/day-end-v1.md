@@ -22,7 +22,7 @@ affects_gameplay = true
 
 [[dependencies]]
 id = "anvil-script"
-version = "^1.17"   # the first Anvil with the service (working number)
+version = "^1.18"   # the first Anvil with the service (working number)
 ```
 
 ## 2. The interface
@@ -100,7 +100,7 @@ Each refusal is logged with the caller. A plugin may subscribe more than once (e
 3. reads the date at `this + date` (section 7) and decodes it;
 4. calls each subscriber in the order of subscription, skipping one whose owner is suspended (design §13), asked through `anvil.control` at each Day end.
 
-The list is closed at the first call of the detour (step 1 runs first, so a subscription from inside the game's day is refused too).
+The list is closed when the detour is first entered, before the game's day runs, so a subscription from inside that first day is refused too.
 
 **Thread.** The main thread, inside the day's command: every `ParallelFor` of the day has waited for its tasks, the monthly and yearly updates are done, and the last frame drawn inside the day is over [pdb]. The service notes the thread of the first Day end and logs once if a later one differs; it calls the callbacks either way.
 

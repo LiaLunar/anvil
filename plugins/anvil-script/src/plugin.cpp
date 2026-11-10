@@ -12,6 +12,11 @@
 //
 // The parse runs on whichever threads the game parses on; the key table is
 // complete and read-only by then (Registry::close on the first call).
+//
+// The Day end (docs/adr/0009-day-end.md): a function hook on
+// CGameState::HandleDailyTick calls the game's day, then the subscribers in
+// the order they subscribed, on the main thread, before the day's command
+// compares checksums.
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_script.h>
 
@@ -19,6 +24,7 @@
 #include <windows.h>
 
 #include "anvil_control.h"
+#include "day_end.hpp"
 #include "registry.hpp"
 #include "symbols.gen.hpp"
 
@@ -65,6 +71,12 @@ struct Layout {
 
 Registry g_registry;
 anvil::HookOf<sym::effect_read_member> g_read_member;
+DayEndList g_day_end;
+anvil::HookOf<sym::daily_tick> g_daily_tick;
+std::size_t g_date_offset = 0;
+std::atomic<std::uint64_t> g_days{0};
+std::atomic<DWORD> g_day_thread{0};
+std::atomic<bool> g_day_thread_logged{false};
 const AnvilControlService* g_control = nullptr;
 void* g_vtable[kSlots];
 using GetDescFn = void* (*)(void* effect, void* out, void* scope, void* prefix, int indent, bool flag);
@@ -240,6 +252,43 @@ void detour_read_member(void* self, void* reader, int token) noexcept {
     g_parsed[static_cast<std::size_t>(index)].fetch_add(1, std::memory_order_relaxed);
 }
 
+// --- the Day end -----------------------------------------------------------------
+
+void detour_daily_tick(void* game_state) noexcept {
+    // Closed before the game's day, so a subscription from inside it is refused too.
+    g_day_end.close();
+    g_daily_tick.next(game_state);
+    g_days.fetch_add(1, std::memory_order_relaxed);
+    const std::size_t n = g_day_end.size();
+    if (n == 0) return;
+    const DWORD thread = GetCurrentThreadId();
+    DWORD first = 0;
+    if (!g_day_thread.compare_exchange_strong(first, thread) && first != thread &&
+        !g_day_thread_logged.exchange(true)) {
+        anvil::Host{}.warn("day end on thread {}, the first was on thread {}; the game's day moved threads", thread,
+                           first);
+    }
+    const AnvilScriptDay day = decode_day(read_at<std::int32_t>(game_state, g_date_offset));
+    for (std::size_t i = 0; i < n; ++i) {
+        const DayEndEntry& e = g_day_end.entry(i);
+        if (suspended(e.owner)) continue;
+        e.callback(e.context, &day);
+    }
+}
+
+AnvilResult svc_subscribe_day_end(AnvilPlugin* self, AnvilScriptDayEnd callback, void* context) {
+    AnvilControlPlugin info;
+    const bool known = caller_of(self, info);
+    std::string why;
+    const AnvilResult r = g_day_end.add(known, known && info.affects_gameplay != 0, self, callback, context, why);
+    const std::string owner = known && info.id != nullptr ? std::string(info.id) : std::string("an unknown plugin");
+    if (r == ANVIL_OK) anvil::Host{}.info("{} subscribed to the day end", owner);
+    else anvil::Host{}.warn("{}: day end refused: {}", owner, why);
+    return r;
+}
+
+const AnvilScriptDayEndService kDayEndService{sizeof(AnvilScriptDayEndService), svc_subscribe_day_end};
+
 // --- the service ------------------------------------------------------------------
 
 AnvilResult svc_register_effect(AnvilPlugin* self, const AnvilScriptEffect* effect) {
@@ -262,11 +311,29 @@ AnvilResult svc_register_effect(AnvilPlugin* self, const AnvilScriptEffect* effe
 
 const AnvilScriptEffectsService kService{sizeof(AnvilScriptEffectsService), svc_register_effect};
 
+bool g_effects = false, g_day_end_hooked = false;
+
+std::string day_end_subscribers() {
+    if (!g_day_end_hooked) return "day end: not on this build";
+    std::string ids;
+    for (std::size_t i = 0; i < g_day_end.size(); ++i) {
+        AnvilControlPlugin info;
+        if (!ids.empty()) ids += ", ";
+        ids += caller_of(g_day_end.entry(i).owner, info) && info.id != nullptr ? info.id : "?";
+    }
+    return ids.empty() ? "day end: no subscriber" : "day end: " + ids;
+}
+
 void report_ready() {
     anvil::Host host;
     const std::size_t n = g_registry.size();
+    const std::string day_end = day_end_subscribers();
+    if (!g_effects) {
+        host.info("game ready: no effects on this build; {}", day_end);
+        return;
+    }
     if (n == 0) {
-        host.info("game ready: no registered effect; CEffect::ReadMember ran {} times", g_calls.load());
+        host.info("game ready: no registered effect; CEffect::ReadMember ran {} times; {}", g_calls.load(), day_end);
         return;
     }
     std::string counts;
@@ -274,7 +341,11 @@ void report_ready() {
         if (!counts.empty()) counts += ", ";
         counts += std::string(g_registry.entry(static_cast<int>(i)).key) + " " + std::to_string(g_parsed[i].load());
     }
-    host.info("game ready: parsed {} (CEffect::ReadMember ran {} times)", counts, g_calls.load());
+    host.info("game ready: parsed {} (CEffect::ReadMember ran {} times); {}", counts, g_calls.load(), day_end);
+}
+
+bool all(std::initializer_list<bool> values) {
+    return std::all_of(values.begin(), values.end(), [](bool v) { return v; });
 }
 
 struct AnvilScript : anvil::Plugin {
@@ -284,6 +355,31 @@ struct AnvilScript : anvil::Plugin {
             g_control->size < offsetof(AnvilControlService, plugin_of) + sizeof(g_control->plugin_of)) {
             throw anvil::Error(ANVIL_ERROR_UNSUPPORTED, "anvil.control has no plugin_of; this Anvil is older than the plugin");
         }
+        // Each service needs only its own symbols (spec day-end-v1 section 7):
+        // a build without one set still gets the other.
+        g_effects = all({host.present(sym::effect_read_member), host.present(sym::effect_lhs_site),
+                         host.present(sym::effect_assign_site), host.present(sym::effect_set_token),
+                         host.present(sym::effect_ctor), host.present(sym::effect_vtable_site),
+                         host.present(sym::effect_dtor), host.present(sym::array_append),
+                         host.present(sym::scope_province_site), host.present(sym::scope_country_site),
+                         host.present(sym::cstring_from_text)});
+        g_day_end_hooked = host.present(sym::daily_tick) && host.present(sym::daily_tick_date_site);
+        if (!g_effects && !g_day_end_hooked) {
+            throw anvil::Error(ANVIL_ERROR_NOT_DECLARED, "neither the effects' nor the day end's symbols are on this build");
+        }
+        if (g_effects) load_effects(host);
+        else host.warn("the effects' symbols are absent on this build: no anvil-script.effects");
+        if (g_day_end_hooked) {
+            g_date_offset = host.value(sym::daily_tick_date_site, "date");
+            host.hook(g_daily_tick, sym::daily_tick, &detour_daily_tick);
+            host.register_service(ANVIL_SCRIPT_DAY_END_SERVICE, ANVIL_SCRIPT_DAY_END_SERVICE_VERSION, kDayEndService);
+        } else {
+            host.warn("the day end's symbols are absent on this build: no anvil-script.day_end");
+        }
+        host.subscribe("anvil-game.ready", [] { report_ready(); });
+    }
+
+    static void load_effects(anvil::Host& host) {
         g_layout.lhs = host.value(sym::effect_lhs_site, "lhs");
         g_layout.rhs = host.value(sym::effect_assign_site, "rhs");
         g_layout.children = host.value(sym::effect_assign_site, "children");
@@ -317,7 +413,6 @@ struct AnvilScript : anvil::Plugin {
 
         host.hook(g_read_member, sym::effect_read_member, &detour_read_member);
         host.register_service(ANVIL_SCRIPT_EFFECTS_SERVICE, ANVIL_SCRIPT_EFFECTS_SERVICE_VERSION, kService);
-        host.subscribe("anvil-game.ready", [] { report_ready(); });
     }
 };
 

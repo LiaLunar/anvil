@@ -418,7 +418,8 @@ if(ANVIL_BUILD_TESTS)
     add_test(NAME anvil_map_tests COMMAND anvil_map_tests)
     # anvil-script's key table on its own, and the plugin end to end on a
     # synthetic image with CEffect's code and vtable (tests/script_tests.cpp).
-    add_executable(anvil_script_tests tests/script_tests.cpp plugins/anvil-script/src/registry.cpp)
+    add_executable(anvil_script_tests tests/script_tests.cpp plugins/anvil-script/src/registry.cpp
+        plugins/anvil-script/src/day_end.cpp)
     target_include_directories(anvil_script_tests PRIVATE src/control)
     target_link_libraries(anvil_script_tests PRIVATE anvil_loader)
     add_dependencies(anvil_script_tests anvil_script)

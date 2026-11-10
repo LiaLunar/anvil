@@ -9,5 +9,5 @@ if(NOT COMMAND anvil_add_plugin)
     find_package(AnvilPlugin REQUIRED)
 endif()
 
-anvil_add_plugin(anvil_script SOURCES src/plugin.cpp src/registry.cpp)
+anvil_add_plugin(anvil_script SOURCES src/plugin.cpp src/registry.cpp src/day_end.cpp)
 target_include_directories(anvil_script PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control)

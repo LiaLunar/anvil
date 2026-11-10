@@ -14,6 +14,7 @@
 #include "core/symbol_check.hpp"
 #include "test_support.hpp"
 
+#include "../plugins/anvil-script/src/day_end.hpp"
 #include "../plugins/anvil-script/src/registry.hpp"
 #include "anvil_control.h"
 
@@ -26,6 +27,7 @@
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -118,6 +120,60 @@ void registry_tests() {
             last = r.add({true, "chisel", true, true}, self, &e, why);
         }
         CHECK(last == ANVIL_ERROR_OUT_OF_MEMORY && r.size() == 256 && r.find("chisel_k255") == 255);
+    });
+}
+
+// ---- the Day end on its own ---------------------------------------------------------
+
+// The game's hours for a date: 365-day years from 1 January -5000.
+std::int32_t hours_of(int year, int month, int day) {
+    static const int kMonthDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+    int day_of_year = day - 1;
+    for (int m = 1; m < month; ++m) day_of_year += kMonthDays[m - 1];
+    return static_cast<std::int32_t>((static_cast<std::int64_t>(year) * 365 + day_of_year) * 24 + 43'800'000);
+}
+
+void noop_day(void*, const AnvilScriptDay*) {}
+
+void day_end_tests() {
+    run("day end: the date and the flags of a month and a year", [] {
+        AnvilScriptDay d = anvil_script::decode_day(hours_of(1445, 1, 1));
+        CHECK(d.size == sizeof(AnvilScriptDay) && d.year == 1445 && d.month == 1 && d.day == 1 &&
+              d.flags == (ANVIL_SCRIPT_DAY_NEW_MONTH | ANVIL_SCRIPT_DAY_NEW_YEAR));
+        d = anvil_script::decode_day(hours_of(1719, 3, 17));
+        CHECK(d.year == 1719 && d.month == 3 && d.day == 17 && d.flags == 0);
+        d = anvil_script::decode_day(hours_of(1444, 2, 1));
+        CHECK(d.month == 2 && d.day == 1 && d.flags == ANVIL_SCRIPT_DAY_NEW_MONTH);
+        d = anvil_script::decode_day(hours_of(1444, 12, 31));
+        CHECK(d.month == 12 && d.day == 31 && d.flags == 0);
+        // The game's "unset" date (43808760) still decodes: 1 January of year 1.
+        d = anvil_script::decode_day(43'808'760);
+        CHECK(d.year == 1 && d.month == 1 && d.day == 1);
+    });
+
+    run("day end: the checks come in the spec's order, and the list closes", [] {
+        anvil_script::DayEndList l;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(0x1000);
+        std::string why;
+        CHECK(l.add(false, true, self, noop_day, nullptr, why) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(l.add(true, true, nullptr, noop_day, nullptr, why) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(l.add(true, false, self, nullptr, nullptr, why) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(l.add(true, false, self, noop_day, nullptr, why) == ANVIL_ERROR_WRONG_KIND);
+        int context = 0;
+        CHECK(l.add(true, true, self, noop_day, &context, why) == ANVIL_OK && l.size() == 1);
+        CHECK(l.entry(0).owner == self && l.entry(0).context == &context);
+        l.close();
+        CHECK(l.add(true, true, self, noop_day, nullptr, why) == ANVIL_ERROR_WRONG_PHASE && l.size() == 1);
+        CHECK(l.add(true, false, self, noop_day, nullptr, why) == ANVIL_ERROR_WRONG_KIND);
+    });
+
+    run("day end: at most 64 subscriptions", [] {
+        anvil_script::DayEndList l;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(0x1000);
+        std::string why;
+        AnvilResult last = ANVIL_OK;
+        for (int i = 0; i <= 64; ++i) last = l.add(true, true, self, noop_day, nullptr, why);
+        CHECK(last == ANVIL_ERROR_OUT_OF_MEMORY && l.size() == 64);
     });
 }
 
@@ -227,6 +283,20 @@ void* fake_base_get_desc(void*, void* out, void*, void* prefix, int, bool) {
 }
 void fake_slot() {}
 
+// CGameState as far as the Day end reads it: the date at +0x1DD0.
+struct FakeGameState {
+    std::uint8_t head[0x1DD0] = {};
+    std::int32_t date = 0;
+};
+static_assert(offsetof(FakeGameState, date) == 0x1DD0);
+int g_days_run = 0;
+std::function<void()> g_inside_day;  // runs inside the game's day
+void fake_daily_tick(void* game_state) {
+    ++g_days_run;
+    static_cast<FakeGameState*>(game_state)->date += 24;
+    if (g_inside_day) g_inside_day();
+}
+
 // eu4.exe's size and sections (Steam), reserved; pages are committed only
 // where the symbols of anvil-script lie.
 struct FakeEu4 {
@@ -237,7 +307,8 @@ struct FakeEu4 {
     FakeEu4() {
         base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSize, MEM_RESERVE, PAGE_NOACCESS));
         commit(0x0, PAGE_READWRITE);
-        for (uint32_t page : {0xC9000u, 0x5DE000u, 0x5E0000u, 0x5E4000u, 0x5ED000u, 0x5EF000u, 0x623000u, 0x1703000u})
+        for (uint32_t page :
+             {0xC9000u, 0x5DE000u, 0x5E0000u, 0x5E4000u, 0x5ED000u, 0x5EF000u, 0x623000u, 0x758000u, 0x1703000u})
             commit(page, PAGE_EXECUTE_READWRITE);
         commit(0x1C9E000, PAGE_READWRITE);
         write_headers();
@@ -276,6 +347,17 @@ struct FakeEu4 {
         put(0x1703550, {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x33, 0xC0, 0x48, 0xC7, 0x41, 0x18, 0x0F, 0x00, 0x00, 0x00,
                         0x48, 0x89, 0x01, 0x48, 0x8B, 0xD9, 0x88, 0x01, 0x48, 0x83, 0xC4, 0x20, 0x5B});
         jump(0x1703550 + 29, &fake_cstring);
+        // HandleDailyTick: its declared bytes, add rsp,1F8h and the eight pops, then the stand-in.
+        put(0x758430, {0x48, 0x8B, 0xC4, 0x55, 0x53, 0x56, 0x57, 0x41, 0x54, 0x41, 0x55, 0x41, 0x56, 0x41, 0x57,
+                       0x48, 0x8D, 0xA8, 0xC8, 0xFE, 0xFF, 0xFF, 0x48, 0x81, 0xEC, 0xF8, 0x01, 0x00, 0x00, 0x48,
+                       0x81, 0xC4, 0xF8, 0x01, 0x00, 0x00, 0x41, 0x5F, 0x41, 0x5E, 0x41, 0x5D, 0x41, 0x5C, 0x5F,
+                       0x5E, 0x5B, 0x5D});
+        jump(0x758430 + 48, &fake_daily_tick);
+        // The date's site inside it (not run): lea r15,[rsi+1DD0h] ... add dword [r15],18h.
+        put(0x7584C1, {0x4C, 0x8D, 0xBE, 0xD0, 0x1D, 0x00, 0x00, 0x49, 0x8B, 0xCF, 0xE8, 0x40, 0x79, 0x97, 0xFF,
+                       0x4C, 0x8D, 0x25, 0xF1, 0x20, 0x4E, 0x01, 0x83, 0xE8, 0x1F, 0x78, 0x0F, 0x49, 0x8B, 0xCC,
+                       0x90, 0x41, 0xFF, 0xC5, 0x48, 0x8D, 0x49, 0x04, 0x2B, 0x01, 0x79, 0xF5, 0x49, 0x8B, 0xCF,
+                       0xE8, 0x7D, 0x78, 0x97, 0xFF, 0x89, 0x85, 0x40, 0x01, 0x00, 0x00, 0x41, 0x83, 0x07, 0x18});
         // Code for the slots the plugin keeps: the base GetDesc and an empty function.
         jump(0x5ED100, &fake_base_get_desc);
         jump(0x5ED200, &fake_slot);
@@ -384,6 +466,12 @@ struct Recorded {
     int province = 0;
 };
 std::vector<Recorded> g_executed;
+
+struct DayCalled {
+    std::string who;
+    int year, month, day;
+    std::uint32_t flags;
+};
 std::string g_line = "Mountains ahead";
 
 void consumer_execute(void* context, const AnvilScriptCall* call) {
@@ -406,6 +494,7 @@ int main(int argc, char** argv) {
     std::setvbuf(stdout, nullptr, _IONBF, 0);  // a crash in the game's stand-ins keeps what came before
     const fs::path plugins_dir = fs::absolute(argv[1]);
     registry_tests();
+    day_end_tests();
 
     // As in the game, the image and the host outlive the plugin.
     FakeEu4& image = *new FakeEu4;
@@ -431,7 +520,7 @@ int main(int argc, char** argv) {
     CHECK(bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION, &control) == ANVIL_OK);
     AnvilPlugin* plugin = nullptr;
 
-    run("script plugin: symbols verify, it hooks ReadMember and registers its service", [&] {
+    run("script plugin: symbols verify, it hooks ReadMember and HandleDailyTick and registers its services", [&] {
         const auto dir = plugins_dir / "anvil-script";
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest && parsed.manifest->phase == Phase::Early && !parsed.manifest->affects_gameplay);
@@ -441,7 +530,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 11);
+        CHECK(reason.empty() && verified.symbols.size() == 13);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -455,7 +544,7 @@ int main(int argc, char** argv) {
         if (p->module == nullptr) return;
         const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
         const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 1 && changes.count(p->owner) == 1);
+        CHECK(outcome.result == ANVIL_OK && outcome.staged == 2 && changes.count(p->owner) == 2);
         plugin = p;
     });
     if (plugin == nullptr) {
@@ -616,6 +705,72 @@ int main(int argc, char** argv) {
         g_dtors = 0;
         reinterpret_cast<DeletingDtorFn*>(slots[0])(effect, 1);
         CHECK(g_dtors == 1);
+    });
+
+    const auto* day_end = static_cast<const AnvilScriptDayEndService*>(
+        bus.get_service(ANVIL_SCRIPT_DAY_END_SERVICE, ANVIL_SCRIPT_DAY_END_SERVICE_VERSION));
+    CHECK(day_end != nullptr && day_end->size == sizeof(AnvilScriptDayEndService));
+    if (day_end == nullptr) return 1;
+    auto* daily_tick = reinterpret_cast<void (*)(void*)>(image.address(0x758430));
+    FakeGameState& game_state = *new FakeGameState;
+    static std::vector<DayCalled> called;
+    const auto record = [](void* context, const AnvilScriptDay* d) {
+        CHECK(d->size == sizeof(AnvilScriptDay));
+        called.push_back({static_cast<const char*>(context), d->year, d->month, d->day, d->flags});
+    };
+    static char chisel_name[] = "chisel", late_name[] = "late", chisel2_name[] = "chisel2";
+
+    run("day end: gameplay plugins of any phase subscribe, in order", [&] {
+        CHECK(day_end->subscribe(reader_only, record, chisel_name) == ANVIL_ERROR_WRONG_KIND);
+        CHECK(day_end->subscribe(reinterpret_cast<AnvilPlugin*>(0x40), record, chisel_name) ==
+              ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(day_end->subscribe(chisel, nullptr, chisel_name) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(day_end->subscribe(chisel, record, chisel_name) == ANVIL_OK);
+        CHECK(day_end->subscribe(late, record, late_name) == ANVIL_OK);  // a main plugin
+        CHECK(day_end->subscribe(chisel, record, chisel2_name) == ANVIL_OK);
+        CHECK(contains(log, "anvil-script: chisel subscribed to the day end"));
+        CHECK(contains(log, "anvil-script: stats: day end refused: the plugin has affects_gameplay = false; only "
+                            "gameplay plugins run at the day end (anvil-game.day is for the others)"));
+    });
+
+    run("day end: after the game's day, once, with the date it moved to and the flags", [&] {
+        game_state.date = hours_of(1444, 12, 31);
+        called.clear();
+        g_days_run = 0;
+        AnvilResult inside = ANVIL_OK;
+        g_inside_day = [&] {
+            inside = day_end->subscribe(chisel, record, chisel_name);
+            CHECK(called.empty());  // the subscribers come after the game's day
+        };
+        daily_tick(&game_state);
+        g_inside_day = nullptr;
+        CHECK(g_days_run == 1 && inside == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(called.size() == 3);
+        if (called.size() != 3) return;
+        CHECK(called[0].who == "chisel" && called[1].who == "late" && called[2].who == "chisel2");
+        CHECK(called[0].year == 1445 && called[0].month == 1 && called[0].day == 1 &&
+              called[0].flags == (ANVIL_SCRIPT_DAY_NEW_MONTH | ANVIL_SCRIPT_DAY_NEW_YEAR));
+    });
+
+    run("day end: an ordinary day, a month's first day, a suspended owner skipped", [&] {
+        called.clear();
+        daily_tick(&game_state);
+        CHECK(called.size() == 3 && called[0].day == 2 && called[0].flags == 0);
+        game_state.date = hours_of(1445, 1, 31);
+        g_plugins[late].suspended = true;
+        called.clear();
+        daily_tick(&game_state);
+        g_plugins[late].suspended = false;
+        CHECK(called.size() == 2 && called[0].who == "chisel" && called[1].who == "chisel2");
+        if (called.size() == 2) {
+            CHECK(called[0].month == 2 && called[0].day == 1 && called[0].flags == ANVIL_SCRIPT_DAY_NEW_MONTH);
+        }
+    });
+
+    run("day end: no subscription once a day has ended", [&] {
+        CHECK(day_end->subscribe(chisel, record, chisel_name) == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(contains(log, "anvil-script: chisel: day end refused: the game has already ended a day; subscribe in "
+                            "the plugin's load"));
     });
 
     if (g_failures) {

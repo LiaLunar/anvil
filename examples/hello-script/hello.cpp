@@ -7,6 +7,9 @@
 // thread, inside the command that runs the option. Without the plugin the
 // game logs `Unknown effect type. Key: hello_script_log` and skips only that
 // line. The plugin has no symbols.toml: anvil-script knows the game.
+//
+// It also subscribes to the Day end (ADR 0009): once a day, after the game's
+// day, on the main thread, and logs the first day of each month.
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_script.h>
 
@@ -25,6 +28,14 @@ uint32_t describe(void*, const AnvilScriptCall* call, char* utf8, uint32_t capac
     return n > 0 ? static_cast<uint32_t>(n) : 0;
 }
 
+// The Day end: the game has finished the day (and the month, on the 1st).
+void day_end(void*, const AnvilScriptDay* day) noexcept {
+    if (day->flags & ANVIL_SCRIPT_DAY_NEW_MONTH) {
+        anvil::Host{}.info("day end: {}-{:02}-{:02}{}", day->year, day->month, day->day,
+                           (day->flags & ANVIL_SCRIPT_DAY_NEW_YEAR) ? ", a new year" : "");
+    }
+}
+
 struct HelloScript : anvil::Plugin {
     void load(anvil::Host& host) override {
         const auto* script =
@@ -34,6 +45,15 @@ struct HelloScript : anvil::Plugin {
         const AnvilResult r = script->register_effect(host.self(), &log);
         if (r != ANVIL_OK) throw anvil::Error(r, "register_effect hello_script_log");
         host.info("hello_script_log is a script effect now");
+
+        // anvil-script.day_end came after the effects (Anvil 1.18): optional here.
+        const auto* days =
+            host.service<AnvilScriptDayEndService>(ANVIL_SCRIPT_DAY_END_SERVICE, ANVIL_SCRIPT_DAY_END_SERVICE_VERSION);
+        if (days == nullptr) {
+            host.info("no anvil-script.day_end on this Anvil or build");
+        } else if (const AnvilResult d = days->subscribe(host.self(), day_end, nullptr); d != ANVIL_OK) {
+            throw anvil::Error(d, "subscribe to the day end");
+        }
     }
 };
 

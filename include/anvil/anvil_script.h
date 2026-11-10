@@ -28,6 +28,24 @@
  *   - Nothing of an effect is saved: what it leaves must be the game's state
  *     (a flag, a modifier) or the plugin's own.
  *
+ * The Day end (docs/adr/0009-day-end.md, docs/spec/day-end-v1.md): a second
+ * service, anvil-script.day_end, calls a gameplay plugin back once a day after
+ * the game has finished the day (with its month and year), on the main
+ * thread, when no worker thread of the day runs, before the game compares
+ * checksums.
+ *
+ *   - Who: a plugin with affects_gameplay = true (any phase), which depends on
+ *     anvil-script.
+ *   - When: subscribe before the first Day end of the process, which means in
+ *     anvil_plugin_load. Callbacks run in the order of subscription.
+ *   - Threads: the main thread, inside the game's day command; there
+ *     anvil-game.world answers ANVIL_ERROR_WRONG_PHASE. A callback must not
+ *     throw. In multiplayer every client runs the same Day ends in the same
+ *     order, so a callback must be deterministic.
+ *   - Suspension: while Anvil suspends the owner, its callback is not called.
+ *   - None in the menu, on a pause, while a save loads, or in a session before
+ *     its first day has passed.
+ *
  * Within API 2 (ADR 0001): fields are only appended behind `size`.
  */
 #ifndef ANVIL_SCRIPT_H
@@ -89,6 +107,38 @@ typedef struct AnvilScriptEffectsService {
      *   OUT_OF_MEMORY     256 keys are registered already */
     AnvilResult (*register_effect)(AnvilPlugin *self, const AnvilScriptEffect *effect);
 } AnvilScriptEffectsService;
+
+/* ---- the Day end ---------------------------------------------------------- */
+
+#define ANVIL_SCRIPT_DAY_END_SERVICE "anvil-script.day_end"
+#define ANVIL_SCRIPT_DAY_END_SERVICE_VERSION 1
+
+/* AnvilScriptDay.flags */
+#define ANVIL_SCRIPT_DAY_NEW_MONTH 0x1u /* the day is the 1st: the game ran its monthly update in it */
+#define ANVIL_SCRIPT_DAY_NEW_YEAR 0x2u  /* the day is 1 January: also its yearly update */
+
+/* The day that just ended. Valid only during the call. */
+typedef struct AnvilScriptDay {
+    uint32_t size;  /* set by the service */
+    uint32_t flags; /* ANVIL_SCRIPT_DAY_* */
+    int32_t year;   /* the date the game computed this day for: the date anvil-game.day reports after the frame */
+    int32_t month;  /* 1-12 */
+    int32_t day;    /* 1-31 */
+} AnvilScriptDay;
+
+/* Runs on the main thread at the Day end. Must not throw. */
+typedef void (*AnvilScriptDayEnd)(void *context, const AnvilScriptDay *day);
+
+typedef struct AnvilScriptDayEndService {
+    uint32_t size; /* sizeof(AnvilScriptDayEndService) as known by anvil-script */
+    /* The callback and the context must live for the process. Results, in the
+     * order they are checked:
+     *   INVALID_ARGUMENT  NULL arguments, or a caller the core does not know
+     *   WRONG_KIND        the caller has affects_gameplay = false
+     *   WRONG_PHASE       the game has already ended a day in this process
+     *   OUT_OF_MEMORY     64 subscriptions are there already */
+    AnvilResult (*subscribe)(AnvilPlugin *self, AnvilScriptDayEnd callback, void *context);
+} AnvilScriptDayEndService;
 
 #ifdef __cplusplus
 }

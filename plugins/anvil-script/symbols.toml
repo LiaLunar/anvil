@@ -1,12 +1,15 @@
-# The game code anvil-script uses, for EU4 1.37.5 (Steam and GOG 1.37.5.2,
-# win64): the start of CEffect::ReadMember, which parses every member of every
-# container effect, and what a CEffect of the plugin's needs to be built,
-# appended, described and destroyed like the game's own. Every offset is a
-# value taken from verified bytes. Sources: EU4 engine lab
+# The game code anvil-script uses, for EU4 1.37.5 (Steam, GOG 1.37.5.2 and
+# 1.37.5.0 with the same addresses, win64): the start of CEffect::ReadMember,
+# which parses every member of every container effect, and what a CEffect of
+# the plugin's needs to be built, appended, described and destroyed like the
+# game's own. Every offset is a value taken from verified bytes. Sources: EU4 engine lab
 # docs/research/script-effect-statics.md (GOG's eu4.pdb, the Steam bytes) and
 # its prototype docs/script-effect-game-test.md (eu4-engine-lab#77);
-# docs/spec/script-effects-v1.md section 7.
-builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64"]
+# docs/spec/script-effects-v1.md section 7. The Day end: CGameState::
+# HandleDailyTick and the date it advances (lab docs/research/
+# chisel-path-recompute.md, eu4-engine-lab#131; docs/spec/day-end-v1.md
+# section 7).
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64", "eu4-1.37.5.0-gog-win64"]
 
 [symbol.effect_read_member]
 # mov [rsp+8],rbx; mov [rsp+10h],rsi; push rbp; push rdi; push r12; push r14; push r15
@@ -16,6 +19,7 @@ signature = "void (void* effect, void* reader, int token)"
 note = "CEffect::ReadMember(CReader&, int): a 31.5 kB switch over the lexer's tokens; every container effect parses its members here"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5DEC50 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE720 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5DE720 }
 
 [symbol.effect_lhs_site]
 bytes = "48 8D 5E 30 48 8B CB"                       # lea rbx,[rsi+30h]; mov rcx,rbx (then CToken::GetString)
@@ -24,6 +28,7 @@ values.lhs = { at = 3, size = 1 }
 note = "ReadMember's default branch takes the key's text from CReader::_Toklhs (CToken: id at +0, text at +4)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5E4B04 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5E45D4 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5E45D4 }
 
 [symbol.effect_assign_site]
 # lea rcx,[rdi+10h]; lea rdx,[rsp+20h]; call CArray::Append; mov rcx,[rsp+20h]; mov rax,[rcx];
@@ -36,6 +41,7 @@ values.assign = { at = 31, size = 1 }
 note = "a simple effect's case in ReadMember: append to the parent's children (CEffect+0x10), Assign(CReader::_Tokrhs) through vtable slot 0x48"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5E0F43 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5E0A13 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5E0A13 }
 
 [symbol.effect_set_token]
 bytes = "89 51 28 C3"                                # mov [rcx+28h],edx; ret
@@ -44,6 +50,7 @@ values.token = { at = 2, size = 1 }
 note = "CEffect::SetToken(int): CEffect::_Token"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5EF140 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5EEC10 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5EEC10 }
 
 [symbol.effect_ctor]
 bytes = "48 89 5C 24 20 48 89 4C 24 08 57 48 83 EC 40 48 8B D9 33 C0"
@@ -52,6 +59,7 @@ signature = "void* (void* effect)"
 note = "CEffect::CEffect(): the vtable, token -1, and the effect registered in CEffectDataBase under its mutex"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5DE770 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE240 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5DE240 }
 
 [symbol.effect_vtable_site]
 memory = "code"
@@ -66,6 +74,10 @@ bytes = "48 8D 05 AA FD 6B 01 48 89 01"
 rva = 0x5DE267
 bytes = "48 8D 05 5A 90 6A 01 48 89 01"
 
+[symbol.effect_vtable_site.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x5DE267
+bytes = "48 8D 05 5A 90 6A 01 48 89 01"
+
 [symbol.effect_dtor]
 bytes = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 41 56 48 83 EC 40 4C 8B F1"
 memory = "code"
@@ -73,6 +85,7 @@ signature = "void (void* effect)"
 note = "CEffect::~CEffect(): unregisters the effect and deletes its children through slot 0; frees nothing of the effect itself"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5DE8D0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5DE3A0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5DE3A0 }
 
 [symbol.array_append]
 bytes = "4C 8B C2 48 8B 51 08 48 3B 51 10 74 0C 49 8B 00 48 89 02 48 83 41 08 08 C3"
@@ -81,6 +94,7 @@ signature = "void (void* array, void** item)"
 note = "CArray<T*>::Append, a std::vector<void*> push_back with the game's heap"
 build."eu4-1.37.5-steam-win64" = { rva = 0xC9F10 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xC9F40 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xC9F40 }
 
 [symbol.scope_province_site]
 bytes = "48 8B DA 48 8B F9 83 7A 28 00"                  # mov rbx,rdx; mov rdi,rcx; cmp dword [rdx+28h],0
@@ -89,6 +103,7 @@ values.province = { at = 8, size = 1 }
 note = "CProvinceCultureEffect::Execute+0x1F: a province effect reads the scope's own province (CEventScope+0x28); CEffect::GetScopeProvinceId answers only for ROOT, FROM and event targets"
 build."eu4-1.37.5-steam-win64" = { rva = 0x62367F }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x62314F }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x62314F }
 
 [symbol.scope_country_site]
 # movzx r8d,byte [rdx+4Bh]; mov edx,44h; mov eax,edx; mov r9d,2Ch; test r8b,r8b; cmove eax,r9d
@@ -100,6 +115,7 @@ values.tag = { at = 14, size = 4 }
 note = "CTreasuryEffect::Execute+0x25: a country effect's country is the scope's tag at +0x44 when +0x4B is set, else the tag at +0x2C (CCountryTag: text, then valid at +7)"
 build."eu4-1.37.5-steam-win64" = { rva = 0x5EFC55 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x5EF725 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5EF725 }
 
 [symbol.cstring_from_text]
 bytes = "40 53 48 83 EC 20 33 C0 48 C7 41 18 0F 00 00 00 48 89 01 48 8B D9 88 01"
@@ -108,3 +124,25 @@ signature = "void* (void* string, const char* text)"
 note = "CString::CString(const char*): the game's std::string, with the game's heap"
 build."eu4-1.37.5-steam-win64" = { rva = 0x1703550 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x16ED320 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x16ED320 }
+
+[symbol.daily_tick]
+# mov rax,rsp; push rbp; push rbx; push rsi; push rdi; push r12; push r13; push r14; push r15;
+# lea rbp,[rax-138h]; sub rsp,1F8h
+bytes = "48 8B C4 55 53 56 57 41 54 41 55 41 56 41 57 48 8D A8 C8 FE FF FF 48 81 EC F8 01 00 00"
+memory = "code"
+signature = "void (void* game_state)"
+note = "CGameState::HandleDailyTick(): the whole day; one caller, CDailyTickCommand::Execute, which after the return only logs and calls COOSHandler::MakeSyncCheck"
+build."eu4-1.37.5-steam-win64" = { rva = 0x758430 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7575F0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7575F0 }
+
+[symbol.daily_tick_date_site]
+# lea r15,[rsi+1DD0h]; mov rcx,r15; call; lea r12,[days per month]; ...; mov [rbp+140h],eax; add dword [r15],18h
+bytes = "4C 8D BE D0 1D 00 00 49 8B CF E8 ?? ?? ?? ?? 4C 8D 25 ?? ?? ?? ?? 83 E8 1F 78 0F 49 8B CC 90 41 FF C5 48 8D 49 04 2B 01 79 F5 49 8B CF E8 ?? ?? ?? ?? 89 85 40 01 00 00 41 83 07 18"
+memory = "code"
+values.date = { at = 3, size = 4 }
+note = "HandleDailyTick+0x91: the date (CGameState+0x1DD0, int32 hours) gets the day's 24 hours at the start of the day"
+build."eu4-1.37.5-steam-win64" = { rva = 0x7584C1 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x757681 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x757681 }

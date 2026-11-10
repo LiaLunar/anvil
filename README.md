@@ -71,7 +71,8 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   line.
 - And `anvil-script` (`anvil/plugins/anvil-script/`): a gameplay plugin can add
   words of its own to the game's script language, which a mod then writes in
-  its events and decisions like any other effect. By itself it changes
+  its events and decisions like any other effect, and have its work done once
+  a day right after the game's day (the Day end). By itself it changes
   nothing.
 - Each start writes `anvil/anvil.log`: what was loaded, what was skipped and why.
 - A crash writes a report to `anvil/crashes/` (the last 10 are kept): where it

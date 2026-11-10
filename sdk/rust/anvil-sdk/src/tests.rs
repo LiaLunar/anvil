@@ -9,7 +9,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::sys::*;
 use crate::{
-    commands, game, map, panel, world, Change, ErrorCode, FunctionHook, Host, Payload, Plugin, Tag,
+    commands, game, map, panel, script, world, Change, ErrorCode, FunctionHook, Host, Payload,
+    Plugin, Tag,
 };
 
 /// One test at a time: the host is global to the crate, as in a plugin DLL.
@@ -26,6 +27,7 @@ struct Recorded {
     map_infos: Vec<String>,
     describes: Vec<(usize, usize)>,
     colors: Vec<u32>,
+    day_ends: Vec<(usize, usize, usize)>, // (self, callback, context)
     commands: Vec<String>,
 }
 
@@ -122,6 +124,7 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-overlay.panel", 1) => ptr::from_ref(&*FAKE_PANEL).cast(),
         ("anvil-game.world", 1) => ptr::from_ref(&*FAKE_WORLD).cast(),
         ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
+        ("anvil-script.day_end", 1) => ptr::from_ref(&*FAKE_DAY_END).cast(),
         ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
         _ => ptr::null(),
     }
@@ -315,6 +318,31 @@ static FAKE_MAP: Shared<AnvilMapModesService> = Shared(AnvilMapModesService {
     mode_id: Some(map_mode_id),
     shown: Some(map_shown),
     id: Some(map_id),
+});
+
+// --- a fake day end service: refuses after two subscriptions ----------------------
+
+unsafe extern "C" fn day_end_subscribe(
+    plugin: *mut AnvilPlugin,
+    callback: AnvilScriptDayEnd,
+    context: *mut c_void,
+) -> AnvilResult {
+    with(|r| {
+        if r.day_ends.len() == 2 {
+            return ANVIL_ERROR_WRONG_PHASE;
+        }
+        r.day_ends.push((
+            plugin as usize,
+            callback.map_or(0, |f| f as usize),
+            context as usize,
+        ));
+        ANVIL_OK
+    })
+}
+
+static FAKE_DAY_END: Shared<AnvilScriptDayEndService> = Shared(AnvilScriptDayEndService {
+    size: std::mem::size_of::<AnvilScriptDayEndService>() as u32,
+    subscribe: Some(day_end_subscribe),
 });
 
 // --- a fake world: a province name that grows between the calls, a list ------------
@@ -874,4 +902,79 @@ fn event_and_service_names_are_the_headers() {
     ] {
         assert_eq!(ours.to_bytes_with_nul(), header);
     }
+}
+
+#[test]
+fn day_end_subscribes_with_the_plugin_and_passes_the_day() {
+    let (_guard, table) = fake_host();
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let days = script::DayEnd::get(&host).unwrap();
+    static SEEN: Mutex<Vec<script::Day>> = Mutex::new(Vec::new());
+    SEEN.lock().unwrap().clear();
+    days.subscribe(&host, |day| SEEN.lock().unwrap().push(*day))
+        .unwrap();
+    days.subscribe(&host, |day| {
+        if day.new_year {
+            panic!("a new year");
+        }
+    })
+    .unwrap();
+    assert_eq!(
+        days.subscribe(&host, |_| {}).unwrap_err().code(),
+        ErrorCode::WrongPhase
+    );
+    let subscribed = with(|r| r.day_ends.clone());
+    assert_eq!(subscribed.len(), 2);
+    assert_eq!(subscribed[0].0, SELF as usize);
+
+    let call = |index: usize, raw: &AnvilScriptDay| {
+        let (_, callback, context) = subscribed[index];
+        let callback: unsafe extern "C" fn(*mut c_void, *const AnvilScriptDay) =
+            unsafe { std::mem::transmute(callback) };
+        unsafe { callback(context as *mut c_void, raw) };
+    };
+    let new_year = AnvilScriptDay {
+        size: std::mem::size_of::<AnvilScriptDay>() as u32,
+        flags: ANVIL_SCRIPT_DAY_NEW_MONTH | ANVIL_SCRIPT_DAY_NEW_YEAR,
+        year: 1445,
+        month: 1,
+        day: 1,
+    };
+    call(0, &new_year);
+    assert_eq!(
+        *SEEN.lock().unwrap(),
+        [script::Day {
+            year: 1445,
+            month: 1,
+            day: 1,
+            new_month: true,
+            new_year: true
+        }]
+    );
+    // A panic stays in the adapter and is logged once.
+    call(1, &new_year);
+    call(1, &new_year);
+    let panics = logged()
+        .iter()
+        .filter(|l| l.starts_with("day end: the callback panicked"))
+        .count();
+    assert_eq!(panics, 1);
+    let ordinary = AnvilScriptDay {
+        flags: 0,
+        day: 2,
+        ..new_year
+    };
+    call(1, &ordinary);
+    call(0, &ordinary);
+    assert_eq!(
+        SEEN.lock().unwrap()[1],
+        script::Day {
+            year: 1445,
+            month: 1,
+            day: 2,
+            new_month: false,
+            new_year: false
+        }
+    );
 }

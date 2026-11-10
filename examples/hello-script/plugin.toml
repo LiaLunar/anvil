@@ -2,7 +2,7 @@ id = "hello-script"
 name = "Hello (script effect)"
 version = "0.1.0"
 authors = ["Happy Dwarf Team"]
-description = "Example plugin: a script effect of its own, hello_script_log = <text>, which a mod writes in an event or a decision; it logs the text and the scope and adds a tooltip line."
+description = "Example plugin: a script effect of its own, hello_script_log = <text>, which a mod writes in an event or a decision; it logs the text and the scope and adds a tooltip line. It also logs the first day of each month at the day end."
 api = 2
 entry = "hello_script.dll"
 # Early: anvil-script takes registrations only before the game parses its

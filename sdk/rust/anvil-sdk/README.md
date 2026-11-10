@@ -58,7 +58,8 @@ What it gives over the C ABI:
   (`anvil-game.game` and its events), `anvil::world` (`anvil-game.world`),
   `anvil::commands` (`anvil-game.commands`),
   `anvil::panel` (`anvil-overlay.panel`), `anvil::benchmark`
-  (`anvil.benchmark`) and `anvil::map` (`anvil-map.modes` and its events). A
+  (`anvil.benchmark`), `anvil::map` (`anvil-map.modes` and its events) and
+  `anvil::script` (`anvil-script.day_end`). A
   function a running service is too old to have answers
   `ErrorCode::Unsupported`.
 
