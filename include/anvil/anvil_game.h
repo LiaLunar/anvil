@@ -132,7 +132,7 @@ typedef struct AnvilGameService {
      * symbols. Callable from any thread. */
     uint32_t (*out_of_sync)(void);
 
-    /* Since anvil-game 1.17.0; check with ANVIL_GAME_HAS(service, keyboard). */
+    /* Since anvil-game 1.18.0; check with ANVIL_GAME_HAS(service, keyboard). */
 
     /* Whether the game's GUI takes the keyboard for itself: nonzero and *flags
      * set to ANVIL_GAME_KEYBOARD_* (0 when it does not), or 0 when this build
@@ -148,7 +148,7 @@ typedef struct AnvilGameService {
 #define ANVIL_GAME_HAS(service, field) \
     ((service)->size >= offsetof(AnvilGameService, field) + sizeof((service)->field))
 
-/* --- Since anvil-game 1.17.0: the GUI's keyboard ----------------------------
+/* --- Since anvil-game 1.18.0: the GUI's keyboard ----------------------------
  *
  * TEXT: a text field of the game has focus (chat, a save's name, the console,
  * the province finder) and gets the keys.

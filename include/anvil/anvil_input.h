@@ -4,7 +4,7 @@
  * Anvil's panel. Depend on the overlay in plugin.toml ([[dependencies]] id =
  * "anvil-overlay", optional = true for a plugin that also works without it)
  * and look the service up with get_service. It is NULL with an overlay older
- * than anvil-overlay 1.17.0.
+ * than anvil-overlay 1.18.0.
  *
  * Codes. A code is what a settings.toml setting of type "key" holds
  * (anvil::Key in C++): the Windows virtual key in the low byte, with

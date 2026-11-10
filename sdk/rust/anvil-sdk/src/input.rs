@@ -1,6 +1,6 @@
 //! `anvil-overlay.input`: keys and mouse buttons for plugins, from the game
 //! window's procedure, held back while the player types in the game or uses
-//! Anvil's panel (`anvil_input.h`, anvil-overlay 1.17.0).
+//! Anvil's panel (`anvil_input.h`, anvil-overlay 1.18.0).
 //!
 //! Depend on the overlay in plugin.toml (`[[dependencies]] id =
 //! "anvil-overlay"`, `optional = true` for a plugin that also works without
@@ -159,7 +159,7 @@ unsafe extern "C" fn press_adapter<F: Fn(Press) + Send + Sync + 'static>(
 }
 
 impl Input {
-    /// The service; `None` without the overlay or with one older than 1.17.
+    /// The service; `None` without the overlay or with one older than 1.18.
     pub fn get(host: &Host) -> Option<Self> {
         // SAFETY: the table type of anvil-overlay.input version 1.
         let table = unsafe { host.service::<AnvilInputService>(SERVICE, VERSION) }?;

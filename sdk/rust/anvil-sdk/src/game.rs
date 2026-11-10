@@ -423,7 +423,7 @@ impl Game {
     }
 
     /// Whether the game's GUI takes the keyboard for itself (anvil-game
-    /// 1.17.0), read live: ask on the main thread. `None` with an older
+    /// 1.18.0), read live: ask on the main thread. `None` with an older
     /// anvil-game or on a build that declares its symbols absent.
     pub fn keyboard(&self) -> Option<KeyboardFlags> {
         let f = function!(self.table, AnvilGameService, keyboard).ok()?;
