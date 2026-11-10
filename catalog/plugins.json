@@ -8,7 +8,7 @@
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
-      "version": "1.6.0",
+      "version": "1.7.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": false,
       "builds": [
@@ -17,9 +17,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.6.0/bellows-windows-x64.zip",
-        "size": 1424748,
-        "sha256": "c161969e2d4e6cb729da3e55a164c660827db8b622fdc62dfc5b9c268ce72f1d"
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.7.0/bellows-windows-x64.zip",
+        "size": 1427644,
+        "sha256": "4b4742efe39b84ce6124437ce4ea0b65ea84b525695c7f20f33d351789b8dad2"
       }
     },
     {
@@ -29,7 +29,7 @@
       "repo": "https://github.com/happy-dwarf-team/tongs",
       "page": "https://anvil.happydwarf.dev/plugins/tongs/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093",
-      "version": "0.30.0",
+      "version": "0.31.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": true,
       "builds": [
@@ -38,9 +38,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/tongs/releases/download/v0.30.0/tongs-windows-x64.zip",
-        "size": 645060,
-        "sha256": "b4125846d9ec642dfcc63651b3f78d9a159fb420a5c280f93d7e56db53c38717"
+        "url": "https://github.com/happy-dwarf-team/tongs/releases/download/v0.31.0/tongs-windows-x64.zip",
+        "size": 665489,
+        "sha256": "02ae26b1056837b19bad1ad2e55178c323253aa960428dae22a4da306509e942"
       }
     },
     {
