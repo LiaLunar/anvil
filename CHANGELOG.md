@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.19.0](https://github.com/happy-dwarf-team/anvil/compare/v1.18.0...v1.19.0) (2026-11-10)
+
+### Features
+
+* **api:** Rust plugins can add script effects. `anvil-sdk` 0.1.7 wraps `anvil-script.effects` as `anvil::script::Effects`: `register` and `register_with_tooltip` take a handler that gets the effect's value and the province and country it runs in, and a tooltip handler whose first line goes into the game's tooltip. A panic in a handler is logged once and the game goes on. Tested with the crate's unit tests against a stand-in service; not run in the game, since the handlers reach the same C service as the C++ example `hello-script`, which was tested in the game for Anvil 1.16. ([#310](https://github.com/happy-dwarf-team/anvil/issues/310))
+
+### Bug Fixes
+
+* **api:** a script effect's tooltip line now shows exactly what the plugin wrote, as a map mode's lines do. The game's colour sign `§`, which the game cannot escape, shows as `?` instead of being dropped with the letter after it kept (`§Yred` showed as `Yred`), `$` is no longer dropped, and text that is not valid UTF-8 is cut at the first bad byte. Line breaks still end the line. Tested with Anvil's unit tests; not seen in the game yet: whether a decision's or an event's tooltip replaces a `$…$` in a plugin's line (a map mode's tooltip shows it as written). ([#311](https://github.com/happy-dwarf-team/anvil/issues/311))
+* **api:** in `anvil-sdk`, a key binding whose key another plugin already holds is no longer lost. The new `Input::bind_or_inert` keeps it, inert, so the plugin can give it a free key later with `set_code`, for example when the player picks another key in the panel; `Input::bind` still answers `Conflict` as before. Each lost binding used to take one of the 256 a game may have. Tested with the crate's unit tests. ([#308](https://github.com/happy-dwarf-team/anvil/issues/308))
+
+Nothing changes for players without plugins that use these services. The C and C++ interface is unchanged.
+
 ## [1.18.0](https://github.com/happy-dwarf-team/anvil/compare/v1.17.0...v1.18.0) (2026-11-10)
 
 
