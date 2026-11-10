@@ -678,11 +678,16 @@ int main(int argc, char** argv) {
         reinterpret_cast<GetDescFn*>(slots[13])(effect, &out, &scope, &prefix, 0, false);
         CHECK(g_base_descs == 1 && prefix.size == 0xDEAD && out.text() == "Mountains ahead\n" &&
               (g_strings == std::vector<std::string>{"Mountains ahead\n"}));
-        // Without Mei's UTF-8: Windows-1252, the game's marks dropped; a line break ends it.
+        // Without Mei's UTF-8: Windows-1252, literal as in anvil-map ('$' stays, the
+        // colour sign becomes '?'), cut at a bad byte, one line; a line break ends it.
         g_line = "Teren: g\xC3\xB3ry \xC2\xA7Y$x$ \xE4\xB8\x80";
         g_strings.clear();
         reinterpret_cast<GetDescFn*>(slots[13])(effect, &out, &scope, &prefix, 0, false);
-        CHECK((g_strings == std::vector<std::string>{"Teren: g\xF3ry Yx ?\n"}));
+        CHECK((g_strings == std::vector<std::string>{"Teren: g\xF3ry ?Y$x$ ?\n"}));
+        g_line = "two\nlines\r and a bad byte \xFF here";
+        g_strings.clear();
+        reinterpret_cast<GetDescFn*>(slots[13])(effect, &out, &scope, &prefix, 0, false);
+        CHECK((g_strings == std::vector<std::string>{"twolines and a bad byte \n"}));
         g_line = "Mountains ahead";
     });
 

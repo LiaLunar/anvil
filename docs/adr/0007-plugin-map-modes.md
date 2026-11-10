@@ -39,7 +39,7 @@ The game paints the map and builds the province tooltip also in frames drawn ins
 
 ## Why UTF-8 and `mei.text`
 
-`anvil-game.world` already answers UTF-8. With Mei's `utf8_localization` (on by default) the game keeps and draws text in UTF-8; without Mei, in Windows-1252 [code: Mei]. The service must know which, and reading Mei's `settings.toml` would tie it to a file Mei may change. A small service of Mei, `mei.text` version 1 (`game_text_utf8()`), answers it; without that service (no Mei, or an older one) the service writes Windows-1252. Text is literal in v1: the service escapes the game's colour and key characters (`§`, `$`); colour can come later as a field appended after `size`.
+`anvil-game.world` already answers UTF-8. With Mei's `utf8_localization` (on by default) the game keeps and draws text in UTF-8; without Mei, in Windows-1252 [code: Mei]. The service must know which, and reading Mei's `settings.toml` would tie it to a file Mei may change. A small service of Mei, `mei.text` version 1 (`game_text_utf8()`), answers it; without that service (no Mei, or an older one) the service writes Windows-1252. Text is literal in v1: the service escapes the game's colour and key characters (`§`, `$`); colour can come later as a field appended after `size`. (As built and seen in the game, [map-modes-v1 §7](../spec/map-modes-v1.md#7-text): `$` needs nothing, and `§`, which the game cannot escape, becomes `?`; `anvil-script` follows the same rule, anvil#305.)
 
 ## Considered options
 

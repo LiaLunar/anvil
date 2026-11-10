@@ -26,6 +26,7 @@
 #include "anvil_control.h"
 #include "day_end.hpp"
 #include "registry.hpp"
+#include "text.hpp"
 #include "symbols.gen.hpp"
 
 #include <algorithm>
@@ -166,29 +167,16 @@ bool game_text_is_utf8() {
     return mei != nullptr && mei->size >= sizeof(MeiText) && mei->game_text_utf8 != nullptr && mei->game_text_utf8() != 0;
 }
 
-// ADR 0007's rule: UTF-8 when Mei says the game keeps UTF-8, Windows-1252
-// with '?' otherwise; the game's colour and variable marks ('§', '$') and line
-// breaks are dropped.
+// ADR 0007's rule, as anvil-map applies it (docs/spec/map-modes-v1.md section 7):
+// UTF-8 when Mei says the game keeps UTF-8, Windows-1252 with '?' otherwise,
+// cut at the first byte that is not UTF-8; text is literal, so '$' stays and
+// the game's colour sign U+00A7, which has no escape, becomes '?'. A describe
+// line is one line: line breaks are dropped (the service adds the one the
+// game's lines end with).
 std::string game_text(const char* utf8) {
-    std::string kept;
-    for (const char* p = utf8; *p; ++p) {
-        const auto c = static_cast<unsigned char>(*p);
-        if (c == '$' || c == '\n' || c == '\r') continue;
-        if (c == 0xC2 && static_cast<unsigned char>(p[1]) == 0xA7) {  // U+00A7 in UTF-8
-            ++p;
-            continue;
-        }
-        kept.push_back(*p);
-    }
-    if (game_text_is_utf8()) return kept;
-    const int wide = MultiByteToWideChar(CP_UTF8, 0, kept.data(), static_cast<int>(kept.size()), nullptr, 0);
-    if (wide <= 0) return {};
-    std::wstring w(static_cast<std::size_t>(wide), L'\0');
-    MultiByteToWideChar(CP_UTF8, 0, kept.data(), static_cast<int>(kept.size()), w.data(), wide);
-    const int bytes = WideCharToMultiByte(1252, 0, w.data(), wide, nullptr, 0, "?", nullptr);
-    std::string out(static_cast<std::size_t>(std::max(bytes, 0)), '\0');
-    if (bytes > 0) WideCharToMultiByte(1252, 0, w.data(), wide, out.data(), bytes, "?", nullptr);
-    return out;
+    std::string text = anvil_map::game_text(utf8, game_text_is_utf8());
+    text.erase(std::remove(text.begin(), text.end(), '\n'), text.end());
+    return text;
 }
 
 void* get_desc(void* self, void* out, void* scope, void* prefix, int indent, bool flag) noexcept {
