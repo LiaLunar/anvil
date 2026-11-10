@@ -180,9 +180,31 @@ impl Input {
     }
 
     /// Binds `code` (`Key(0)` for none yet). A code another binding holds is
-    /// [`ErrorCode::Conflict`]; bind again with a free code. 256 bindings a
-    /// process.
+    /// [`ErrorCode::Conflict`], and the overlay's inert binding is dropped:
+    /// use [`Input::bind_or_inert`] to keep it and give it a free code later.
+    /// 256 bindings a process, a dropped one included.
     pub fn bind<F>(&self, code: Key, flags: BindFlags, handler: F) -> Result<Binding>
+    where
+        F: Fn(Press) + Send + Sync + 'static,
+    {
+        match self.bind_or_inert(code, flags, handler)? {
+            (binding, None) => Ok(binding),
+            (_, Some(conflict)) => Err(conflict),
+        }
+    }
+
+    /// Binds `code` as [`Input::bind`] does, but keeps the binding when
+    /// another one holds the code, as the C API does: it is inert (code 0)
+    /// until [`Binding::set_code`] gives it a free one, such as from the key
+    /// setting's callback once the player picks another key. The error is
+    /// `Some` with [`ErrorCode::Conflict`] for such a binding, `None` when the
+    /// binding holds `code`. Other errors make no binding.
+    pub fn bind_or_inert<F>(
+        &self,
+        code: Key,
+        flags: BindFlags,
+        handler: F,
+    ) -> Result<(Binding, Option<Error>)>
     where
         F: Fn(Press) + Send + Sync + 'static,
     {
@@ -203,13 +225,23 @@ impl Input {
                 &mut raw,
             )
         };
-        check(result, || format!("input bind {:#x}", code.0))?;
-        let raw = NonNull::new(raw)
-            .ok_or_else(|| Error::new(ErrorCode::Internal, "input bind: no binding"))?;
-        Ok(Binding {
-            table: self.table,
-            raw,
-        })
+        let conflict = match check(result, || format!("input bind {:#x}", code.0)) {
+            Ok(()) => None,
+            Err(error) if error.code() == ErrorCode::Conflict => Some(error),
+            Err(error) => return Err(error),
+        };
+        let Some(raw) = NonNull::new(raw) else {
+            // A conflict without the binding the header promises: nothing to keep.
+            return Err(conflict
+                .unwrap_or_else(|| Error::new(ErrorCode::Internal, "input bind: no binding")));
+        };
+        Ok((
+            Binding {
+                table: self.table,
+                raw,
+            },
+            conflict,
+        ))
     }
 
     /// Whether the code's key is down with at least its modifiers, and not

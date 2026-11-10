@@ -142,6 +142,8 @@ unsafe extern "C" fn input_bind(
     out: *mut *mut AnvilInputBinding,
 ) -> AnvilResult {
     if code == 0x77 {
+        // As the overlay does: the inert binding, with the conflict.
+        unsafe { *out = 0x98 as *mut AnvilInputBinding };
         return ANVIL_ERROR_CONFLICT;
     }
     let handler = handler.map_or(0, |f| f as usize);
@@ -758,6 +760,12 @@ fn input_binds_and_delivers_presses_through_its_adapter() {
         i.bind(crate::Key(0x77), flags, |_| {}).unwrap_err().code(),
         ErrorCode::Conflict
     );
+    let (inert, conflict) = i.bind_or_inert(crate::Key(0x77), flags, |_| {}).unwrap();
+    assert_eq!(inert.as_raw() as usize, 0x98);
+    assert_eq!(conflict.unwrap().code(), ErrorCode::Conflict);
+    let (held, conflict) = i.bind_or_inert(crate::Key(0x24C), flags, |_| {}).unwrap();
+    assert_eq!(held.as_raw() as usize, 0x99);
+    assert!(conflict.is_none());
     let (code, raw_flags, handler, context) = with(|r| r.bindings[0]);
     assert_eq!((code, raw_flags), (0x24B, ANVIL_INPUT_CONSUME));
     let handler: unsafe extern "C" fn(*mut c_void, *const AnvilInputEvent) =
