@@ -204,6 +204,39 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x7E04AC }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DF81C }        # CGameSpeed::Pause
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x7DF81C }
 
+# --- the keyboard of the game's GUI ---
+# Read on a key press, never written. A focused text field stores its text
+# receiver in the GUI, and the shortcut editor takes every key while it has
+# listeners. A port may declare both absent. Bytes matched between GOG and Steam.
+
+[symbol.gui_text_receiver]
+memory = "code"
+values.gui = { at = 3, rip_relative = 7 }
+values.receiver = { at = 19, size = 4 }
+note = "a text field losing focus: the GUI's global and its current text receiver, null while no text field has focus"
+
+[symbol.gui_text_receiver.build."eu4-1.37.5-steam-win64"]
+rva = 0x15354A1
+bytes = "48 8B 1D 48 40 E1 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"   # mov rbx,[rip+]; add rdi,1D0h; je; cmp rdi,[rbx+210h]
+
+[symbol.gui_text_receiver.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x152C3A1                                    # CEditBox::RemoveFocus
+bytes = "48 8B 1D C8 0F E0 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"   # mov rbx,[rip+]; add rdi,1D0h; je; cmp rdi,[rbx+210h]
+
+[symbol.gui_text_receiver.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x152C3A1
+bytes = "48 8B 1D C8 0F E0 00 48 81 C7 D0 01 00 00 74 09 48 3B BB 10 02 00 00"
+
+[symbol.gui_shortcut_pick]
+bytes = "80 BE 30 02 00 00 00 74 4D 48 83 BE 48 02 00 00 00 74 43"   # cmp byte [rsi+230h],0; je; cmp qword [rsi+248h],0; je
+memory = "code"
+values.enabled = { at = 2, size = 4 }
+values.listeners = { at = 12, size = 4 }
+note = "a key event in the GUI: while the shortcut editor is on and has listeners (the size of their set), every key goes to it"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14EA1E0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14E3D50 }        # CGui::HandleKeyEvent
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14E3D50 }
+
 # --- the main menu ---
 # Outside a game the root's session (root+0x1E00) is the front end, whose state
 # machine shows the main menu in state 0 (the nation selection is state 3).

@@ -3,6 +3,7 @@
 #include <anvil/anvil_plugin.h>
 #include <anvil/anvil_game.h>
 #include <anvil/anvil_panel.h>
+#include <anvil/anvil_input.h>
 #include <anvil/anvil_benchmark.h>
 #include <anvil/anvil_map.h>
 #include <anvil/anvil_script.h>

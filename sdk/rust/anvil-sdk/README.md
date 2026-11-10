@@ -57,7 +57,8 @@ What it gives over the C ABI:
 - Typed wrappers for the services Anvil ships: `anvil::game`
   (`anvil-game.game` and its events), `anvil::world` (`anvil-game.world`),
   `anvil::commands` (`anvil-game.commands`),
-  `anvil::panel` (`anvil-overlay.panel`), `anvil::benchmark`
+  `anvil::panel` (`anvil-overlay.panel`), `anvil::input`
+  (`anvil-overlay.input`), `anvil::benchmark`
   (`anvil.benchmark`), `anvil::map` (`anvil-map.modes` and its events) and
   `anvil::script` (`anvil-script.day_end`). A
   function a running service is too old to have answers

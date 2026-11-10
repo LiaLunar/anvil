@@ -84,6 +84,10 @@ struct Layout {
     std::uint32_t oos_handler = 0;       // session+: the out-of-sync handler, may be null
     std::uint32_t oos_flag = 0;          // handler+: byte, a checksum mismatch
     std::uint32_t oos_paused = 0;        // speed object+: byte, paused because of that
+    const std::uintptr_t* gui = nullptr;  // the GUI's global; null when these symbols are absent
+    std::uint32_t gui_text_receiver = 0;  // gui+: the focused text field's receiver, may be null
+    std::uint32_t gui_shortcut_on = 0;    // gui+: byte, the shortcut editor is on
+    std::uint32_t gui_shortcut_listeners = 0;  // gui+: qword, the size of its set of listeners
 };
 
 Layout g_layout;
@@ -433,9 +437,35 @@ int service_main_menu() {
 
 std::uint32_t service_out_of_sync() { return g_oos_flags.load(std::memory_order_acquire); }
 
+// No objects with destructors: the body runs under __try.
+std::uint32_t read_keyboard_unguarded() {
+    const std::uintptr_t gui = *g_layout.gui;
+    if (gui == 0) return 0;
+    std::uint32_t flags = 0;
+    if (*reinterpret_cast<const std::uintptr_t*>(gui + g_layout.gui_text_receiver) != 0) flags |= ANVIL_GAME_KEYBOARD_TEXT;
+    if (*reinterpret_cast<const std::uint8_t*>(gui + g_layout.gui_shortcut_on) != 0 &&
+        *reinterpret_cast<const std::uint64_t*>(gui + g_layout.gui_shortcut_listeners) != 0) {
+        flags |= ANVIL_GAME_KEYBOARD_SHORTCUT;
+    }
+    return flags;
+}
+
+int service_keyboard(std::uint32_t* out) {
+    if (g_layout.gui == nullptr) return 0;
+    std::uint32_t flags = 0;
+    __try {
+        flags = read_keyboard_unguarded();
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        flags = 0;
+    }
+    if (out != nullptr) *out = flags;
+    return 1;
+}
+
 constexpr AnvilGameService kService = {
     sizeof(AnvilGameService), service_ready, service_main_thread_id, service_frame_number, service_run_on_main_thread,
-    service_session,          service_date,  service_main_menu,    service_out_of_sync,
+    service_session,          service_date,  service_main_menu,    service_out_of_sync,  service_keyboard,
 };
 
 // ---- the world service ------------------------------------------------------
@@ -1197,6 +1227,16 @@ struct AnvilGame : anvil::Plugin {
             g_layout.oos = true;
         } else {
             host.info("the out-of-sync symbols are absent on this build: out_of_sync() stays 0");
+        }
+        // Likewise for the GUI's keyboard: keyboard() then answers 0.
+        if (host.present(sym::gui_text_receiver) && host.present(sym::gui_shortcut_pick)) {
+            g_layout.gui = reinterpret_cast<const std::uintptr_t*>(host.game().image_base + host.value(sym::gui_text_receiver, "gui"));
+            g_layout.gui_text_receiver = static_cast<std::uint32_t>(host.value(sym::gui_text_receiver, "receiver"));
+            g_layout.gui_shortcut_on = static_cast<std::uint32_t>(host.value(sym::gui_shortcut_pick, "enabled"));
+            g_layout.gui_shortcut_listeners =
+                static_cast<std::uint32_t>(host.value(sym::gui_shortcut_pick, "listeners"));
+        } else {
+            host.info("the GUI's keyboard symbols are absent on this build: keyboard() answers 0");
         }
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);

@@ -374,11 +374,11 @@ if(ANVIL_BUILD_TESTS)
     add_dependencies(anvil_game_plugin_tests anvil_game)
     add_test(NAME anvil_game_plugin_tests COMMAND anvil_game_plugin_tests ${CMAKE_BINARY_DIR}/plugin)
 
-    # anvil-overlay's notices, its release check and key matching, and anvil check on its folder
-    # (tests/overlay_tests.cpp).
+    # anvil-overlay's notices, its release check, key matching and input bindings, and anvil
+    # check on its folder (tests/overlay_tests.cpp).
     add_executable(anvil_overlay_tests tests/overlay_tests.cpp plugins/anvil-overlay/src/notices.cpp
         plugins/anvil-overlay/src/control_client.cpp plugins/anvil-overlay/src/panels.cpp
-        plugins/anvil-overlay/src/release.cpp)
+        plugins/anvil-overlay/src/release.cpp plugins/anvil-overlay/src/input.cpp)
     target_include_directories(anvil_overlay_tests PRIVATE src/control)
     target_link_libraries(anvil_overlay_tests PRIVATE anvil_loader anvil_i18n anvil_net)
     add_test(NAME anvil_overlay_tests COMMAND anvil_overlay_tests)
@@ -510,7 +510,7 @@ install(TARGETS anvil_manager RUNTIME DESTINATION . COMPONENT manager)
 include(CMakePackageConfigHelpers)
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/sdk/AnvilPluginConfigVersion.cmake
     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
-install(FILES include/anvil/anvil_plugin.h include/anvil/anvil_panel.h include/anvil/anvil.hpp include/anvil/anvil_symbols.hpp
+install(FILES include/anvil/anvil_plugin.h include/anvil/anvil_panel.h include/anvil/anvil_input.h include/anvil/anvil.hpp include/anvil/anvil_symbols.hpp
     include/anvil/anvil_game.h include/anvil/anvil_map.h include/anvil/anvil_script.h
     include/anvil/anvil_benchmark.h include/anvil/anvil_benchmark.hpp
     DESTINATION include/anvil COMPONENT sdk)

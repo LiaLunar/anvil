@@ -3,7 +3,7 @@
 Raw Rust bindings to the plugin API 2 of [Anvil](https://github.com/happy-dwarf-team/anvil),
 the native plugin loader for Europa Universalis IV 1.37.5 (`include/anvil/anvil_plugin.h`),
 and to the services Anvil ships: `anvil-game.game` and `anvil-game.world`
-(`anvil_game.h`), `anvil-overlay.panel` (`anvil_panel.h`) and `anvil.benchmark`
+(`anvil_game.h`), `anvil-overlay.panel` (`anvil_panel.h`), `anvil-overlay.input` (`anvil_input.h`) and `anvil.benchmark`
 (`anvil_benchmark.h`). `no_std`, no dependencies.
 
 Most plugins want the safe crate on top of it,

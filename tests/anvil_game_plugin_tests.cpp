@@ -1108,7 +1108,7 @@ int main(int argc, char** argv) {
         bool world = false;
         for (const Symbol& s : symbols.file->symbols) {
             world = world || s.name == "province_count";
-            if (!world) continue;
+            if (!world && !s.name.starts_with("gui_")) continue;
             for (uint32_t page = *s.rva & ~0xFFFu; page < *s.rva + s.bytes.size(); page += 0x1000) {
                 image.commit(page, PAGE_EXECUTE_READWRITE);
             }
@@ -1119,7 +1119,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 77);
+        CHECK(reason.empty() && verified.symbols.size() == 79);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -1459,6 +1459,36 @@ int main(int argc, char** argv) {
         game.set_session(game.session);
         frame(game.app, 1);
         CHECK(service->session(nullptr) == 1 && service->out_of_sync() == 0);
+    });
+
+    run("anvil-game: the GUI's keyboard from its text receiver and the shortcut editor", [&] {
+        CHECK(ANVIL_GAME_HAS(service, keyboard));
+        if (!ANVIL_GAME_HAS(service, keyboard)) return;
+        // CGui's global, from the bytes of gui_text_receiver on Steam.
+        constexpr uint32_t kGui = 0x23494F0;
+        image.commit(kGui & ~0xFFFu, PAGE_READWRITE);
+        uint32_t flags = 0xFF;
+        image.put_pointer(kGui, 0);
+        CHECK(service->keyboard(&flags) == 1 && flags == 0);
+        alignas(16) static uint8_t gui[0x278] = {};
+        image.put_pointer(kGui, reinterpret_cast<uintptr_t>(gui));
+        CHECK(service->keyboard(&flags) == 1 && flags == 0 && service->keyboard(nullptr) == 1);
+        const uintptr_t receiver = reinterpret_cast<uintptr_t>(gui + 0x100);
+        std::memcpy(gui + 0x210, &receiver, sizeof(receiver));
+        CHECK(service->keyboard(&flags) == 1 && flags == ANVIL_GAME_KEYBOARD_TEXT);
+        // The shortcut editor on, but with no listener yet, takes nothing.
+        gui[0x230] = 1;
+        CHECK(service->keyboard(&flags) == 1 && flags == ANVIL_GAME_KEYBOARD_TEXT);
+        const uint64_t listeners = 1;
+        std::memcpy(gui + 0x248, &listeners, sizeof(listeners));
+        CHECK(service->keyboard(&flags) == 1 && flags == (ANVIL_GAME_KEYBOARD_TEXT | ANVIL_GAME_KEYBOARD_SHORTCUT));
+        std::memset(gui + 0x210, 0, sizeof(receiver));
+        gui[0x230] = 0;
+        CHECK(service->keyboard(&flags) == 1 && flags == 0);
+        // A pointer to nowhere is caught.
+        image.put_pointer(kGui, 0x10);
+        CHECK(service->keyboard(&flags) == 1 && flags == 0);
+        image.put_pointer(kGui, 0);
     });
 
     run("anvil-game: only anvil-game publishes its events", [&] {

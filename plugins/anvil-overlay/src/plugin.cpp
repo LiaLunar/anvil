@@ -16,13 +16,16 @@
 // in the main menu), the EndScene hook only passes on.
 #include <anvil/anvil.hpp>
 #include <anvil/anvil_game.h>
+#include <anvil/anvil_input.h>
 
 #include "i18n/cjk_font.hpp"
+#include "input.hpp"
 #include "notices.hpp"
 #include "overlay.hpp"
 #include "settings.gen.hpp"
 
 #include <windows.h>
+#include <windowsx.h>
 #include <d3d9.h>
 
 #include <algorithm>
@@ -133,9 +136,148 @@ bool is_key_message(UINT m) {
            m == WM_SYSCHAR || m == WM_DEADCHAR || m == WM_UNICHAR;
 }
 
+// ---- anvil-overlay.input -------------------------------------------------------
+
+overlay::InputRouter g_input;
+std::mutex g_input_mutex;
+std::vector<overlay::InputMatch> g_input_queue;  // presses waiting for the main thread
+
+bool modifier_held(int vk) { return g_input.down(static_cast<unsigned>(vk)) || held(vk); }
+
+std::uint32_t input_state() {
+    const overlay::Shared& s = shared();
+    std::uint32_t flags = 0;
+    if (s.panel_open.load(std::memory_order_acquire)) flags |= ANVIL_INPUT_OVERLAY_PANEL;
+    if (s.visible.load(std::memory_order_acquire)) {
+        if (s.want_keyboard.load(std::memory_order_acquire) || s.want_text.load(std::memory_order_acquire)) {
+            flags |= ANVIL_INPUT_OVERLAY_KEYBOARD;
+        }
+        if (s.want_mouse.load(std::memory_order_acquire)) flags |= ANVIL_INPUT_OVERLAY_MOUSE;
+    }
+    const AnvilGameService* game = s.game_work;
+    std::uint32_t keyboard = 0;
+    if (game == nullptr || !ANVIL_GAME_HAS(game, keyboard) || game->keyboard(&keyboard) == 0) {
+        flags |= ANVIL_INPUT_GAME_UNKNOWN;
+    } else {
+        if ((keyboard & ANVIL_GAME_KEYBOARD_TEXT) != 0) flags |= ANVIL_INPUT_GAME_TEXT;
+        if ((keyboard & ANVIL_GAME_KEYBOARD_SHORTCUT) != 0) flags |= ANVIL_INPUT_GAME_SHORTCUT;
+    }
+    return flags;
+}
+
+// On the main thread after a frame: the handlers of the queued presses.
+void deliver_input(void*) {
+    std::vector<overlay::InputMatch> queue;
+    {
+        std::lock_guard lock(g_input_mutex);
+        queue.swap(g_input_queue);
+    }
+    for (const auto& match : queue) {
+        AnvilInputHandler handler = nullptr;
+        void* context = nullptr;
+        if (g_input.handler_of(match, handler, context)) handler(context, &match.event);
+    }
+}
+
+void queue_input(const overlay::InputMatch& match) {
+    const AnvilGameService* game = shared().game_work;
+    if (game == nullptr) return;
+    try {
+        std::lock_guard lock(g_input_mutex);
+        const bool first = g_input_queue.empty();
+        if (g_input_queue.size() >= 256) return;  // the main thread has not run for a while
+        g_input_queue.push_back(match);
+        if (first && game->run_on_main_thread(deliver_input, nullptr) != ANVIL_OK) g_input_queue.clear();
+    } catch (const std::bad_alloc&) {
+    }
+}
+
+unsigned button_of(UINT m, WPARAM wparam) {
+    switch (m) {
+    case WM_LBUTTONDOWN: case WM_LBUTTONDBLCLK: case WM_LBUTTONUP: return VK_LBUTTON;
+    case WM_RBUTTONDOWN: case WM_RBUTTONDBLCLK: case WM_RBUTTONUP: return VK_RBUTTON;
+    case WM_MBUTTONDOWN: case WM_MBUTTONDBLCLK: case WM_MBUTTONUP: return VK_MBUTTON;
+    case WM_XBUTTONDOWN: case WM_XBUTTONDBLCLK: case WM_XBUTTONUP:
+        return GET_XBUTTON_WPARAM(wparam) == XBUTTON2 ? VK_XBUTTON2 : VK_XBUTTON1;
+    default: return 0;
+    }
+}
+bool is_button_down(UINT m) {
+    return m == WM_LBUTTONDOWN || m == WM_LBUTTONDBLCLK || m == WM_RBUTTONDOWN || m == WM_RBUTTONDBLCLK ||
+           m == WM_MBUTTONDOWN || m == WM_MBUTTONDBLCLK || m == WM_XBUTTONDOWN || m == WM_XBUTTONDBLCLK;
+}
+
+// The keys and buttons held down, from every message the window gets.
+void track_input(UINT message, WPARAM wparam) {
+    switch (message) {
+    case WM_KEYDOWN: case WM_SYSKEYDOWN: g_input.key(static_cast<unsigned>(wparam), true); break;
+    case WM_KEYUP: case WM_SYSKEYUP: g_input.key(static_cast<unsigned>(wparam), false); break;
+    case WM_KILLFOCUS: g_input.release_all(); break;
+    case WM_ACTIVATEAPP:
+        if (wparam == FALSE) g_input.release_all();
+        break;
+    default:
+        if (const unsigned button = button_of(message, wparam)) g_input.key(button, is_button_down(message));
+        break;
+    }
+}
+
+// A key or button press against the plugins' bindings: true when a binding
+// consumes it, so the game does not see it.
+bool route_input(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
+    overlay::InputPress press;
+    if (message == WM_KEYDOWN || message == WM_SYSKEYDOWN) {
+        press.vk = static_cast<unsigned>(wparam);
+        press.repeat = (lparam & (1 << 30)) != 0;
+        POINT cursor{};
+        if (GetCursorPos(&cursor) && ScreenToClient(window, &cursor)) {
+            press.x = cursor.x;
+            press.y = cursor.y;
+        }
+        press.shift = modifier_held(VK_SHIFT);
+        press.ctrl = modifier_held(VK_CONTROL);
+    } else if (is_button_down(message)) {
+        press.vk = button_of(message, wparam);
+        press.x = GET_X_LPARAM(lparam);
+        press.y = GET_Y_LPARAM(lparam);
+        press.shift = (wparam & MK_SHIFT) != 0 || g_input.down(VK_SHIFT);
+        press.ctrl = (wparam & MK_CONTROL) != 0 || g_input.down(VK_CONTROL);
+    } else {
+        return false;
+    }
+    press.alt = modifier_held(VK_MENU);
+    const AnvilGameService* game = shared().game_work;
+    const auto match = g_input.press(press, input_state(), game != nullptr ? game->frame_number() : 0);
+    if (!match) return false;
+    if (match->deliver) queue_input(*match);
+    return match->consume;
+}
+
+std::uint32_t input_service_state() { return input_state(); }
+AnvilResult input_bind(std::int64_t code, std::uint32_t flags, AnvilInputHandler handler, void* context,
+                       AnvilInputBinding** out) {
+    if (shared().game_work == nullptr) return ANVIL_ERROR_UNSUPPORTED;
+    try {
+        return g_input.bind(code, flags, handler, context, shared().panel_key.load(), out);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+AnvilResult input_set_code(AnvilInputBinding* binding, std::int64_t code) {
+    return g_input.set_code(binding, code, shared().panel_key.load());
+}
+AnvilResult input_unbind(AnvilInputBinding* binding) { return g_input.unbind(binding); }
+int input_held(std::int64_t code) {
+    return g_input.held(code, input_state(), held(VK_SHIFT), held(VK_CONTROL), held(VK_MENU));
+}
+
+constexpr AnvilInputService kInputService = {sizeof(AnvilInputService), input_service_state, input_bind,
+                                             input_set_code,            input_unbind,        input_held};
+
 LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     WNDPROC original = original_of(window);
     overlay::Shared& s = shared();
+    track_input(message, wparam);
     const bool key_down = message == WM_KEYDOWN || message == WM_SYSKEYDOWN;
     if (key_down) {
         const auto vk = static_cast<unsigned>(wparam);
@@ -165,6 +307,7 @@ LRESULT CALLBACK window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lp
         }
         if (vk == 'V' && held(VK_CONTROL) && s.want_text.load()) overlay::ui_capture_clipboard();
     }
+    if (route_input(window, message, wparam, lparam)) return 0;
     if (s.visible.load(std::memory_order_acquire)) {
         if (is_mouse_message(message) || is_key_message(message) || message == WM_SETFOCUS ||
             message == WM_KILLFOCUS || message == WM_INPUTLANGCHANGE) {
@@ -469,6 +612,7 @@ struct AnvilOverlay : anvil::Plugin {
         s.uses_game_plugin.store(game != nullptr);
         s.game_work = game;
         host.register_service(ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION, kPanelService);
+        host.register_service(ANVIL_INPUT_SERVICE, ANVIL_INPUT_SERVICE_VERSION, kInputService);
         if (game != nullptr) {
             host.subscribe(ANVIL_GAME_EVENT_READY, [] { on_game_ready(); });
             host.subscribe(ANVIL_GAME_EVENT_SESSION, [] {

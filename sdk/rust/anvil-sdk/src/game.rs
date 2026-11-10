@@ -121,6 +121,26 @@ impl OosFlags {
     }
 }
 
+/// What of the game's GUI takes the keyboard (`ANVIL_GAME_KEYBOARD_*`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct KeyboardFlags(pub u32);
+
+impl KeyboardFlags {
+    /// A text field of the game has focus.
+    pub const TEXT: u32 = crate::sys::ANVIL_GAME_KEYBOARD_TEXT;
+    /// The shortcut editor waits for a key.
+    pub const SHORTCUT: u32 = crate::sys::ANVIL_GAME_KEYBOARD_SHORTCUT;
+
+    /// Whether a text field has focus.
+    pub const fn text(self) -> bool {
+        self.0 & Self::TEXT != 0
+    }
+    /// Whether the shortcut editor waits.
+    pub const fn shortcut(self) -> bool {
+        self.0 & Self::SHORTCUT != 0
+    }
+}
+
 /// `anvil-game.oos`'s payload.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OosChange {
@@ -400,5 +420,15 @@ impl Game {
         function!(self.table, AnvilGameService, out_of_sync)
             .ok()
             .map(|f| OosFlags(unsafe { f() }))
+    }
+
+    /// Whether the game's GUI takes the keyboard for itself (anvil-game
+    /// 1.17.0), read live: ask on the main thread. `None` with an older
+    /// anvil-game or on a build that declares its symbols absent.
+    pub fn keyboard(&self) -> Option<KeyboardFlags> {
+        let f = function!(self.table, AnvilGameService, keyboard).ok()?;
+        let mut flags = 0u32;
+        // SAFETY: the service's function with a valid out pointer.
+        (unsafe { f(&mut flags) } != 0).then_some(KeyboardFlags(flags))
     }
 }

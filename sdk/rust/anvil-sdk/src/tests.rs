@@ -9,8 +9,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::sys::*;
 use crate::{
-    commands, game, map, panel, script, world, Change, ErrorCode, FunctionHook, Host, Payload,
-    Plugin, Tag,
+    commands, game, input, map, panel, script, world, Change, ErrorCode, FunctionHook, Host,
+    Payload, Plugin, Tag,
 };
 
 /// One test at a time: the host is global to the crate, as in a plugin DLL.
@@ -27,7 +27,8 @@ struct Recorded {
     map_infos: Vec<String>,
     describes: Vec<(usize, usize)>,
     colors: Vec<u32>,
-    day_ends: Vec<(usize, usize, usize)>, // (self, callback, context)
+    bindings: Vec<(i64, u32, usize, usize)>, // code, flags, handler, context
+    day_ends: Vec<(usize, usize, usize)>,    // (self, callback, context)
     commands: Vec<String>,
 }
 
@@ -124,11 +125,43 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-overlay.panel", 1) => ptr::from_ref(&*FAKE_PANEL).cast(),
         ("anvil-game.world", 1) => ptr::from_ref(&*FAKE_WORLD).cast(),
         ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
+        ("anvil-overlay.input", 1) => ptr::from_ref(&*FAKE_INPUT).cast(),
         ("anvil-script.day_end", 1) => ptr::from_ref(&*FAKE_DAY_END).cast(),
         ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
         _ => ptr::null(),
     }
 }
+
+// --- a fake input service ------------------------------------------------------
+
+unsafe extern "C" fn input_bind(
+    code: i64,
+    flags: u32,
+    handler: AnvilInputHandler,
+    context: *mut c_void,
+    out: *mut *mut AnvilInputBinding,
+) -> AnvilResult {
+    if code == 0x77 {
+        return ANVIL_ERROR_CONFLICT;
+    }
+    let handler = handler.map_or(0, |f| f as usize);
+    with(|r| r.bindings.push((code, flags, handler, context as usize)));
+    unsafe { *out = 0x99 as *mut AnvilInputBinding };
+    ANVIL_OK
+}
+
+unsafe extern "C" fn input_held(code: i64) -> core::ffi::c_int {
+    core::ffi::c_int::from(code == 0x241)
+}
+
+static FAKE_INPUT: Shared<AnvilInputService> = Shared({
+    // SAFETY: a table of Option<fn>: all zero is all None.
+    let mut table: AnvilInputService = unsafe { std::mem::zeroed() };
+    table.size = std::mem::size_of::<AnvilInputService>() as u32;
+    table.bind = Some(input_bind);
+    table.held = Some(input_held);
+    table
+});
 
 // --- a fake commands service ----------------------------------------------------
 
@@ -705,6 +738,57 @@ fn world_reads_grow_their_buffers_and_old_services_answer_unsupported() {
 }
 
 #[test]
+fn input_binds_and_delivers_presses_through_its_adapter() {
+    let (_guard, table) = fake_host();
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let i = input::Input::get(&host).unwrap();
+    static PRESSES: Mutex<Vec<input::Press>> = Mutex::new(Vec::new());
+    let flags = input::BindFlags {
+        consume: true,
+        repeat: false,
+    };
+    let binding = i
+        .bind(crate::Key(0x24B), flags, |press| {
+            PRESSES.lock().unwrap().push(press)
+        })
+        .unwrap();
+    assert_eq!(binding.as_raw() as usize, 0x99);
+    assert_eq!(
+        i.bind(crate::Key(0x77), flags, |_| {}).unwrap_err().code(),
+        ErrorCode::Conflict
+    );
+    let (code, raw_flags, handler, context) = with(|r| r.bindings[0]);
+    assert_eq!((code, raw_flags), (0x24B, ANVIL_INPUT_CONSUME));
+    let handler: unsafe extern "C" fn(*mut c_void, *const AnvilInputEvent) =
+        unsafe { std::mem::transmute(handler) };
+    let event = AnvilInputEvent {
+        size: std::mem::size_of::<AnvilInputEvent>() as u32,
+        flags: ANVIL_INPUT_EVENT_REPEAT,
+        code: 0x24B,
+        x: 10,
+        y: 20,
+        frame: 7,
+    };
+    unsafe { handler(context as *mut c_void, &event) };
+    let presses = PRESSES.lock().unwrap().clone();
+    assert_eq!(
+        presses,
+        [input::Press {
+            code: crate::Key(0x24B),
+            repeat: true,
+            x: 10,
+            y: 20,
+            frame: 7
+        }]
+    );
+    assert!(i.held(crate::Key(0x241)) && !i.held(crate::Key(0x242)));
+    // state, set_code and unbind are past nothing but unset: Unsupported.
+    assert!(i.state().is_none());
+    assert_eq!(binding.unbind().unwrap_err().code(), ErrorCode::Unsupported);
+}
+
+#[test]
 fn commands_post_for_this_plugin_with_the_units_as_given() {
     let (_guard, table) = fake_host();
     assert_eq!(load::<Quiet>(table), ANVIL_OK);
@@ -871,7 +955,7 @@ fn milli_tags_and_errors_read_as_people_write_them() {
 
 #[test]
 fn event_and_service_names_are_the_headers() {
-    let pairs: [(&CStr, &[u8]); 11] = [
+    let pairs: [(&CStr, &[u8]); 12] = [
         (crate::PLUGINS_LOADED.name(), ANVIL_EVENT_PLUGINS_LOADED),
         (crate::SUSPENDED.name(), ANVIL_EVENT_SUSPENDED),
         (crate::RESUMED.name(), ANVIL_EVENT_RESUMED),
@@ -881,6 +965,7 @@ fn event_and_service_names_are_the_headers() {
         (world::SERVICE, ANVIL_GAME_WORLD_SERVICE),
         (commands::SERVICE, ANVIL_GAME_COMMANDS_SERVICE),
         (panel::SERVICE, ANVIL_PANEL_SERVICE),
+        (input::SERVICE, ANVIL_INPUT_SERVICE),
         (crate::benchmark::SERVICE, ANVIL_BENCHMARK_SERVICE),
         (map::SERVICE, ANVIL_MAP_MODES_SERVICE),
     ];

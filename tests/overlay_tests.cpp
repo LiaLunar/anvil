@@ -8,6 +8,7 @@
 #include "test_support.hpp"
 
 #include "../plugins/anvil-overlay/src/control_client.hpp"
+#include "../plugins/anvil-overlay/src/input.hpp"
 #include "../plugins/anvil-overlay/src/notices.hpp"
 #include "../plugins/anvil-overlay/src/panels.hpp"
 #include "../plugins/anvil-overlay/src/release.hpp"
@@ -513,6 +514,123 @@ int main() {
         CHECK(key_code(VK_F11, false, false, false) == VK_F11);
         CHECK(key_code(VK_CONTROL, false, true, false) == 0 && key_code(VK_LSHIFT, true, false, false) == 0);
         CHECK(key_code('A', false, false, true) == ('A' | 0x400));
+    });
+
+    run("input: codes, bindings and conflicts", [] {
+        CHECK(InputRouter::valid_code(0) && InputRouter::valid_code('K' | ANVIL_INPUT_CTRL));
+        CHECK(InputRouter::valid_code(VK_RBUTTON | ANVIL_INPUT_CTRL) && InputRouter::valid_code(VK_F11));
+        CHECK(!InputRouter::valid_code(VK_CONTROL) && !InputRouter::valid_code(VK_LSHIFT | ANVIL_INPUT_SHIFT));
+        CHECK(!InputRouter::valid_code(ANVIL_INPUT_CTRL) && !InputRouter::valid_code(-1) && !InputRouter::valid_code(0x1000 | 'K'));
+        InputRouter r;
+        const auto handler = [](void*, const AnvilInputEvent*) {};
+        AnvilInputBinding* a = nullptr;
+        AnvilInputBinding* b = nullptr;
+        const int64_t ctrl_k = 'K' | ANVIL_INPUT_CTRL;
+        const int64_t panel = VK_F12 | ANVIL_INPUT_CTRL | ANVIL_INPUT_SHIFT;
+        CHECK(r.bind(ctrl_k, 0, nullptr, nullptr, panel, &a) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(r.bind(ctrl_k, 0x80, handler, nullptr, panel, &a) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(r.bind(VK_SHIFT, 0, handler, nullptr, panel, &a) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(r.bind(ctrl_k, 0, handler, nullptr, panel, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(r.bind(ctrl_k, ANVIL_INPUT_CONSUME, handler, nullptr, panel, &a) == ANVIL_OK && a != nullptr);
+        // The second binding of a code stays inert; the first keeps it.
+        CHECK(r.bind(ctrl_k, 0, handler, nullptr, panel, &b) == ANVIL_ERROR_CONFLICT && b != nullptr && b->code == 0);
+        CHECK(r.set_code(b, panel, panel) == ANVIL_ERROR_CONFLICT && b->code == 0);
+        CHECK(r.set_code(b, 'K', panel) == ANVIL_OK && b->code == 'K');
+        CHECK(r.set_code(b, ctrl_k, panel) == ANVIL_ERROR_CONFLICT && b->code == 0);
+        CHECK(r.set_code(b, 0, panel) == ANVIL_OK);
+        CHECK(r.set_code(b, 0x1000, panel) == ANVIL_ERROR_INVALID_ARGUMENT);
+        // Once the first one ends, the code is free.
+        CHECK(r.unbind(a) == ANVIL_OK && r.unbind(a) == ANVIL_ERROR_NOT_FOUND);
+        CHECK(r.set_code(a, ctrl_k, panel) == ANVIL_ERROR_NOT_FOUND);
+        CHECK(r.set_code(b, ctrl_k, panel) == ANVIL_OK && b->code == ctrl_k);
+        AnvilInputBinding stranger{};
+        CHECK(r.unbind(&stranger) == ANVIL_ERROR_INVALID_ARGUMENT && r.set_code(&stranger, 0, 0) == ANVIL_ERROR_INVALID_ARGUMENT);
+        for (size_t i = 2; i < InputRouter::kMaxBindings; ++i) CHECK(r.bind(0, 0, handler, nullptr, 0, &a) == ANVIL_OK);
+        CHECK(r.bind(0, 0, handler, nullptr, 0, &a) == ANVIL_ERROR_OUT_OF_MEMORY);
+    });
+
+    run("input: presses match exactly, held back by the state", [] {
+        InputRouter r;
+        int calls = 0;
+        const AnvilInputHandler handler = [](void* c, const AnvilInputEvent*) { ++*static_cast<int*>(c); };
+        AnvilInputBinding* ctrl_k = nullptr;
+        AnvilInputBinding* right = nullptr;
+        AnvilInputBinding* f5 = nullptr;
+        CHECK(r.bind('K' | ANVIL_INPUT_CTRL, ANVIL_INPUT_CONSUME, handler, &calls, 0, &ctrl_k) == ANVIL_OK);
+        CHECK(r.bind(VK_RBUTTON | ANVIL_INPUT_CTRL, 0, handler, &calls, 0, &right) == ANVIL_OK);
+        CHECK(r.bind(VK_F5, ANVIL_INPUT_REPEAT, handler, &calls, 0, &f5) == ANVIL_OK);
+        InputPress p;
+        p.vk = 'K';
+        p.ctrl = true;
+        p.x = 10;
+        p.y = 20;
+        auto m = r.press(p, 0, 7);
+        CHECK(m && m->binding == ctrl_k && m->consume && m->deliver);
+        CHECK(m && m->event.size == sizeof(AnvilInputEvent) && m->event.code == ('K' | ANVIL_INPUT_CTRL));
+        CHECK(m && m->event.x == 10 && m->event.y == 20 && m->event.frame == 7 && m->event.flags == 0);
+        AnvilInputHandler h = nullptr;
+        void* c = nullptr;
+        CHECK(m && r.handler_of(*m, h, c) && h == handler && c == &calls);
+        // Exactly these modifiers.
+        p.shift = true;
+        CHECK(!r.press(p, 0, 7));
+        p.shift = false;
+        p.ctrl = false;
+        CHECK(!r.press(p, 0, 7));
+        p.ctrl = true;
+        // A repeat it does not want is still consumed, and not delivered.
+        p.repeat = true;
+        m = r.press(p, 0, 7);
+        CHECK(m && m->consume && !m->deliver);
+        p.repeat = false;
+        // Held back by a text field of the game, the panel, the overlay's keyboard, the shortcut editor.
+        for (const uint32_t hold : {ANVIL_INPUT_GAME_TEXT, ANVIL_INPUT_OVERLAY_PANEL, ANVIL_INPUT_OVERLAY_KEYBOARD,
+                                    ANVIL_INPUT_GAME_SHORTCUT}) {
+            CHECK(!r.press(p, hold, 7));
+        }
+        // Not by the mouse over the overlay, nor when anvil-game cannot say.
+        CHECK(r.press(p, ANVIL_INPUT_OVERLAY_MOUSE | ANVIL_INPUT_GAME_UNKNOWN, 7).has_value());
+        // A mouse button: held back by the overlay's mouse, not by a text field.
+        InputPress click;
+        click.vk = VK_RBUTTON;
+        click.ctrl = true;
+        m = r.press(click, ANVIL_INPUT_GAME_TEXT, 1);
+        CHECK(m && m->binding == right && !m->consume && m->event.code == (VK_RBUTTON | ANVIL_INPUT_CTRL));
+        CHECK(!r.press(click, ANVIL_INPUT_OVERLAY_MOUSE, 1));
+        // A repeat it wants.
+        InputPress key;
+        key.vk = VK_F5;
+        key.repeat = true;
+        m = r.press(key, 0, 1);
+        CHECK(m && m->binding == f5 && m->deliver && m->event.flags == ANVIL_INPUT_EVENT_REPEAT);
+        // A modifier alone matches nothing; after unbind a queued press is not delivered.
+        key.vk = VK_CONTROL;
+        CHECK(!r.press(key, 0, 1));
+        m = r.press(p, 0, 7);
+        CHECK(m && r.unbind(ctrl_k) == ANVIL_OK && !r.handler_of(*m, h, c));
+        CHECK(!r.press(p, 0, 7));
+        CHECK(calls == 0);
+    });
+
+    run("input: held keys", [] {
+        InputRouter r;
+        r.key('W', true);
+        CHECK(r.held('W', 0, false, false, false) == 1);
+        CHECK(r.held('W', ANVIL_INPUT_GAME_TEXT, false, false, false) == 0);
+        CHECK(r.held('W', ANVIL_INPUT_OVERLAY_MOUSE, false, false, false) == 1);
+        CHECK(r.held('W' | ANVIL_INPUT_SHIFT, 0, false, false, false) == 0);
+        CHECK(r.held('W' | ANVIL_INPUT_SHIFT, 0, true, false, false) == 1);
+        r.key(VK_SHIFT, true);
+        CHECK(r.held('W' | ANVIL_INPUT_SHIFT, 0, false, false, false) == 1);
+        CHECK(r.held('A', 0, false, false, false) == 0 && r.held(0, 0, false, false, false) == 0);
+        r.key(VK_RBUTTON, true);
+        CHECK(r.held(VK_RBUTTON, ANVIL_INPUT_GAME_TEXT, false, false, false) == 1);
+        CHECK(r.held(VK_RBUTTON, ANVIL_INPUT_OVERLAY_MOUSE, false, false, false) == 0);
+        r.key('W', false);
+        CHECK(r.held('W', 0, false, false, false) == 0);
+        r.key('W', true);
+        r.release_all();
+        CHECK(r.held('W', 0, false, false, false) == 0 && !r.down(VK_SHIFT));
     });
 
     run("control client: the core's service through the overlay's client", [] {

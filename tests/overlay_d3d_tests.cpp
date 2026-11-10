@@ -17,6 +17,7 @@
 #include "test_support.hpp"
 
 #include <anvil/anvil_game.h>
+#include <anvil/anvil_input.h>
 #include <anvil/anvil_panel.h>
 #include <anvil/anvil_plugin.h>
 #include <windows.h>
@@ -57,13 +58,23 @@ void run_work() {
 int fake_session(AnvilGameSession*) { return 0; }
 int fake_date(AnvilGameDate*) { return 0; }
 int fake_main_menu() { return g_main_menu && !g_nested_frame ? 1 : 0; }
+uint32_t fake_out_of_sync() { return 0; }
+// The GUI's keyboard as the test sets it.
+uint32_t g_game_keyboard = 0;
+int fake_keyboard(uint32_t* flags) {
+    if (flags != nullptr) *flags = g_game_keyboard;
+    return 1;
+}
 const AnvilGameService kFakeGame = {sizeof(AnvilGameService), fake_ready,   fake_main_thread, fake_frame_number,
-                                    fake_run_on_main_thread,  fake_session, fake_date,        fake_main_menu};
+                                    fake_run_on_main_thread,  fake_session, fake_date,        fake_main_menu,
+                                    fake_out_of_sync,         fake_keyboard};
 
-// The game's own window procedure: which button presses reached it.
+// The game's own window procedure: which button and key presses reached it.
 int g_game_button_downs = 0;
+std::vector<WPARAM> g_game_keys;
 LRESULT CALLBACK game_window_proc(HWND window, UINT message, WPARAM wparam, LPARAM lparam) {
     if (message == WM_LBUTTONDOWN) ++g_game_button_downs;
+    if (message == WM_KEYDOWN || message == WM_RBUTTONDOWN) g_game_keys.push_back(message == WM_KEYDOWN ? wparam : VK_RBUTTON);
     return DefWindowProcW(window, message, wparam, lparam);
 }
 
@@ -158,6 +169,29 @@ size_t frame(IDirect3DDevice9* device, RECT area) {
         if (msg.message != WM_MOUSELEAVE) DispatchMessageW(&msg);
     }
     return drawn;
+}
+
+// The overlay reads modifiers with GetKeyState, the key state of this thread,
+// while the test sends its keys with SendMessage, which does not change it. A
+// Shift, Ctrl or Alt that the machine's real keyboard (or another program's
+// SendInput) holds can show up there, and a key without modifiers then does
+// not match. Before a test sends keys, its thread's modifiers are set up.
+bool release_modifiers() {
+    BYTE state[256]{};
+    if (!GetKeyboardState(state)) return false;
+    for (const int vk : {VK_SHIFT, VK_LSHIFT, VK_RSHIFT, VK_CONTROL, VK_LCONTROL, VK_RCONTROL, VK_MENU, VK_LMENU, VK_RMENU,
+                         VK_LWIN, VK_RWIN}) {
+        state[vk] = 0;
+    }
+    return SetKeyboardState(state) != 0;
+}
+
+// For a failed check: what the overlay would have read.
+void print_modifiers() {
+    std::printf("    modifiers: shift %d ctrl %d alt %d (async %d %d %d)\n", GetKeyState(VK_SHIFT) & 0x8000 ? 1 : 0,
+                GetKeyState(VK_CONTROL) & 0x8000 ? 1 : 0, GetKeyState(VK_MENU) & 0x8000 ? 1 : 0,
+                GetAsyncKeyState(VK_SHIFT) & 0x8000 ? 1 : 0, GetAsyncKeyState(VK_CONTROL) & 0x8000 ? 1 : 0,
+                GetAsyncKeyState(VK_MENU) & 0x8000 ? 1 : 0);
 }
 
 D3DPRESENT_PARAMETERS parameters(HWND window) {
@@ -290,10 +324,15 @@ int main(int argc, char** argv) {
         // F11 alone, so the test needs no modifier keys held.
         AnvilControlResult result{};
         CHECK(control.service()->setting_set_text("anvil-overlay", 0, "F11", &result) == ANVIL_OK && result.applied == 1);
+        CHECK(release_modifiers());
         SendMessageW(window, WM_KEYDOWN, VK_F11, 1);
         size_t drawn = 0;
         for (int i = 0; i < 3; ++i) drawn = frame(device, middle);
         CHECK(drawn > 1000);
+        if (drawn <= 1000) {
+            std::printf("    drawn %zu in the middle\n", drawn);
+            print_modifiers();
+        }
         SendMessageW(window, WM_KEYDOWN, VK_F11, 1);
         frame(device, middle);
         CHECK(frame(device, middle) == 0);
@@ -475,6 +514,91 @@ int main(int argc, char** argv) {
         CHECK(panels->show(panel, 0) == ANVIL_OK && panels->shown(panel) == 0);
         frame(device, area);
         CHECK(frame(device, area) == 0);
+    });
+
+    run("overlay: a plugin's binding gets its key after a frame, and nothing while the player types or uses the panel", [&] {
+        const auto* input = static_cast<const AnvilInputService*>(bus.get_service(ANVIL_INPUT_SERVICE, ANVIL_INPUT_SERVICE_VERSION));
+        CHECK(input != nullptr && input->size == sizeof(AnvilInputService) && ANVIL_INPUT_HAS(input, held));
+        if (input == nullptr) return;
+        CHECK(release_modifiers());
+        static std::vector<AnvilInputEvent> got;
+        const AnvilInputHandler handler = [](void*, const AnvilInputEvent* e) { got.push_back(*e); };
+        const int64_t ctrl_k = 'K' | ANVIL_INPUT_CTRL;
+        AnvilInputBinding* binding = nullptr;
+        AnvilInputBinding* other = nullptr;
+        CHECK(input->bind(ctrl_k, ANVIL_INPUT_CONSUME, handler, nullptr, &binding) == ANVIL_OK);
+        // The overlay's panel key (Ctrl+Shift+F12) is taken.
+        CHECK(input->bind(VK_F12 | ANVIL_INPUT_CTRL | ANVIL_INPUT_SHIFT, 0, handler, nullptr, &other) == ANVIL_ERROR_CONFLICT);
+        CHECK((input->state() & ANVIL_INPUT_HOLD_KEYS) == 0);
+        const auto press = [&](WPARAM vk) {
+            g_game_keys.clear();
+            SendMessageW(window, WM_KEYDOWN, VK_CONTROL, 1);
+            SendMessageW(window, WM_KEYDOWN, vk, 1);
+            SendMessageW(window, WM_KEYUP, vk, 0xC0000001);
+            SendMessageW(window, WM_KEYUP, VK_CONTROL, 0xC0000001);
+            run_work();
+        };
+        // Delivered on the "main thread" after a frame, not in the window
+        // procedure, and the game sees Ctrl but not K.
+        SendMessageW(window, WM_KEYDOWN, VK_CONTROL, 1);
+        SendMessageW(window, WM_KEYDOWN, 'K', 1);
+        CHECK(got.empty() && g_work.size() == 1);
+        SendMessageW(window, WM_KEYUP, 'K', 0xC0000001);
+        SendMessageW(window, WM_KEYUP, VK_CONTROL, 0xC0000001);
+        run_work();
+        CHECK(got.size() == 1 && got[0].code == ctrl_k && got[0].size == sizeof(AnvilInputEvent) && got[0].flags == 0);
+        // K alone is not the binding, and reaches the game.
+        g_game_keys.clear();
+        SendMessageW(window, WM_KEYDOWN, 'K', 1);
+        run_work();
+        CHECK(got.size() == 1 && g_game_keys == std::vector<WPARAM>{'K'});
+        SendMessageW(window, WM_KEYUP, 'K', 0xC0000001);
+        press('K');
+        CHECK(got.size() == 2 && g_game_keys == std::vector<WPARAM>{VK_CONTROL});
+        // A text field of the game has focus: the key goes to the game.
+        g_game_keyboard = ANVIL_GAME_KEYBOARD_TEXT;
+        CHECK((input->state() & ANVIL_INPUT_HOLD_KEYS) == ANVIL_INPUT_GAME_TEXT);
+        press('K');
+        CHECK(got.size() == 2 && (g_game_keys == std::vector<WPARAM>{VK_CONTROL, 'K'}));
+        g_game_keyboard = ANVIL_GAME_KEYBOARD_SHORTCUT;
+        press('K');
+        CHECK(got.size() == 2 && (input->state() & ANVIL_INPUT_HOLD_KEYS) == ANVIL_INPUT_GAME_SHORTCUT);
+        g_game_keyboard = 0;
+        // The panel is open (F11, so no modifier is needed for it).
+        AnvilControlResult result{};
+        CHECK(control.service()->setting_set_text("anvil-overlay", 0, "F11", &result) == ANVIL_OK && result.applied == 1);
+        SendMessageW(window, WM_KEYDOWN, VK_F11, 1);
+        for (int i = 0; i < 3; ++i) frame(device, middle);
+        CHECK((input->state() & ANVIL_INPUT_OVERLAY_PANEL) != 0);
+        press('K');
+        CHECK(got.size() == 2);
+        SendMessageW(window, WM_KEYDOWN, VK_F11, 1);
+        for (int i = 0; i < 2; ++i) frame(device, middle);
+        CHECK((input->state() & ANVIL_INPUT_OVERLAY_PANEL) == 0);
+        CHECK(control.service()->setting_reset("anvil-overlay", 0, &result) == ANVIL_OK);
+        press('K');
+        CHECK(got.size() == 3);
+        // Another code; held keys; a Ctrl+right click with its cursor.
+        CHECK(input->set_code(binding, VK_RBUTTON | ANVIL_INPUT_CTRL) == ANVIL_OK);
+        g_game_keys.clear();
+        SendMessageW(window, WM_RBUTTONDOWN, MK_RBUTTON | MK_CONTROL, point(120, 80));
+        SendMessageW(window, WM_RBUTTONUP, MK_CONTROL, point(120, 80));
+        run_work();
+        CHECK(got.size() == 4 && got[3].code == (VK_RBUTTON | ANVIL_INPUT_CTRL) && got[3].x == 120 && got[3].y == 80);
+        CHECK(g_game_keys.empty());
+        SendMessageW(window, WM_KEYDOWN, 'W', 1);
+        CHECK(input->held('W') == 1 && input->held('W' | ANVIL_INPUT_ALT) == 0);
+        g_game_keyboard = ANVIL_GAME_KEYBOARD_TEXT;
+        CHECK(input->held('W') == 0);
+        g_game_keyboard = 0;
+        SendMessageW(window, WM_KEYUP, 'W', 0xC0000001);
+        CHECK(input->held('W') == 0);
+        // Queued, then unbound: not delivered.
+        SendMessageW(window, WM_RBUTTONDOWN, MK_RBUTTON | MK_CONTROL, point(1, 1));
+        CHECK(input->unbind(binding) == ANVIL_OK && input->unbind(binding) == ANVIL_ERROR_NOT_FOUND);
+        run_work();
+        CHECK(got.size() == 4);
+        SendMessageW(window, WM_RBUTTONUP, 0, point(1, 1));
     });
 
     run("overlay: under DXVK's window hook, devices made and released in fullscreen keep one chain to the game", [&] {
