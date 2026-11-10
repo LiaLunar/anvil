@@ -40,9 +40,12 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   [docs/design.md](docs/design.md#51-plugintoml-manifest-v2).
 - Anvil ships the standard plugin `anvil-game` (`anvil/plugins/anvil-game/`):
   game readiness, a frame event, work on the main thread, game sessions and
-  the game date ([include/anvil/anvil_game.h](include/anvil/anvil_game.h)). Plugins that
-  change the simulation need it: in ironman and multiplayer games Anvil takes
-  their changes out unless the player allows them in `anvil/anvil.toml`.
+  the game date ([include/anvil/anvil_game.h](include/anvil/anvil_game.h)), reads of the
+  running campaign (`anvil-game.world`) and, from Anvil 1.17, the unit panel's
+  commands and an event's options for gameplay plugins (`anvil-game.commands`).
+  Plugins that change the simulation need it: in ironman and multiplayer games
+  Anvil takes their changes out unless the player allows them in
+  `anvil/anvil.toml`.
 - Anvil also ships `anvil-overlay` (`anvil/plugins/anvil-overlay/`): in-game
   notices about plugins that were not loaded, the previous crash and safe
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next
@@ -52,7 +55,9 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   in the main menu" turns it off). From Anvil 1.14, if you agree (it asks once, or follows your
   answer in the Manager), it asks GitHub for the latest Anvil release when the
   game is ready and tells you when a newer one is out, with a link; nothing is
-  downloaded ([ADR 0005](docs/adr/0005-release-check-in-the-game.md)). It
+  downloaded ([ADR 0005](docs/adr/0005-release-check-in-the-game.md)). From
+  Anvil 1.18 it also gives plugins keys and mouse buttons of their own
+  (`anvil-overlay.input`, [include/anvil/anvil_input.h](include/anvil/anvil_input.h)). It
   draws on the game's Direct3D 9 renderer and stays off with OpenGL.
 - The overlay and the Manager speak the language EU4 is set to: English,
   French, German or Spanish (other languages show English). The Manager
@@ -69,6 +74,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   fills the log with hundreds of megabytes. Its settings (the overlay's panel)
   change the number of lines, the report interval and the logs, or write every
   line.
+- And `anvil-map` (`anvil/plugins/anvil-map/`, from Anvil 1.16): plugins can add
+  map modes of their own, a button on the minimap's list with a colour for each
+  province and lines in its tooltip
+  ([include/anvil/anvil_map.h](include/anvil/anvil_map.h)). By itself it changes
+  nothing.
 - And `anvil-script` (`anvil/plugins/anvil-script/`): a gameplay plugin can add
   words of its own to the game's script language, which a mod then writes in
   its events and decisions like any other effect, and have its work done once
