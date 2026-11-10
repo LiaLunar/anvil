@@ -183,7 +183,7 @@ jobs:
   # Posts the release to the team's Discord server once it is public.
   notify-discord:
     needs: [release-please, publish]
-    uses: happy-dwarf-team/.github/.github/workflows/discord-release.yml@443d7705d567e5474b8d34e13d867f55ff3aec19 # main
+    uses: happy-dwarf-team/.github/.github/workflows/discord-release.yml@d5db96e09ee8035b0bb9aabfdd4f280cc1dbc45e # main
     permissions: {}
     with:
       tag: ${{ needs.release-please.outputs.tag_name }}
