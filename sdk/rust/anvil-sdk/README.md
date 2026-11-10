@@ -60,7 +60,7 @@ What it gives over the C ABI:
   `anvil::panel` (`anvil-overlay.panel`), `anvil::input`
   (`anvil-overlay.input`), `anvil::benchmark`
   (`anvil.benchmark`), `anvil::map` (`anvil-map.modes` and its events) and
-  `anvil::script` (`anvil-script.day_end`). A
+  `anvil::script` (`anvil-script.effects` and `anvil-script.day_end`). A
   function a running service is too old to have answers
   `ErrorCode::Unsupported`.
 

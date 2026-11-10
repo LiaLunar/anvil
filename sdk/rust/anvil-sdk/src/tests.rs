@@ -29,6 +29,7 @@ struct Recorded {
     colors: Vec<u32>,
     bindings: Vec<(i64, u32, usize, usize)>, // code, flags, handler, context
     day_ends: Vec<(usize, usize, usize)>,    // (self, callback, context)
+    effects: Vec<(usize, String, usize, usize, usize)>, // (self, key, execute, describe, context)
     commands: Vec<String>,
 }
 
@@ -127,6 +128,7 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
         ("anvil-overlay.input", 1) => ptr::from_ref(&*FAKE_INPUT).cast(),
         ("anvil-script.day_end", 1) => ptr::from_ref(&*FAKE_DAY_END).cast(),
+        ("anvil-script.effects", 1) => ptr::from_ref(&*FAKE_EFFECTS).cast(),
         ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
         _ => ptr::null(),
     }
@@ -378,6 +380,34 @@ unsafe extern "C" fn day_end_subscribe(
 static FAKE_DAY_END: Shared<AnvilScriptDayEndService> = Shared(AnvilScriptDayEndService {
     size: std::mem::size_of::<AnvilScriptDayEndService>() as u32,
     subscribe: Some(day_end_subscribe),
+});
+
+// --- a fake effects service: copies the key, refuses one that is taken -----------------
+
+unsafe extern "C" fn effects_register(
+    plugin: *mut AnvilPlugin,
+    effect: *const AnvilScriptEffect,
+) -> AnvilResult {
+    let effect = unsafe { &*effect };
+    let key = text(effect.key);
+    with(|r| {
+        if r.effects.iter().any(|e| e.1 == key) {
+            return ANVIL_ERROR_ALREADY_EXISTS;
+        }
+        r.effects.push((
+            plugin as usize,
+            key,
+            effect.execute.map_or(0, |f| f as usize),
+            effect.describe.map_or(0, |f| f as usize),
+            effect.context as usize,
+        ));
+        ANVIL_OK
+    })
+}
+
+static FAKE_EFFECTS: Shared<AnvilScriptEffectsService> = Shared(AnvilScriptEffectsService {
+    size: std::mem::size_of::<AnvilScriptEffectsService>() as u32,
+    register_effect: Some(effects_register),
 });
 
 // --- a fake world: a province name that grows between the calls, a list ------------
@@ -1069,5 +1099,180 @@ fn day_end_subscribes_with_the_plugin_and_passes_the_day() {
             new_month: false,
             new_year: false
         }
+    );
+}
+
+fn raw_call(key: &CStr, value: &CStr, province: i32, country: &[u8; 4]) -> AnvilScriptCall {
+    AnvilScriptCall {
+        size: std::mem::size_of::<AnvilScriptCall>() as u32,
+        reserved: 0,
+        key: key.as_ptr(),
+        value: value.as_ptr(),
+        scope: AnvilScriptScope {
+            size: std::mem::size_of::<AnvilScriptScope>() as u32,
+            province,
+            country: country.map(|b| b as c_char),
+        },
+    }
+}
+
+#[test]
+fn effects_register_with_the_plugin_and_pass_the_call() {
+    let (_guard, table) = fake_host();
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let effects = script::Effects::get(&host).unwrap();
+    type Seen = (String, String, Option<i32>, Option<Tag>);
+    static SEEN: Mutex<Vec<Seen>> = Mutex::new(Vec::new());
+    SEEN.lock().unwrap().clear();
+    effects
+        .register_with_tooltip(
+            &host,
+            "chisel_set_terrain",
+            |call| {
+                SEEN.lock().unwrap().push((
+                    call.key.to_owned(),
+                    call.value.clone().into_owned(),
+                    call.province,
+                    call.country,
+                ));
+                if call.value == "boom" {
+                    panic!("a bad value");
+                }
+            },
+            |call| match call.value.as_ref() {
+                "none" => None,
+                "boom" => panic!("a bad tooltip"),
+                value => Some(format!("Terrain becomes {value}\nignored")),
+            },
+        )
+        .unwrap();
+    effects
+        .register(&host, "chisel_reset_terrain", |_| {})
+        .unwrap();
+    // A taken key, and a key the C API cannot carry (no call made).
+    assert_eq!(
+        effects
+            .register(&host, "chisel_set_terrain", |_| {})
+            .unwrap_err()
+            .code(),
+        ErrorCode::AlreadyExists
+    );
+    assert_eq!(
+        effects
+            .register(&host, "chisel\0x", |_| {})
+            .unwrap_err()
+            .code(),
+        ErrorCode::InvalidArgument
+    );
+
+    let registered = with(|r| r.effects.clone());
+    assert_eq!(registered.len(), 2);
+    assert_eq!(registered[0].0, SELF as usize);
+    assert_eq!(registered[0].1, "chisel_set_terrain");
+    assert_ne!(registered[0].3, 0); // a describe callback
+    assert_eq!(registered[1].1, "chisel_reset_terrain");
+    assert_eq!(registered[1].3, 0); // none: no tooltip line
+
+    let execute = |index: usize, call: &AnvilScriptCall| {
+        let (_, _, f, _, context) = registered[index].clone();
+        let f: unsafe extern "C" fn(*mut c_void, *const AnvilScriptCall) =
+            unsafe { std::mem::transmute(f) };
+        unsafe { f(context as *mut c_void, call) };
+    };
+    let describe = |call: &AnvilScriptCall, capacity: usize| -> (u32, String) {
+        let (_, _, _, f, context) = registered[0].clone();
+        let f: unsafe extern "C" fn(*mut c_void, *const AnvilScriptCall, *mut c_char, u32) -> u32 =
+            unsafe { std::mem::transmute(f) };
+        let mut buffer = vec![0x55u8; capacity.max(1)];
+        let whole = unsafe {
+            f(
+                context as *mut c_void,
+                call,
+                if capacity == 0 {
+                    ptr::null_mut()
+                } else {
+                    buffer.as_mut_ptr().cast()
+                },
+                capacity as u32,
+            )
+        };
+        let end = buffer.iter().position(|&b| b == 0).unwrap_or(0);
+        (whole, String::from_utf8(buffer[..end].to_vec()).unwrap())
+    };
+
+    // A province scope and a country scope; a NULL call is ignored.
+    execute(
+        0,
+        &raw_call(c"chisel_set_terrain", c"mountain", 295, b"\0\0\0\0"),
+    );
+    execute(0, &raw_call(c"chisel_set_terrain", c"hills", 0, b"RUS\0"));
+    {
+        let (_, _, f, _, context) = registered[0].clone();
+        let f: unsafe extern "C" fn(*mut c_void, *const AnvilScriptCall) =
+            unsafe { std::mem::transmute(f) };
+        unsafe { f(context as *mut c_void, ptr::null()) };
+    }
+    assert_eq!(
+        *SEEN.lock().unwrap(),
+        [
+            (
+                "chisel_set_terrain".to_owned(),
+                "mountain".to_owned(),
+                Some(295),
+                None
+            ),
+            (
+                "chisel_set_terrain".to_owned(),
+                "hills".to_owned(),
+                None,
+                Tag::new("RUS")
+            ),
+        ]
+    );
+
+    // The first line only, its whole length, cut at a whole character.
+    let call = raw_call(c"chisel_set_terrain", c"desert", 183, b"\0\0\0\0");
+    assert_eq!(
+        describe(&call, 64),
+        (22, "Terrain becomes desert".to_owned())
+    );
+    assert_eq!(describe(&call, 8), (22, "Terrain".to_owned()));
+    assert_eq!(describe(&call, 0).0, 22);
+    let wide = raw_call(
+        c"chisel_set_terrain",
+        c"\xc3\xa9t\xc3\xa9",
+        183,
+        b"\0\0\0\0",
+    );
+    // "Terrain becomes été": 16 + 5 bytes; 18 bytes of room cut before the second byte of é.
+    assert_eq!(describe(&wide, 18), (21, "Terrain becomes ".to_owned()));
+    assert_eq!(
+        describe(
+            &raw_call(c"chisel_set_terrain", c"none", 1, b"\0\0\0\0"),
+            64
+        )
+        .0,
+        0
+    );
+
+    // Panics stay in the adapters and are logged once per callback.
+    let boom = raw_call(c"chisel_set_terrain", c"boom", 1, b"\0\0\0\0");
+    execute(0, &boom);
+    execute(0, &boom);
+    assert_eq!(describe(&boom, 64).0, 0);
+    assert_eq!(describe(&boom, 64).0, 0);
+    let log = logged();
+    assert_eq!(
+        log.iter()
+            .filter(|l| l.starts_with("script effect: the callback panicked"))
+            .count(),
+        1
+    );
+    assert_eq!(
+        log.iter()
+            .filter(|l| l.starts_with("script effect tooltip: the callback panicked"))
+            .count(),
+        1
     );
 }

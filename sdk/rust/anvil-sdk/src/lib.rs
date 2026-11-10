@@ -15,7 +15,7 @@
 //! - Typed wrappers of the services Anvil ships: [`game`] (`anvil-game.game`),
 //!   [`world`] (`anvil-game.world`), [`panel`] (`anvil-overlay.panel`),
 //!   [`benchmark`] (`anvil.benchmark`), [`map`] (`anvil-map.modes`) and
-//!   [`script`] (`anvil-script.day_end`).
+//!   [`script`] (`anvil-script.effects`, `anvil-script.day_end`).
 //!
 //! # Where `unsafe` stays
 //!
