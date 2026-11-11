@@ -348,6 +348,41 @@ typedef struct AnvilGameUnitRef {
     uint32_t kind; /* ANVIL_GAME_UNIT_* */
 } AnvilGameUnitRef;
 
+/* --- Since anvil-game 1.20.0: rulers, heirs and consorts ------------------- */
+
+/* The `kind` of the monarch calls: the game's own numbers. */
+#define ANVIL_GAME_MONARCH_RULER 0u
+#define ANVIL_GAME_MONARCH_HEIR 1u
+#define ANVIL_GAME_MONARCH_CONSORT 2u
+
+/* AnvilGameMonarch.flags */
+#define ANVIL_GAME_MONARCH_FEMALE 0x1u
+#define ANVIL_GAME_MONARCH_REGENCY 0x2u /* a regency council or a regent rules for them */
+
+typedef struct AnvilGameMonarch {
+    uint32_t size;
+    uint32_t kind;          /* ANVIL_GAME_MONARCH_RULER, _HEIR or _CONSORT */
+    uint64_t id;            /* the game's id of the person: stays the same while they live */
+    AnvilGameTag country;   /* the country asked about */
+    uint32_t flags;         /* ANVIL_GAME_MONARCH_FEMALE, _REGENCY */
+    int32_t adm;            /* skills as the game stores them, without modifiers */
+    int32_t dip;
+    int32_t mil;
+    int32_t claim;          /* an heir's claim strength x 1000; 0 for a ruler or a consort */
+    AnvilGameDate birth;    /* its `session` is the current one */
+    uint64_t leader;        /* the id of the leader they also are (AnvilGameUnit.leader); 0: none */
+} AnvilGameMonarch;
+
+/* --- Since anvil-game 1.20.0: flags ----------------------------------------- */
+
+/* One flag that is set. It comes in arrays and has no `size`, so it never
+ * grows within version 1. */
+typedef struct AnvilGameFlag {
+    int32_t id;         /* from flag_id; flag_name gives the name back */
+    uint32_t reserved;
+    AnvilGameDate date; /* when it was set; its `session` is the current one */
+} AnvilGameFlag;
+
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
 
@@ -438,6 +473,53 @@ typedef struct AnvilGameWorldService {
      * provinces and other things on the map are left out. Units of other
      * countries can be in it: the game lets a player select them to look. */
     AnvilResult (*selected_units)(AnvilGameUnitRef *out, uint32_t capacity, uint32_t *count);
+    /* Since anvil-game 1.20.0, for the three calls below. A country's ruler,
+     * heir or consort, by `kind` (ANVIL_GAME_MONARCH_*). A country without one
+     * holds the game's placeholder of that kind, one object per process that
+     * every such country shares and the game never resets: the service answers
+     * ANVIL_ERROR_NOT_FOUND for it, as for an unknown tag, and never its data.
+     * ANVIL_ERROR_INVALID_ARGUMENT for another kind; ANVIL_ERROR_NOT_DECLARED
+     * for these three and monarch_flags when a port declared the monarch
+     * symbols absent. Their values are as the game stores them: the skills and
+     * the name are the person's own, also under a regency council. */
+    AnvilResult (*monarch)(const char *tag, uint32_t kind, AnvilGameMonarch *out);
+    /* The name the game keeps for them, in UTF-8 with a NUL; empty in an
+     * interregnum, where the game shows a fixed text instead. */
+    AnvilResult (*monarch_name)(const char *tag, uint32_t kind, char *utf8, uint32_t capacity, uint32_t *length);
+    /* The dynasty's name, as the game shows it: under a regency council (not a
+     * consort's regency) the heir's dynasty, when the country has an heir. */
+    AnvilResult (*monarch_dynasty)(const char *tag, uint32_t kind, char *utf8, uint32_t capacity, uint32_t *length);
+    /* Since anvil-game 1.20.0, for the six calls below. A flag's id from its
+     * name, as the game's files and effects write it, case included. Names are
+     * the game's for every scope, and an id holds as long as the game runs, so
+     * ask once: this call walks every name. ANVIL_ERROR_NOT_FOUND for a name
+     * no effect or save has set yet in this run of the game; ask again later.
+     * ANVIL_ERROR_NOT_DECLARED for all six when a port declared the flag
+     * symbols absent. */
+    AnvilResult (*flag_id)(const char *name, int32_t *id);
+    AnvilResult (*flag_name)(int32_t id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* The flags set now, in the game's order, with the date each was set. */
+    AnvilResult (*country_flags)(const char *tag, AnvilGameFlag *out, uint32_t capacity, uint32_t *count);
+    /* What has_province_flag sees: the province's flags and its permanent ones. */
+    AnvilResult (*province_flags)(int32_t province, AnvilGameFlag *out, uint32_t capacity, uint32_t *count);
+    /* A ruler's, heir's or consort's flags (has_ruler_flag, has_heir_flag,
+     * has_consort_flag); ANVIL_ERROR_NOT_FOUND as for monarch(). */
+    AnvilResult (*monarch_flags)(const char *tag, uint32_t kind, AnvilGameFlag *out, uint32_t capacity,
+                                 uint32_t *count);
+    AnvilResult (*global_flags)(AnvilGameFlag *out, uint32_t capacity, uint32_t *count);
+    /* Since anvil-game 1.20.0, for the four calls below. A country's or a
+     * province's variable by its name, case included, x 1000.
+     * ANVIL_ERROR_NOT_FOUND when it has no such variable (the game's triggers
+     * take that as 0) or for an unknown tag or province; ANVIL_ERROR_NOT_DECLARED
+     * for all four when a port declared the variable symbols absent. A lookup
+     * walks the scope's variables: a few hundred ns for a few dozen. */
+    AnvilResult (*country_variable)(const char *tag, const char *name, int32_t *value);
+    AnvilResult (*province_variable)(int32_t province, const char *name, int32_t *value);
+    /* The names of all its variables, in the game's order, each in UTF-8 and
+     * followed by a NUL, one after the other. Filled with whole names as far as
+     * they fit; *length gets the size of them all, their NULs included. */
+    AnvilResult (*country_variable_names)(const char *tag, char *names, uint32_t capacity, uint32_t *length);
+    AnvilResult (*province_variable_names)(int32_t province, char *names, uint32_t capacity, uint32_t *length);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

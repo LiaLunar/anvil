@@ -124,6 +124,9 @@ unsafe extern "C" fn fake_get_service(
 ) -> *const c_void {
     match (text(name).as_str(), version) {
         ("anvil-overlay.panel", 1) => ptr::from_ref(&*FAKE_PANEL).cast(),
+        ("anvil-game.world", 1) if FULL_WORLD.load(Ordering::Relaxed) => {
+            ptr::from_ref(&*FAKE_WORLD_FULL).cast()
+        }
         ("anvil-game.world", 1) => ptr::from_ref(&*FAKE_WORLD).cast(),
         ("anvil-map.modes", 1) => ptr::from_ref(&*FAKE_MAP).cast(),
         ("anvil-overlay.input", 1) => ptr::from_ref(&*FAKE_INPUT).cast(),
@@ -485,9 +488,85 @@ static FAKE_WORLD: Shared<AnvilGameWorldService> = Shared({
     table
 });
 
+// --- a fake world of anvil-game 1.20: a ruler, flags, variable names -----------
+
+static FULL_WORLD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+unsafe extern "C" fn world_monarch(
+    tag: *const c_char,
+    kind: u32,
+    out: *mut AnvilGameMonarch,
+) -> AnvilResult {
+    if text(tag) != "RUS" || kind == ANVIL_GAME_MONARCH_HEIR {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    let size = unsafe { (*out).size };
+    assert_eq!(size as usize, std::mem::size_of::<AnvilGameMonarch>());
+    let mut m: AnvilGameMonarch = unsafe { std::mem::zeroed() };
+    m.size = size;
+    m.kind = kind;
+    m.id = 0x1234_0000_0030;
+    m.country = Tag::new("RUS").unwrap().to_raw();
+    m.flags = ANVIL_GAME_MONARCH_FEMALE;
+    m.adm = 6;
+    m.dip = 4;
+    m.mil = 5;
+    m.birth.year = 1672;
+    m.birth.month = 6;
+    m.birth.day = 9;
+    m.birth.session = 1;
+    unsafe { *out = m };
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_global_flags(
+    out: *mut AnvilGameFlag,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    unsafe {
+        *count = 1;
+        if capacity > 0 {
+            let mut f: AnvilGameFlag = std::mem::zeroed();
+            f.id = 2;
+            f.date.year = 1700;
+            f.date.month = 8;
+            f.date.day = 19;
+            *out = f;
+        }
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_country_variable_names(
+    _tag: *const c_char,
+    names: *mut c_char,
+    capacity: u32,
+    length: *mut u32,
+) -> AnvilResult {
+    let all = b"treasury_plan\0war_goal\0";
+    unsafe {
+        *length = all.len() as u32;
+        if capacity as usize >= all.len() {
+            ptr::copy_nonoverlapping(all.as_ptr(), names.cast::<u8>(), all.len());
+        }
+    }
+    ANVIL_OK
+}
+
+static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
+    let mut table: AnvilGameWorldService = unsafe { std::mem::zeroed() };
+    table.size = std::mem::size_of::<AnvilGameWorldService>() as u32;
+    table.monarch = Some(world_monarch);
+    table.global_flags = Some(world_global_flags);
+    table.country_variable_names = Some(world_country_variable_names);
+    table
+});
+
 /// A fresh host table and record; the crate's host is this one afterwards.
 fn fake_host() -> (MutexGuard<'static, ()>, &'static AnvilHost) {
     let guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+    FULL_WORLD.store(false, Ordering::Relaxed);
     *RECORDED.lock().unwrap_or_else(|e| e.into_inner()) = Some(Recorded::default());
     let mut table: AnvilHost = unsafe { std::mem::zeroed() };
     table.size = std::mem::size_of::<AnvilHost>() as u32;
@@ -767,6 +846,37 @@ fn world_reads_grow_their_buffers_and_old_services_answer_unsupported() {
         ErrorCode::Unsupported
     );
     assert!(game::Game::get(&host).is_none());
+}
+
+#[test]
+fn world_reads_rulers_flags_and_variable_names() {
+    let (_guard, table) = fake_host();
+    FULL_WORLD.store(true, Ordering::Relaxed);
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let w = world::World::get(&host).unwrap();
+    let rus = Tag::new("RUS").unwrap();
+    let ruler = w.monarch(rus, world::MonarchKind::Ruler).unwrap();
+    assert_eq!(ruler.kind, world::MonarchKind::Ruler);
+    assert_eq!((ruler.adm, ruler.dip, ruler.mil), (6, 4, 5));
+    assert!(ruler.female && !ruler.regency);
+    assert_eq!(ruler.birth.to_string(), "1672.6.9");
+    assert_eq!(ruler.leader, None);
+    assert_eq!(
+        w.monarch(rus, world::MonarchKind::Heir).unwrap_err().code(),
+        ErrorCode::NotFound
+    );
+    let flags = w.global_flags().unwrap();
+    assert_eq!(flags.len(), 1);
+    assert_eq!(flags[0].id, world::FlagId(2));
+    assert_eq!(flags[0].date.to_string(), "1700.8.19");
+    assert_eq!(
+        w.country_variable_names(rus).unwrap(),
+        ["treasury_plan", "war_goal"]
+    );
+    // Set in the table's size but not filled in: Unsupported, like an older anvil-game.
+    assert_eq!(w.flag_id("x").unwrap_err().code(), ErrorCode::Unsupported);
+    FULL_WORLD.store(false, Ordering::Relaxed);
 }
 
 #[test]

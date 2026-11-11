@@ -356,6 +356,125 @@ struct FakeWorld {
         set(session, 0x1B80, reinterpret_cast<uintptr_t>(map_input));
     }
 
+    // Rulers, heirs and consorts (1.37.5 on Steam): RUS has a ruler (a leader
+    // too, with a flag), the game's placeholder heir and a consort; TUR a
+    // regency council whose heir's dynasty the game shows, and no consort.
+    static constexpr uint32_t kNullMonarch = 0x233FFA0;
+    static constexpr uint32_t kNullHeir = 0x233FFA8;
+    static constexpr uint32_t kNullConsort = 0x233FFB0;
+    static constexpr uint32_t kFlagNames = 0x2357D80;
+    static constexpr uint32_t kNotQueenRegent = 0x1761F68;  // xor al,al; ret
+    static constexpr uint32_t kQueenRegent = 0x1761F70;     // mov al,1; ret
+    static constexpr uint64_t kRulerId = 0x0000123400000030;
+    alignas(8) uint8_t ruler[0x150] = {};
+    alignas(8) uint8_t consort[0x150] = {};
+    alignas(8) uint8_t null_heir[0x150] = {};
+    alignas(8) uint8_t regent[0x150] = {};
+    alignas(8) uint8_t tur_heir[0x150] = {};
+    alignas(8) uint8_t romanov[0x30] = {};
+    alignas(8) uint8_t osman[0x30] = {};
+    alignas(8) uint8_t regency[0x20] = {};
+    uintptr_t monarch_vtable[16] = {};
+    alignas(8) uint8_t flag_names[4][0x20] = {};
+    std::string flag_texts[4] = {"rus_reformed", "moskva_burnt", "great_northern_war", "met_the_tsar"};
+    int16_t rus_flags[2] = {0, 2};
+    int32_t rus_flag_dates[2] = {};
+    int16_t moskva_flags[1] = {1};
+    int16_t moskva_permanent[2] = {1, 3};
+    int32_t moskva_dates[1] = {}, moskva_permanent_dates[2] = {};
+    int16_t ruler_flags[1] = {3};
+    int32_t ruler_flag_dates[1] = {};
+    int16_t global[1] = {2};
+    int32_t global_dates[1] = {};
+    // RUS's variables: a list of two nodes behind a sentinel; Moskva has none.
+    alignas(8) uint8_t variable_head[0x40] = {};
+    alignas(8) uint8_t variable_nodes[2][0x40] = {};
+    alignas(8) uint8_t moskva_head[0x40] = {};
+    std::string long_variable = "a_variable_name_long_enough_for_the_heap";
+
+    // Hours since 1 January -5000, the game's dates.
+    static int32_t hours_of(int year, int month, int day) {
+        static constexpr int kDays[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+        int64_t days = int64_t{year} * 365 + day - 1;
+        for (int m = 0; m < month - 1; ++m) days += kDays[m];
+        return static_cast<int32_t>(43'800'000 + days * 24);
+    }
+    static void set_flags(uint8_t* flags, int16_t* ids, int32_t* dates, size_t n) {
+        set(flags, 0x10, reinterpret_cast<uintptr_t>(ids));
+        set(flags, 0x18, reinterpret_cast<uintptr_t>(ids + n));
+        set(flags, 0x28, reinterpret_cast<uintptr_t>(dates));
+        set(flags, 0x30, reinterpret_cast<uintptr_t>(dates + n));
+    }
+    void install_rulers(uint8_t* root, FakeEu4& image) {
+        image.put(kNotQueenRegent, {0x32, 0xC0, 0xC3});
+        image.put(kQueenRegent, {0xB0, 0x01, 0xC3});
+        monarch_vtable[0x60 / 8] = image.address(kNotQueenRegent);
+        for (uint8_t* m : {ruler, consort, null_heir, regent, tur_heir}) set(m, 0, reinterpret_cast<uintptr_t>(monarch_vtable));
+        set_key(romanov + 8, "Romanov");
+        set_key(osman + 8, "Osmanoglu");
+
+        set(ruler, 0x10, kRulerId);
+        set_short_string(ruler + 0x28, "Pyotr I");
+        const int32_t skills[3] = {6, 4, 5};
+        std::memcpy(ruler + 0x48, skills, sizeof skills);
+        set(ruler, 0x68, reinterpret_cast<uintptr_t>(romanov));
+        set(ruler, 0x70, hours_of(1672, 6, 9));
+        set(ruler, 0x98, kLeaderId);
+        set(consort, 0x10, uint64_t{0x0000123500000030});
+        set_short_string(consort + 0x28, "Catherine");
+        set(consort, 0x68, reinterpret_cast<uintptr_t>(romanov));
+        consort[0x74] = 1;
+        set(consort, 0x98, uint64_t{0x31});  // the type of a leader's id, without one
+        set_short_string(null_heir + 0x28, "No Heir");
+        set(rus, 0x1280, reinterpret_cast<uintptr_t>(ruler));
+        set(rus, 0x1298, reinterpret_cast<uintptr_t>(null_heir));
+        set(rus, 0x12B0, reinterpret_cast<uintptr_t>(consort));
+        image.put_pointer(kNullHeir, reinterpret_cast<uintptr_t>(null_heir));
+        image.put_pointer(kNullMonarch, 0);  // not made yet
+        image.put_pointer(kNullConsort, 0);
+
+        set_short_string(regent + 0x28, "Regency Council");
+        set(regent, 0x68, reinterpret_cast<uintptr_t>(romanov));
+        set(regent, 0x78, reinterpret_cast<uintptr_t>(regency));
+        set_short_string(tur_heir + 0x28, "Mehmed");
+        set(tur_heir, 0x68, reinterpret_cast<uintptr_t>(osman));
+        set(tur_heir, 0x148, int32_t{75000});
+        set(tur, 0x1280, reinterpret_cast<uintptr_t>(regent));
+        set(tur, 0x1298, reinterpret_cast<uintptr_t>(tur_heir));
+
+        // Flags: four names; RUS has 0 and 2, Moskva 1 and permanently 1 and 3,
+        // the ruler 3, the world 2.
+        for (int i = 0; i < 4; ++i) set_key(flag_names[i], flag_texts[i]);
+        image.commit(kFlagNames & ~0xFFFu, PAGE_READWRITE);
+        image.put_pointer(kFlagNames, reinterpret_cast<uintptr_t>(flag_names));
+        image.put_pointer(kFlagNames + 8, reinterpret_cast<uintptr_t>(flag_names + 4));
+        rus_flag_dates[0] = hours_of(1700, 1, 1);
+        rus_flag_dates[1] = hours_of(1700, 8, 19);
+        set_flags(rus + 0x270, rus_flags, rus_flag_dates, 2);
+        moskva_dates[0] = hours_of(1701, 2, 3);
+        moskva_permanent_dates[0] = hours_of(1650, 1, 1);
+        moskva_permanent_dates[1] = hours_of(1651, 1, 1);
+        set_flags(province(1) + 0x1B8, moskva_flags, moskva_dates, 1);
+        set_flags(province(1) + 0x1F8, moskva_permanent, moskva_permanent_dates, 2);
+        ruler_flag_dates[0] = hours_of(1697, 3, 9);
+        set_flags(ruler + 0xA0, ruler_flags, ruler_flag_dates, 1);
+        global_dates[0] = hours_of(1700, 8, 19);
+        set_flags(root + 0xB38, global, global_dates, 1);
+
+        // RUS: treasury_plan = 2.5, then the long name = -1.
+        set(variable_head, 0, reinterpret_cast<uintptr_t>(variable_nodes[0]));
+        set(variable_nodes[0], 0, reinterpret_cast<uintptr_t>(variable_nodes[1]));
+        set(variable_nodes[1], 0, reinterpret_cast<uintptr_t>(variable_head));
+        set_key(variable_nodes[0] + 0x10, "treasury_plan");
+        set(variable_nodes[0], 0x30, int32_t{2500});
+        set_key(variable_nodes[1] + 0x10, long_variable);
+        set(variable_nodes[1], 0x30, int32_t{-1000});
+        set(rus, 0x330 + 0x18, reinterpret_cast<uintptr_t>(variable_head));
+        set(rus, 0x330 + 0x20, uint64_t{2});
+        set(moskva_head, 0, reinterpret_cast<uintptr_t>(moskva_head));
+        set(province(1), 0x238 + 0x18, reinterpret_cast<uintptr_t>(moskva_head));
+    }
+
     template <class T>
     static void set(void* at, size_t offset, T value) {
         std::memcpy(static_cast<uint8_t*>(at) + offset, &value, sizeof(value));
@@ -1119,7 +1238,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 79);
+        CHECK(reason.empty() && verified.symbols.size() == 101);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -1813,6 +1932,138 @@ int main(int argc, char** argv) {
         CHECK(!anvil_game::decode_constant_getter(other, sizeof other, value) &&
               !anvil_game::decode_constant_getter(no_ret, sizeof no_ret, value) &&
               !anvil_game::decode_constant_getter(five, 3, value));
+    });
+
+    run("anvil-game.world: rulers, flags and variables", [&] {
+        const auto* world = static_cast<const AnvilGameWorldService*>(
+            bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
+        CHECK(world != nullptr && ANVIL_GAME_WORLD_HAS(world, province_variable_names));
+        if (world == nullptr) return;
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        fake.install_rulers(game.root, image);
+        game.set_session(game.session);
+        frame(game.app, 1);
+        AnvilGameSession session{};
+        CHECK(service->session(&session) == 1);
+
+        AnvilGameMonarch m{};
+        m.size = sizeof(m);
+        CHECK(world->monarch("RUS", ANVIL_GAME_MONARCH_RULER, &m) == ANVIL_ERROR_WRONG_PHASE);  // between frames
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            CHECK(world->monarch("rus", ANVIL_GAME_MONARCH_RULER, &m) == ANVIL_OK && m.size == sizeof(m) &&
+                  m.kind == ANVIL_GAME_MONARCH_RULER && m.id == FakeWorld::kRulerId &&
+                  std::strcmp(m.country.text, "RUS") == 0 && m.flags == 0 && m.adm == 6 && m.dip == 4 && m.mil == 5 &&
+                  m.claim == 0 && m.leader == FakeWorld::kLeaderId);
+            CHECK(m.birth.year == 1672 && m.birth.month == 6 && m.birth.day == 9 && m.birth.session == session.number &&
+                  m.birth.size == sizeof(AnvilGameDate));
+            AnvilGameMonarch c{};
+            c.size = sizeof(c);
+            CHECK(world->monarch("RUS", ANVIL_GAME_MONARCH_CONSORT, &c) == ANVIL_OK &&
+                  c.flags == ANVIL_GAME_MONARCH_FEMALE && c.leader == 0);
+            // The game's placeholder heir is "none", and so is a null pointer.
+            CHECK(world->monarch("RUS", ANVIL_GAME_MONARCH_HEIR, &c) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch("TUR", ANVIL_GAME_MONARCH_CONSORT, &c) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch("XXX", ANVIL_GAME_MONARCH_RULER, &c) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch("RUS", 3, &c) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->monarch(nullptr, 0, &c) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->monarch("RUS", 0, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->monarch("TUR", ANVIL_GAME_MONARCH_RULER, &c) == ANVIL_OK && c.flags == ANVIL_GAME_MONARCH_REGENCY);
+            CHECK(world->monarch("TUR", ANVIL_GAME_MONARCH_HEIR, &c) == ANVIL_OK && c.claim == 75000);
+            // A caller built against a shorter struct gets only that much.
+            AnvilGameMonarch shorter{};
+            shorter.size = offsetof(AnvilGameMonarch, birth);
+            shorter.leader = 77;
+            CHECK(world->monarch("RUS", 0, &shorter) == ANVIL_OK && shorter.mil == 5 && shorter.leader == 77);
+
+            char text[32] = {};
+            uint32_t length = 0;
+            CHECK(world->monarch_name("RUS", ANVIL_GAME_MONARCH_RULER, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "Pyotr I") == 0 && length == 7);
+            CHECK(world->monarch_name("RUS", ANVIL_GAME_MONARCH_HEIR, text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch_dynasty("RUS", ANVIL_GAME_MONARCH_CONSORT, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "Romanov") == 0);
+            // A regency council shows its heir's dynasty, a queen regent her own.
+            CHECK(world->monarch_dynasty("TUR", ANVIL_GAME_MONARCH_RULER, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "Osmanoglu") == 0);
+            fake.monarch_vtable[0x60 / 8] = image.address(FakeWorld::kQueenRegent);
+            CHECK(world->monarch_dynasty("TUR", ANVIL_GAME_MONARCH_RULER, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "Romanov") == 0);
+            fake.monarch_vtable[0x60 / 8] = reinterpret_cast<uintptr_t>(&fake_frame_body);  // not a getter of the game
+            CHECK(world->monarch_dynasty("TUR", ANVIL_GAME_MONARCH_RULER, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "Romanov") == 0);
+            fake.monarch_vtable[0x60 / 8] = image.address(FakeWorld::kNotQueenRegent);
+
+            std::int32_t id = -1;
+            CHECK(world->flag_id("great_northern_war", &id) == ANVIL_OK && id == 2);
+            CHECK(world->flag_id("Great_Northern_War", &id) == ANVIL_ERROR_NOT_FOUND &&
+                  world->flag_id("", &id) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->flag_id("x", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->flag_name(3, text, sizeof text, &length) == ANVIL_OK && std::strcmp(text, "met_the_tsar") == 0);
+            CHECK(world->flag_name(4, text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND &&
+                  world->flag_name(-1, text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND);
+            AnvilGameFlag flags[4] = {};
+            uint32_t count = 0;
+            CHECK(world->country_flags("RUS", flags, 4, &count) == ANVIL_OK && count == 2 && flags[0].id == 0 &&
+                  flags[1].id == 2 && flags[1].date.year == 1700 && flags[1].date.month == 8 && flags[1].date.day == 19 &&
+                  flags[1].date.session == session.number);
+            CHECK(world->country_flags("RUS", flags, 1, &count) == ANVIL_OK && count == 2);
+            CHECK(world->country_flags("TUR", nullptr, 0, &count) == ANVIL_OK && count == 0);
+            CHECK(world->country_flags("XXX", flags, 4, &count) == ANVIL_ERROR_NOT_FOUND);
+            // A province's own flags and its permanent ones, each once.
+            CHECK(world->province_flags(1, flags, 4, &count) == ANVIL_OK && count == 2 && flags[0].id == 1 &&
+                  flags[0].date.year == 1701 && flags[1].id == 3 && flags[1].date.year == 1651);
+            CHECK(world->province_flags(4, flags, 4, &count) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch_flags("RUS", ANVIL_GAME_MONARCH_RULER, flags, 4, &count) == ANVIL_OK && count == 1 &&
+                  flags[0].id == 3 && flags[0].date.year == 1697);
+            CHECK(world->monarch_flags("RUS", ANVIL_GAME_MONARCH_HEIR, flags, 4, &count) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->monarch_flags("RUS", 7, flags, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->global_flags(flags, 4, &count) == ANVIL_OK && count == 1 && flags[0].id == 2);
+
+            std::int32_t value = 0;
+            CHECK(world->country_variable("RUS", "treasury_plan", &value) == ANVIL_OK && value == 2500);
+            CHECK(world->country_variable("RUS", fake.long_variable.c_str(), &value) == ANVIL_OK && value == -1000);
+            CHECK(world->country_variable("RUS", "Treasury_Plan", &value) == ANVIL_ERROR_NOT_FOUND &&
+                  world->country_variable("RUS", "", &value) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_variable("RUS", "x", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->province_variable(1, "treasury_plan", &value) == ANVIL_ERROR_NOT_FOUND);
+            char names[64] = {};
+            const std::string all = std::string("treasury_plan") + '\0' + fake.long_variable + '\0';
+            CHECK(world->country_variable_names("RUS", names, sizeof names, &length) == ANVIL_OK &&
+                  length == all.size() && std::memcmp(names, all.data(), all.size()) == 0);
+            std::memset(names, 0x7F, sizeof names);
+            CHECK(world->country_variable_names("RUS", names, 20, &length) == ANVIL_OK && length == all.size() &&
+                  std::strcmp(names, "treasury_plan") == 0 && names[14] == 0x7F);  // whole names only
+            CHECK(world->country_variable_names("RUS", nullptr, 0, &length) == ANVIL_OK && length == all.size());
+            CHECK(world->province_variable_names(1, names, sizeof names, &length) == ANVIL_OK && length == 0);
+            CHECK(world->country_variable_names("RUS", nullptr, 4, &length) == ANVIL_ERROR_INVALID_ARGUMENT);
+            // A variable list cut short costs that answer.
+            FakeWorld::set(fake.rus, 0x330 + 0x20, uint64_t{3});
+            CHECK(world->country_variable("RUS", "treasury_plan", &value) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.rus, 0x330 + 0x20, uint64_t{2});
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        g_in_frame_handler = nullptr;
+
+        // Absent on a build: NOT_DECLARED.
+        anvil_game::WorldLayout l;
+        AnvilGameMonarch none{};
+        std::vector<anvil_game::FlagEntry> no_flags;
+        std::vector<anvil_game::VariableEntry> no_variables;
+        std::int32_t no_id = 0;
+        CHECK(anvil_game::read_monarch(l, "RUS", 0, none) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_flag_id(l, "x", no_id) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_global_flags(l, no_flags) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_country_variables(l, "RUS", no_variables) == ANVIL_ERROR_NOT_DECLARED);
+
+        const uint8_t no[] = {0x32, 0xC0, 0xC3}, yes[] = {0xB0, 0x01, 0xC3}, other[] = {0x8A, 0x41, 0x08};
+        bool flag = true;
+        CHECK(anvil_game::decode_bool_getter(no, sizeof no, flag) && !flag);
+        CHECK(anvil_game::decode_bool_getter(yes, sizeof yes, flag) && flag);
+        CHECK(!anvil_game::decode_bool_getter(other, sizeof other, flag) && !anvil_game::decode_bool_getter(no, 2, flag));
     });
 
     run("anvil-game: the campaign's events after outer frames", [&] {

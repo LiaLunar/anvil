@@ -1,5 +1,7 @@
 #include "world.hpp"
 
+#include "session.hpp"
+
 #include <windows.h>
 
 #include <algorithm>
@@ -656,6 +658,251 @@ AnvilResult read_selected_units(const WorldLayout& l, std::vector<AnvilGameUnitR
         out.push_back(ref);
     }
     return ANVIL_OK;
+}
+
+// ---- rulers, heirs and consorts -------------------------------------------------
+
+bool decode_bool_getter(const std::uint8_t* code, std::size_t size, bool& value) {
+    if (size < 3 || code[2] != 0xC3) return false;
+    if (code[0] == 0x32 && code[1] == 0xC0) {  // xor al,al; ret
+        value = false;
+        return true;
+    }
+    if (code[0] == 0xB0 && code[1] == 0x01) {  // mov al,1; ret
+        value = true;
+        return true;
+    }
+    return false;
+}
+
+namespace {
+
+constexpr std::size_t kMaxFlags = 32768;       // a flag index is an int16
+constexpr std::uint64_t kMaxVariables = 65536;  // a longer variable list is taken as garbage
+
+// The country's monarch of `kind`, or NOT_FOUND for none: a null pointer or one
+// of the game's placeholders, which are never read.
+AnvilResult monarch_of(const WorldLayout& l, std::uintptr_t country, std::uint32_t kind, std::uintptr_t& monarch) {
+    const std::uint32_t slot = kind == ANVIL_GAME_MONARCH_RULER ? l.ruler
+                               : kind == ANVIL_GAME_MONARCH_HEIR ? l.heir
+                                                                  : l.consort;
+    if (!read(country + slot, monarch)) return ANVIL_ERROR_INTERNAL;
+    if (monarch == 0) return ANVIL_ERROR_NOT_FOUND;
+    for (const std::uintptr_t global : {l.null_monarch, l.null_heir, l.null_consort}) {
+        std::uintptr_t placeholder = 0;
+        if (!read(global, placeholder)) return ANVIL_ERROR_INTERNAL;
+        if (placeholder != 0 && placeholder == monarch) return ANVIL_ERROR_NOT_FOUND;
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult monarch_at(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::uintptr_t& country,
+                       std::uintptr_t& monarch) {
+    if (l.ruler == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    return monarch_of(l, country, kind, monarch);
+}
+
+// The dynasty the game shows (CMonarch::GetDynasty): unless the monarch is a
+// queen regent, one with a regency whose country has an heir shows the heir's.
+// IsQueenRegent is decoded from its getter, never called; a getter that is not
+// a constant is a queen's, so the monarch's own dynasty then stands.
+bool shown_dynasty(const WorldLayout& l, std::uintptr_t country, std::uintptr_t monarch, std::uintptr_t& dynasty) {
+    for (int step = 0; step < 4; ++step) {
+        std::uintptr_t regency = 0, vtable = 0, getter = 0;
+        if (!read(monarch + l.regency, regency)) return false;
+        if (regency == 0) break;
+        if (!read(monarch, vtable) || vtable == 0 || !read(vtable + l.queen_regent_slot, getter)) return false;
+        std::uint8_t code[3] = {};
+        bool queen_regent = true;
+        if (getter >= l.image_begin && getter + sizeof code <= l.image_end && read_raw(getter, code, sizeof code)) {
+            if (!decode_bool_getter(code, sizeof code, queen_regent)) queen_regent = true;
+        }
+        if (queen_regent) break;
+        std::uintptr_t heir = 0;
+        if (monarch_of(l, country, ANVIL_GAME_MONARCH_HEIR, heir) != ANVIL_OK || heir == monarch) break;
+        monarch = heir;
+    }
+    return read(monarch + l.dynasty, dynasty);
+}
+
+// The flags of one CIntegerFlags, appended to `out`.
+bool append_flags(const WorldLayout& l, std::uintptr_t flags, std::vector<FlagEntry>& out) {
+    std::uintptr_t begin = 0, end = 0, dates = 0, dates_end = 0;
+    if (!read(flags + l.flags_begin, begin) || !read(flags + l.flags_end, end) || !read(flags + l.flag_dates, dates) ||
+        !read(flags + l.flag_dates + 8, dates_end) || end < begin || (end - begin) % 2 != 0 ||
+        (end - begin) / 2 > kMaxFlags || dates_end < dates || (dates_end - dates) / 4 < (end - begin) / 2) {
+        return false;
+    }
+    const std::size_t n = (end - begin) / 2;
+    std::vector<std::int16_t> ids(n);
+    std::vector<std::int32_t> hours(n);
+    if (n > 0 && (!read_raw(begin, ids.data(), n * 2) || !read_raw(dates, hours.data(), n * 4))) return false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const bool seen = std::any_of(out.begin(), out.end(), [&](const FlagEntry& e) { return e.id == ids[i]; });
+        if (!seen && ids[i] >= 0) out.push_back(FlagEntry{ids[i], hours[i]});
+    }
+    return true;
+}
+
+// The names' array: begin and how many.
+bool flag_name_range(const WorldLayout& l, std::uintptr_t& begin, std::size_t& count) {
+    std::uintptr_t end = 0;
+    if (!read(l.flag_names, begin) || !read(l.flag_names + 8, end) || end < begin || (end - begin) % 0x20 != 0 ||
+        (end - begin) / 0x20 > kMaxFlags) {
+        return false;
+    }
+    count = (end - begin) / 0x20;
+    return true;
+}
+
+// The variables of one CVariables: the map's list, from its sentinel node.
+bool read_variables(const WorldLayout& l, std::uintptr_t variables, std::vector<VariableEntry>& out) {
+    const std::uintptr_t list = variables + l.variable_head;
+    std::uintptr_t head = 0, node = 0;
+    std::uint64_t count = 0;
+    if (!read(list, head) || head == 0 || !read(list + 8, count) || count > kMaxVariables || !read(head, node)) {
+        return false;
+    }
+    out.clear();
+    while (node != head) {
+        if (out.size() >= count || node == 0) return false;  // a loop, or a list cut short
+        VariableEntry e;
+        if (!read_string(node + l.variable_value - 0x20, e.name) || !read(node + l.variable_value, e.value) ||
+            !read(node, node)) {
+            return false;
+        }
+        out.push_back(std::move(e));
+    }
+    return out.size() == count;
+}
+
+}  // namespace
+
+AnvilResult read_monarch(const WorldLayout& l, std::string_view tag, std::uint32_t kind, AnvilGameMonarch& out) {
+    std::uintptr_t country = 0, monarch = 0;
+    if (const AnvilResult r = monarch_at(l, tag, kind, country, monarch); r != ANVIL_OK) return r;
+    std::uint64_t own = 0, leader = 0;
+    std::int32_t skills[3] = {}, birth = 0;
+    std::uint8_t female = 0;
+    std::uintptr_t regency = 0;
+    if (!read(country + l.country_tag, own) || !read(monarch + l.object_id, out.id) ||
+        !read_raw(monarch + l.skills, skills, sizeof skills) || !read(monarch + l.birth, birth) ||
+        !read(monarch + l.female, female) || !read(monarch + l.regency, regency) ||
+        !read(monarch + l.monarch_leader, leader)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.kind = kind;
+    out.country = tag_text(own, l);
+    out.flags = (female != 0 ? ANVIL_GAME_MONARCH_FEMALE : 0u) | (regency != 0 ? ANVIL_GAME_MONARCH_REGENCY : 0u);
+    out.adm = skills[0];
+    out.dip = skills[1];
+    out.mil = skills[2];
+    out.claim = 0;
+    if (kind == ANVIL_GAME_MONARCH_HEIR && !read(monarch + l.claim, out.claim)) return ANVIL_ERROR_INTERNAL;
+    out.birth = decode_date(birth);
+    const bool is_leader = static_cast<std::uint32_t>(leader) == l.leader_type && (leader >> 32) != 0;
+    out.leader = is_leader ? leader : 0;
+    return ANVIL_OK;
+}
+
+AnvilResult read_monarch_name(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::string& utf8) {
+    std::uintptr_t country = 0, monarch = 0;
+    if (const AnvilResult r = monarch_at(l, tag, kind, country, monarch); r != ANVIL_OK) return r;
+    std::string name;
+    if (!read_string(monarch + l.monarch_name, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_monarch_dynasty(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::string& utf8) {
+    std::uintptr_t country = 0, monarch = 0, dynasty = 0;
+    if (const AnvilResult r = monarch_at(l, tag, kind, country, monarch); r != ANVIL_OK) return r;
+    std::string name;
+    if (!shown_dynasty(l, country, monarch, dynasty)) return ANVIL_ERROR_INTERNAL;
+    if (dynasty == 0) return ANVIL_ERROR_NOT_FOUND;
+    if (!read_string(dynasty + l.dynasty_name, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_flag_id(const WorldLayout& l, std::string_view name, std::int32_t& id) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t begin = 0;
+    std::size_t count = 0;
+    if (!flag_name_range(l, begin, count)) return ANVIL_ERROR_INTERNAL;
+    std::string text;
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!read_string(begin + i * 0x20, text)) return ANVIL_ERROR_INTERNAL;
+        if (text == name) {
+            id = static_cast<std::int32_t>(i);
+            return ANVIL_OK;
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+AnvilResult read_flag_name(const WorldLayout& l, std::int32_t id, std::string& utf8) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t begin = 0;
+    std::size_t count = 0;
+    if (!flag_name_range(l, begin, count)) return ANVIL_ERROR_INTERNAL;
+    if (id < 0 || static_cast<std::size_t>(id) >= count) return ANVIL_ERROR_NOT_FOUND;
+    std::string name;
+    if (!read_string(begin + static_cast<std::uintptr_t>(id) * 0x20, name)) return ANVIL_ERROR_INTERNAL;
+    utf8 = game_text_to_utf8(name);
+    return ANVIL_OK;
+}
+
+AnvilResult read_country_flags(const WorldLayout& l, std::string_view tag, std::vector<FlagEntry>& out) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    out.clear();
+    return append_flags(l, country + l.country_flags, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+AnvilResult read_province_flags(const WorldLayout& l, std::int32_t province, std::vector<FlagEntry>& out) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t p = 0;
+    if (const AnvilResult r = province_at(l, province, p); r != ANVIL_OK) return r;
+    out.clear();
+    return append_flags(l, p + l.province_flags, out) && append_flags(l, p + l.permanent_flags, out)
+               ? ANVIL_OK
+               : ANVIL_ERROR_INTERNAL;
+}
+
+AnvilResult read_monarch_flags(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::vector<FlagEntry>& out) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0, monarch = 0;
+    if (const AnvilResult r = monarch_at(l, tag, kind, country, monarch); r != ANVIL_OK) return r;
+    out.clear();
+    return append_flags(l, monarch + l.monarch_flags, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+AnvilResult read_global_flags(const WorldLayout& l, std::vector<FlagEntry>& out) {
+    if (l.flag_names == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t root = 0;
+    if (!read_root(l, root)) return ANVIL_ERROR_INTERNAL;
+    out.clear();
+    return append_flags(l, root + l.global_flags, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+AnvilResult read_country_variables(const WorldLayout& l, std::string_view tag, std::vector<VariableEntry>& out) {
+    if (l.variable_head == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    return read_variables(l, country + l.country_variables, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+AnvilResult read_province_variables(const WorldLayout& l, std::int32_t province, std::vector<VariableEntry>& out) {
+    if (l.variable_head == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t p = 0;
+    if (const AnvilResult r = province_at(l, province, p); r != ANVIL_OK) return r;
+    return read_variables(l, p + l.province_variables, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
 }
 
 }  // namespace anvil_game

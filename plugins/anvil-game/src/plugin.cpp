@@ -714,13 +714,206 @@ AnvilResult world_selected_units(AnvilGameUnitRef* out, std::uint32_t capacity, 
     }
 }
 
+// ---- rulers, flags and variables (1.20.0) ----
+
+// The current session's number, for the dates these answers carry.
+std::uint64_t current_session_number() {
+    AnvilGameSession s{};
+    return service_session(&s) != 0 ? s.number : 0;
+}
+
+bool known_monarch(std::uint32_t kind) {
+    return kind == ANVIL_GAME_MONARCH_RULER || kind == ANVIL_GAME_MONARCH_HEIR || kind == ANVIL_GAME_MONARCH_CONSORT;
+}
+
+AnvilResult world_monarch(const char* tag, std::uint32_t kind, AnvilGameMonarch* out) {
+    if (tag == nullptr || out == nullptr || out->size < sizeof(out->size) || !known_monarch(kind)) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    AnvilGameMonarch monarch{};
+    const AnvilResult r = anvil_game::read_monarch(g_world, tag, kind, monarch);
+    if (r != ANVIL_OK) return r;
+    monarch.birth.session = current_session_number();
+    return give(out, monarch);
+}
+
+using MonarchText = AnvilResult (*)(const WorldLayout&, std::string_view, std::uint32_t, std::string&);
+
+AnvilResult monarch_text(MonarchText read, const char* tag, std::uint32_t kind, char* utf8, std::uint32_t capacity,
+                         std::uint32_t* length) {
+    if (tag == nullptr || (capacity != 0 && utf8 == nullptr) || !known_monarch(kind)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string text;
+        const AnvilResult r = read(g_world, tag, kind, text);
+        return r == ANVIL_OK ? give_text(text, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_monarch_name(const char* tag, std::uint32_t kind, char* utf8, std::uint32_t capacity,
+                               std::uint32_t* length) {
+    return monarch_text(anvil_game::read_monarch_name, tag, kind, utf8, capacity, length);
+}
+
+AnvilResult world_monarch_dynasty(const char* tag, std::uint32_t kind, char* utf8, std::uint32_t capacity,
+                                  std::uint32_t* length) {
+    return monarch_text(anvil_game::read_monarch_dynasty, tag, kind, utf8, capacity, length);
+}
+
+AnvilResult world_flag_id(const char* name, std::int32_t* id) {
+    if (name == nullptr || name[0] == '\0' || id == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        return anvil_game::read_flag_id(g_world, name, *id);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_flag_name(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && utf8 == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string name;
+        const AnvilResult r = anvil_game::read_flag_name(g_world, id, name);
+        return r == ANVIL_OK ? give_text(name, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+// The flags' answer, with the dates decoded for the current session.
+template <class Read>
+AnvilResult give_flags(Read read, AnvilGameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::FlagEntry> entries;
+        const AnvilResult r = read(entries);
+        if (r != ANVIL_OK) return r;
+        const std::uint64_t session = current_session_number();
+        std::vector<AnvilGameFlag> flags;
+        flags.reserve(entries.size());
+        for (const auto& e : entries) {
+            AnvilGameFlag f{};
+            f.id = e.id;
+            f.date = anvil_game::decode_date(e.hours);
+            f.date.session = session;
+            flags.push_back(f);
+        }
+        give_list(flags, out, capacity, count);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_country_flags(const char* tag, AnvilGameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_flags([&](auto& e) { return anvil_game::read_country_flags(g_world, tag, e); }, out, capacity, count);
+}
+
+AnvilResult world_province_flags(std::int32_t province, AnvilGameFlag* out, std::uint32_t capacity,
+                                 std::uint32_t* count) {
+    return give_flags([&](auto& e) { return anvil_game::read_province_flags(g_world, province, e); }, out, capacity,
+                      count);
+}
+
+AnvilResult world_monarch_flags(const char* tag, std::uint32_t kind, AnvilGameFlag* out, std::uint32_t capacity,
+                                std::uint32_t* count) {
+    if (tag == nullptr || !known_monarch(kind)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_flags([&](auto& e) { return anvil_game::read_monarch_flags(g_world, tag, kind, e); }, out, capacity,
+                      count);
+}
+
+AnvilResult world_global_flags(AnvilGameFlag* out, std::uint32_t capacity, std::uint32_t* count) {
+    return give_flags([&](auto& e) { return anvil_game::read_global_flags(g_world, e); }, out, capacity, count);
+}
+
+// One variable by its name, from the scope's list.
+template <class Read>
+AnvilResult give_variable(Read read, const char* name, std::int32_t* value) {
+    if (name == nullptr || name[0] == '\0' || value == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::VariableEntry> variables;
+        const AnvilResult r = read(variables);
+        if (r != ANVIL_OK) return r;
+        for (const auto& v : variables) {
+            if (v.name == name) {
+                *value = v.value;
+                return ANVIL_OK;
+            }
+        }
+        return ANVIL_ERROR_NOT_FOUND;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+// The names, each with its NUL, whole names as far as they fit.
+template <class Read>
+AnvilResult give_variable_names(Read read, char* names, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && names == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::VariableEntry> variables;
+        const AnvilResult r = read(variables);
+        if (r != ANVIL_OK) return r;
+        std::size_t whole = 0, written = 0;
+        bool fits = true;
+        for (const auto& v : variables) {
+            const std::string name = anvil_game::game_text_to_utf8(v.name);
+            whole += name.size() + 1;
+            if (fits && written + name.size() + 1 <= capacity) {
+                std::memcpy(names + written, name.c_str(), name.size() + 1);
+                written += name.size() + 1;
+            } else {
+                fits = false;
+            }
+        }
+        if (length != nullptr) *length = static_cast<std::uint32_t>(whole);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_country_variable(const char* tag, const char* name, std::int32_t* value) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_variable([&](auto& v) { return anvil_game::read_country_variables(g_world, tag, v); }, name, value);
+}
+
+AnvilResult world_province_variable(std::int32_t province, const char* name, std::int32_t* value) {
+    return give_variable([&](auto& v) { return anvil_game::read_province_variables(g_world, province, v); }, name,
+                         value);
+}
+
+AnvilResult world_country_variable_names(const char* tag, char* names, std::uint32_t capacity, std::uint32_t* length) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_variable_names([&](auto& v) { return anvil_game::read_country_variables(g_world, tag, v); }, names,
+                               capacity, length);
+}
+
+AnvilResult world_province_variable_names(std::int32_t province, char* names, std::uint32_t capacity,
+                                          std::uint32_t* length) {
+    return give_variable_names([&](auto& v) { return anvil_game::read_province_variables(g_world, province, v); },
+                               names, capacity, length);
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
     world_war_ids,                 world_war,            world_war_name,       world_war_side,
     world_modifier_id,             world_country_modifier, world_province_modifier,
     world_country_units,           world_unit,             world_unit_name,      world_unit_leader_name,
-    world_selected_units,
+    world_selected_units,          world_monarch,          world_monarch_name,   world_monarch_dynasty,
+    world_flag_id,                 world_flag_name,        world_country_flags,  world_province_flags,
+    world_monarch_flags,           world_global_flags,     world_country_variable, world_province_variable,
+    world_country_variable_names,  world_province_variable_names,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -739,6 +932,9 @@ void load_world(anvil::Host& host) {
     }
     const std::uintptr_t base = host.game().image_base;
     const std::uint64_t root = host.value(sym::root_and_date, "root");
+    WorldLayout l;
+    l.image_begin = base;
+    l.image_end = base + host.game().image_size;
     if (host.value(sym::province_count, "root") != root || host.value(sym::province_is_sea, "root") != root ||
         host.value(sym::province_is_wasteland, "root") != root ||
         host.value(sym::player_country, "countries_db") != host.value(sym::province_base_tax, "countries_db") ||
@@ -746,7 +942,6 @@ void load_world(anvil::Host& host) {
         host.warn("the world's symbols disagree on the game root: no service {}", ANVIL_GAME_WORLD_SERVICE);
         return;
     }
-    WorldLayout l;
     l.root = base + root;
     l.countries_db = base + host.value(sym::province_base_tax, "countries_db");
     l.provinces = sym::province_count.provinces;
@@ -818,8 +1013,6 @@ void load_world(anvil::Host& host) {
         host.present(sym::unit_id) && host.present(sym::unit_strength) && host.present(sym::unit_mission_type) &&
         host.present(sym::selection) && host.present(sym::selection_walk) && host.present(sym::leader_id) &&
         host.present(sym::leader_name)) {
-        l.image_begin = base;
-        l.image_end = base + host.game().image_size;
         // The walk over the selection reads the same kind of list from the
         // map input as a country holds its units in: head, count, next.
         l.list_head = 0;
@@ -848,6 +1041,64 @@ void load_world(anvil::Host& host) {
             host.warn("the unit symbols disagree on the selection: no unit reads");
             l.units = 0;
         }
+    }
+    if (host.present(sym::monarch_of_type) && host.present(sym::null_monarch) && host.present(sym::null_heir) &&
+        host.present(sym::null_consort) && host.present(sym::leader_id) && host.present(sym::monarch_name) &&
+        host.present(sym::monarch_skills) && host.present(sym::monarch_birth) && host.present(sym::monarch_female) &&
+        host.present(sym::monarch_leader) && host.present(sym::monarch_regency) && host.present(sym::monarch_dynasty) &&
+        host.present(sym::dynasty_name) && host.present(sym::heir_claim)) {
+        l.ruler = sym::monarch_of_type.ruler;
+        l.heir = sym::monarch_of_type.heir;
+        l.consort = sym::monarch_of_type.consort;
+        l.null_monarch = base + host.value(sym::null_monarch, "instance");
+        l.null_heir = base + host.value(sym::null_heir, "instance");
+        l.null_consort = base + host.value(sym::null_consort, "instance");
+        l.object_id = sym::leader_id.offset;
+        l.monarch_name = sym::monarch_name.name;
+        l.skills = sym::monarch_skills.skills;
+        l.birth = sym::monarch_birth.birth;
+        l.female = sym::monarch_female.female;
+        l.monarch_leader = sym::monarch_leader.leader;
+        l.leader_type = sym::monarch_leader.leader_type;
+        l.regency = sym::monarch_regency.regency;
+        l.queen_regent_slot = sym::monarch_regency.queen_regent_slot;
+        l.dynasty = sym::monarch_dynasty.dynasty;
+        l.dynasty_name = sym::dynasty_name.name;
+        l.claim = sym::heir_claim.claim;
+    }
+    if (host.present(sym::flag_dates) && host.present(sym::flag_names) && host.present(sym::country_flags) &&
+        host.present(sym::province_flags) && host.present(sym::global_flags) && host.present(sym::monarch_flags)) {
+        constexpr std::uint32_t begin = sym::flag_dates.begin;
+        // Each place reads a CIntegerFlags' index vector: its begin and end, 8 bytes apart.
+        static_assert(sym::flag_dates.end == begin + 8 && sym::province_flags.flags_end == sym::province_flags.flags_begin + 8 &&
+                      sym::province_flags.permanent_end == sym::province_flags.permanent_begin + 8 &&
+                      sym::global_flags.end == sym::global_flags.begin + 8 && sym::province_flags.flags_begin >= begin &&
+                      sym::province_flags.permanent_begin >= begin && sym::global_flags.begin >= begin,
+                      "the flag symbols disagree on CIntegerFlags");
+        if (host.value(sym::global_flags, "root") == root) {
+            l.flag_names = base + host.value(sym::flag_names, "names");
+            l.flags_begin = begin;
+            l.flags_end = sym::flag_dates.end;
+            l.flag_dates = sym::flag_dates.dates;
+            l.country_flags = sym::country_flags.flags;
+            l.province_flags = sym::province_flags.flags_begin - begin;
+            l.permanent_flags = sym::province_flags.permanent_begin - begin;
+            l.global_flags = sym::global_flags.begin - begin;
+            l.monarch_flags = sym::monarch_flags.flags;
+        } else {
+            host.warn("the flag symbols disagree on the game root: no flag reads");
+        }
+    }
+    if (host.present(sym::country_variables) && host.present(sym::province_variables) &&
+        host.present(sym::variable_list)) {
+        static_assert(sym::country_variables.countries == sym::province_base_tax.countries &&
+                          sym::province_variables.province_array == sym::province_is_sea.province_array &&
+                          sym::variable_list.fixed_point >= 0x20,
+                      "the variable symbols disagree on the game's layout");
+        l.country_variables = sym::country_variables.variables;
+        l.province_variables = sym::province_variables.variables;
+        l.variable_head = sym::variable_list.head;
+        l.variable_value = sym::variable_list.fixed_point;
     }
     g_world = l;
     g_world_available = true;

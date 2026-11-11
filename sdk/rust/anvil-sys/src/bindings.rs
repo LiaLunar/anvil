@@ -52,6 +52,11 @@ pub const ANVIL_GAME_MISSION_EXPLORE_LAND: u32 = 12;
 pub const ANVIL_GAME_MISSION_HUNT_REBELS: u32 = 13;
 pub const ANVIL_GAME_MISSION_SIEGE: u32 = 14;
 pub const ANVIL_GAME_MISSION_DRILL: u32 = 15;
+pub const ANVIL_GAME_MONARCH_RULER: u32 = 0;
+pub const ANVIL_GAME_MONARCH_HEIR: u32 = 1;
+pub const ANVIL_GAME_MONARCH_CONSORT: u32 = 2;
+pub const ANVIL_GAME_MONARCH_FEMALE: u32 = 1;
+pub const ANVIL_GAME_MONARCH_REGENCY: u32 = 2;
 pub const ANVIL_GAME_WORLD_SERVICE: &[u8; 17] = b"anvil-game.world\0";
 pub const ANVIL_GAME_WORLD_SERVICE_VERSION: u32 = 1;
 pub const ANVIL_GAME_COMMAND_DRILL: u32 = 1;
@@ -1088,6 +1093,82 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct AnvilGameMonarch {
+    pub size: u32,
+    pub kind: u32,
+    pub id: u64,
+    pub country: AnvilGameTag,
+    pub flags: u32,
+    pub adm: i32,
+    pub dip: i32,
+    pub mil: i32,
+    pub claim: i32,
+    pub birth: AnvilGameDate,
+    pub leader: u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of AnvilGameMonarch"][::core::mem::size_of::<AnvilGameMonarch>() - 72usize];
+    [
+        "Alignment of AnvilGameMonarch",
+    ][::core::mem::align_of::<AnvilGameMonarch>() - 8usize];
+    [
+        "Offset of field: AnvilGameMonarch::size",
+    ][::core::mem::offset_of!(AnvilGameMonarch, size) - 0usize];
+    [
+        "Offset of field: AnvilGameMonarch::kind",
+    ][::core::mem::offset_of!(AnvilGameMonarch, kind) - 4usize];
+    [
+        "Offset of field: AnvilGameMonarch::id",
+    ][::core::mem::offset_of!(AnvilGameMonarch, id) - 8usize];
+    [
+        "Offset of field: AnvilGameMonarch::country",
+    ][::core::mem::offset_of!(AnvilGameMonarch, country) - 16usize];
+    [
+        "Offset of field: AnvilGameMonarch::flags",
+    ][::core::mem::offset_of!(AnvilGameMonarch, flags) - 20usize];
+    [
+        "Offset of field: AnvilGameMonarch::adm",
+    ][::core::mem::offset_of!(AnvilGameMonarch, adm) - 24usize];
+    [
+        "Offset of field: AnvilGameMonarch::dip",
+    ][::core::mem::offset_of!(AnvilGameMonarch, dip) - 28usize];
+    [
+        "Offset of field: AnvilGameMonarch::mil",
+    ][::core::mem::offset_of!(AnvilGameMonarch, mil) - 32usize];
+    [
+        "Offset of field: AnvilGameMonarch::claim",
+    ][::core::mem::offset_of!(AnvilGameMonarch, claim) - 36usize];
+    [
+        "Offset of field: AnvilGameMonarch::birth",
+    ][::core::mem::offset_of!(AnvilGameMonarch, birth) - 40usize];
+    [
+        "Offset of field: AnvilGameMonarch::leader",
+    ][::core::mem::offset_of!(AnvilGameMonarch, leader) - 64usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameFlag {
+    pub id: i32,
+    pub reserved: u32,
+    pub date: AnvilGameDate,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of AnvilGameFlag"][::core::mem::size_of::<AnvilGameFlag>() - 32usize];
+    ["Alignment of AnvilGameFlag"][::core::mem::align_of::<AnvilGameFlag>() - 8usize];
+    [
+        "Offset of field: AnvilGameFlag::id",
+    ][::core::mem::offset_of!(AnvilGameFlag, id) - 0usize];
+    [
+        "Offset of field: AnvilGameFlag::reserved",
+    ][::core::mem::offset_of!(AnvilGameFlag, reserved) - 4usize];
+    [
+        "Offset of field: AnvilGameFlag::date",
+    ][::core::mem::offset_of!(AnvilGameFlag, date) - 8usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct AnvilGameWorldService {
     pub size: u32,
     pub player: ::core::option::Option<
@@ -1207,12 +1288,110 @@ pub struct AnvilGameWorldService {
             count: *mut u32,
         ) -> AnvilResult,
     >,
+    pub monarch: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            out: *mut AnvilGameMonarch,
+        ) -> AnvilResult,
+    >,
+    pub monarch_name: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub monarch_dynasty: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub flag_id: ::core::option::Option<
+        unsafe extern "C" fn(name: *const core::ffi::c_char, id: *mut i32) -> AnvilResult,
+    >,
+    pub flag_name: ::core::option::Option<
+        unsafe extern "C" fn(
+            id: i32,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub country_flags: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            out: *mut AnvilGameFlag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub province_flags: ::core::option::Option<
+        unsafe extern "C" fn(
+            province: i32,
+            out: *mut AnvilGameFlag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub monarch_flags: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            out: *mut AnvilGameFlag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub global_flags: ::core::option::Option<
+        unsafe extern "C" fn(
+            out: *mut AnvilGameFlag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub country_variable: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            name: *const core::ffi::c_char,
+            value: *mut i32,
+        ) -> AnvilResult,
+    >,
+    pub province_variable: ::core::option::Option<
+        unsafe extern "C" fn(
+            province: i32,
+            name: *const core::ffi::c_char,
+            value: *mut i32,
+        ) -> AnvilResult,
+    >,
+    pub country_variable_names: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            names: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub province_variable_names: ::core::option::Option<
+        unsafe extern "C" fn(
+            province: i32,
+            names: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
         "Size of AnvilGameWorldService",
-    ][::core::mem::size_of::<AnvilGameWorldService>() - 160usize];
+    ][::core::mem::size_of::<AnvilGameWorldService>() - 264usize];
     [
         "Alignment of AnvilGameWorldService",
     ][::core::mem::align_of::<AnvilGameWorldService>() - 8usize];
@@ -1276,6 +1455,46 @@ const _: () = {
     [
         "Offset of field: AnvilGameWorldService::selected_units",
     ][::core::mem::offset_of!(AnvilGameWorldService, selected_units) - 152usize];
+    [
+        "Offset of field: AnvilGameWorldService::monarch",
+    ][::core::mem::offset_of!(AnvilGameWorldService, monarch) - 160usize];
+    [
+        "Offset of field: AnvilGameWorldService::monarch_name",
+    ][::core::mem::offset_of!(AnvilGameWorldService, monarch_name) - 168usize];
+    [
+        "Offset of field: AnvilGameWorldService::monarch_dynasty",
+    ][::core::mem::offset_of!(AnvilGameWorldService, monarch_dynasty) - 176usize];
+    [
+        "Offset of field: AnvilGameWorldService::flag_id",
+    ][::core::mem::offset_of!(AnvilGameWorldService, flag_id) - 184usize];
+    [
+        "Offset of field: AnvilGameWorldService::flag_name",
+    ][::core::mem::offset_of!(AnvilGameWorldService, flag_name) - 192usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_flags",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_flags) - 200usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_flags",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_flags) - 208usize];
+    [
+        "Offset of field: AnvilGameWorldService::monarch_flags",
+    ][::core::mem::offset_of!(AnvilGameWorldService, monarch_flags) - 216usize];
+    [
+        "Offset of field: AnvilGameWorldService::global_flags",
+    ][::core::mem::offset_of!(AnvilGameWorldService, global_flags) - 224usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_variable",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_variable) - 232usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_variable",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_variable) - 240usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_variable_names",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_variable_names) - 248usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_variable_names",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_variable_names)
+        - 256usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

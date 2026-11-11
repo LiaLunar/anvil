@@ -1,5 +1,6 @@
 //! `anvil-game.world`: the world of the running session, read straight from
-//! the game (anvil-game 1.11.0; modifiers, units and the selection 1.15.0).
+//! the game (anvil-game 1.11.0; modifiers, units and the selection 1.15.0;
+//! rulers, heirs, consorts, flags and variables 1.20.0).
 //!
 //! **Thread.** Call it only on the game's main thread after an outer frame:
 //! from a handler of an anvil-game event ([`game`](crate::game)) or from
@@ -26,14 +27,17 @@ use std::fmt;
 use std::mem::size_of;
 
 use crate::error::{check, Result};
+use crate::game::Date;
 use crate::host::Host;
 use crate::sys::{
-    AnvilGameCountry, AnvilGameProvince, AnvilGameTag, AnvilGameUnit, AnvilGameUnitRef,
-    AnvilGameWar, AnvilGameWorldService, ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_PROVINCE_LAND,
-    ANVIL_GAME_PROVINCE_WASTELAND, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
-    ANVIL_GAME_VALUE_MANPOWER, ANVIL_GAME_VALUE_MONTHLY_INCOME, ANVIL_GAME_VALUE_PRESTIGE,
-    ANVIL_GAME_VALUE_STABILITY, ANVIL_GAME_VALUE_TREASURY, ANVIL_GAME_WAR_ATTACKERS,
-    ANVIL_GAME_WAR_DEFENDERS, ANVIL_GAME_WORLD_SERVICE_VERSION,
+    AnvilGameCountry, AnvilGameDate, AnvilGameFlag, AnvilGameMonarch, AnvilGameProvince,
+    AnvilGameTag, AnvilGameUnit, AnvilGameUnitRef, AnvilGameWar, AnvilGameWorldService,
+    ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_MONARCH_CONSORT, ANVIL_GAME_MONARCH_FEMALE,
+    ANVIL_GAME_MONARCH_HEIR, ANVIL_GAME_MONARCH_REGENCY, ANVIL_GAME_MONARCH_RULER,
+    ANVIL_GAME_PROVINCE_LAND, ANVIL_GAME_PROVINCE_WASTELAND, ANVIL_GAME_UNIT_ARMY,
+    ANVIL_GAME_UNIT_NAVY, ANVIL_GAME_VALUE_MANPOWER, ANVIL_GAME_VALUE_MONTHLY_INCOME,
+    ANVIL_GAME_VALUE_PRESTIGE, ANVIL_GAME_VALUE_STABILITY, ANVIL_GAME_VALUE_TREASURY,
+    ANVIL_GAME_WAR_ATTACKERS, ANVIL_GAME_WAR_DEFENDERS, ANVIL_GAME_WORLD_SERVICE_VERSION,
 };
 use crate::text::{read_list, read_text, Tag};
 
@@ -205,6 +209,75 @@ pub struct UnitRef {
 /// The id of a modifier, from its script key ([`World::modifier_id`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ModifierId(pub i32);
+
+/// A country's ruler, heir or consort (anvil-game 1.20.0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MonarchKind {
+    /// The ruler.
+    Ruler,
+    /// The heir.
+    Heir,
+    /// The consort.
+    Consort,
+}
+
+impl MonarchKind {
+    fn raw(self) -> u32 {
+        match self {
+            Self::Ruler => ANVIL_GAME_MONARCH_RULER,
+            Self::Heir => ANVIL_GAME_MONARCH_HEIR,
+            Self::Consort => ANVIL_GAME_MONARCH_CONSORT,
+        }
+    }
+
+    fn from_raw(kind: u32) -> Self {
+        match kind {
+            ANVIL_GAME_MONARCH_HEIR => Self::Heir,
+            ANVIL_GAME_MONARCH_CONSORT => Self::Consort,
+            _ => Self::Ruler,
+        }
+    }
+}
+
+/// A ruler, heir or consort, as the game stores them.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Monarch {
+    /// Ruler, heir or consort.
+    pub kind: MonarchKind,
+    /// The game's id of the person.
+    pub id: u64,
+    /// The country asked about.
+    pub country: Option<Tag>,
+    /// Female.
+    pub female: bool,
+    /// A regency council or a regent rules for them.
+    pub regency: bool,
+    /// Administrative skill, without modifiers.
+    pub adm: i32,
+    /// Diplomatic skill.
+    pub dip: i32,
+    /// Military skill.
+    pub mil: i32,
+    /// An heir's claim strength; 0 for a ruler or a consort.
+    pub claim: Milli,
+    /// The birth date.
+    pub birth: Date,
+    /// The id of the leader they also are ([`Unit::leader`]); `None` for none.
+    pub leader: Option<u64>,
+}
+
+/// The id of a flag, from its name ([`World::flag_id`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct FlagId(pub i32);
+
+/// A flag that is set, and when it was set.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Flag {
+    /// Its id; [`World::flag_name`] gives the name.
+    pub id: FlagId,
+    /// When it was set.
+    pub date: Date,
+}
 
 /// The `anvil-game.world` service.
 #[derive(Clone, Copy)]
@@ -506,4 +579,201 @@ impl World {
             })
             .collect())
     }
+
+    /// A country's ruler, heir or consort. `NotFound` when it has none: the
+    /// game then holds a placeholder that every such country shares, and the
+    /// service never reads it. A country no longer on the map keeps its last
+    /// ruler: check [`Country::province_count`] when that matters.
+    pub fn monarch(&self, tag: Tag, kind: MonarchKind) -> Result<Monarch> {
+        let f = function!(self.table, AnvilGameWorldService, monarch)?;
+        let text = tag.c_text();
+        let mut raw: AnvilGameMonarch = sized();
+        // SAFETY: a NUL-terminated tag; `size` says how much it may write.
+        check(unsafe { f(text.as_ptr(), kind.raw(), &mut raw) }, || {
+            format!("world monarch {tag} {kind:?}")
+        })?;
+        Ok(Monarch {
+            kind: MonarchKind::from_raw(raw.kind),
+            id: raw.id,
+            country: Tag::from_raw(&raw.country),
+            female: raw.flags & ANVIL_GAME_MONARCH_FEMALE != 0,
+            regency: raw.flags & ANVIL_GAME_MONARCH_REGENCY != 0,
+            adm: raw.adm,
+            dip: raw.dip,
+            mil: raw.mil,
+            claim: Milli(raw.claim),
+            birth: Date::from_raw(&raw.birth),
+            leader: (raw.leader != 0).then_some(raw.leader),
+        })
+    }
+
+    /// Their name as the game keeps it; empty in an interregnum.
+    pub fn monarch_name(&self, tag: Tag, kind: MonarchKind) -> Result<String> {
+        let f = function!(self.table, AnvilGameWorldService, monarch_name)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` bytes.
+        read_text(
+            || format!("world monarch_name {tag} {kind:?}"),
+            |buffer, capacity, length| unsafe {
+                f(text.as_ptr(), kind.raw(), buffer, capacity, length)
+            },
+        )
+    }
+
+    /// Their dynasty as the game shows it (a regency council shows the heir's).
+    pub fn monarch_dynasty(&self, tag: Tag, kind: MonarchKind) -> Result<String> {
+        let f = function!(self.table, AnvilGameWorldService, monarch_dynasty)?;
+        let text = tag.c_text();
+        // SAFETY: as in monarch_name.
+        read_text(
+            || format!("world monarch_dynasty {tag} {kind:?}"),
+            |buffer, capacity, length| unsafe {
+                f(text.as_ptr(), kind.raw(), buffer, capacity, length)
+            },
+        )
+    }
+
+    /// The id of a flag from its name, case included. It holds as long as the
+    /// game runs: ask once. `NotFound` for a name nothing has set yet in this
+    /// run of the game.
+    pub fn flag_id(&self, name: &str) -> Result<FlagId> {
+        let f = function!(self.table, AnvilGameWorldService, flag_id)?;
+        let name_c = crate::text::c_string(name);
+        let mut id = 0i32;
+        // SAFETY: a NUL-terminated name and an out pointer.
+        check(unsafe { f(name_c.as_ptr(), &mut id) }, || {
+            format!("world flag_id {name}")
+        })?;
+        Ok(FlagId(id))
+    }
+
+    /// A flag's name.
+    pub fn flag_name(&self, id: FlagId) -> Result<String> {
+        let f = function!(self.table, AnvilGameWorldService, flag_name)?;
+        // SAFETY: the service fills at most `capacity` bytes.
+        read_text(
+            || format!("world flag_name {}", id.0),
+            |buffer, capacity, length| unsafe { f(id.0, buffer, capacity, length) },
+        )
+    }
+
+    /// A country's flags, with the date each was set.
+    pub fn country_flags(&self, tag: Tag) -> Result<Vec<Flag>> {
+        let f = function!(self.table, AnvilGameWorldService, country_flags)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` flags.
+        flags(
+            || format!("world country_flags {tag}"),
+            |out, capacity, count| unsafe { f(text.as_ptr(), out, capacity, count) },
+        )
+    }
+
+    /// A province's flags as `has_province_flag` sees them, its permanent ones included.
+    pub fn province_flags(&self, province: i32) -> Result<Vec<Flag>> {
+        let f = function!(self.table, AnvilGameWorldService, province_flags)?;
+        // SAFETY: the service fills at most `capacity` flags.
+        flags(
+            || format!("world province_flags {province}"),
+            |out, capacity, count| unsafe { f(province, out, capacity, count) },
+        )
+    }
+
+    /// A ruler's, heir's or consort's flags; `NotFound` as for [`World::monarch`].
+    pub fn monarch_flags(&self, tag: Tag, kind: MonarchKind) -> Result<Vec<Flag>> {
+        let f = function!(self.table, AnvilGameWorldService, monarch_flags)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` flags.
+        flags(
+            || format!("world monarch_flags {tag} {kind:?}"),
+            |out, capacity, count| unsafe { f(text.as_ptr(), kind.raw(), out, capacity, count) },
+        )
+    }
+
+    /// The global flags.
+    pub fn global_flags(&self) -> Result<Vec<Flag>> {
+        let f = function!(self.table, AnvilGameWorldService, global_flags)?;
+        // SAFETY: the service fills at most `capacity` flags.
+        flags(
+            || "world global_flags".to_owned(),
+            |out, capacity, count| unsafe { f(out, capacity, count) },
+        )
+    }
+
+    /// A country's variable by its name, case included. `NotFound` when it
+    /// has none of that name (the game's triggers take that as 0).
+    pub fn country_variable(&self, tag: Tag, name: &str) -> Result<Milli> {
+        let f = function!(self.table, AnvilGameWorldService, country_variable)?;
+        let text = tag.c_text();
+        let name_c = crate::text::c_string(name);
+        let mut value = 0i32;
+        // SAFETY: a NUL-terminated tag and name, and an out pointer.
+        let result = unsafe { f(text.as_ptr(), name_c.as_ptr(), &mut value) };
+        check(result, || format!("world country_variable {tag} {name}"))?;
+        Ok(Milli(value))
+    }
+
+    /// A province's variable by its name.
+    pub fn province_variable(&self, province: i32, name: &str) -> Result<Milli> {
+        let f = function!(self.table, AnvilGameWorldService, province_variable)?;
+        let name_c = crate::text::c_string(name);
+        let mut value = 0i32;
+        // SAFETY: a NUL-terminated name and an out pointer.
+        check(unsafe { f(province, name_c.as_ptr(), &mut value) }, || {
+            format!("world province_variable {province} {name}")
+        })?;
+        Ok(Milli(value))
+    }
+
+    /// The names of a country's variables, in the game's order.
+    pub fn country_variable_names(&self, tag: Tag) -> Result<Vec<String>> {
+        let f = function!(self.table, AnvilGameWorldService, country_variable_names)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` bytes.
+        let all = read_text(
+            || format!("world country_variable_names {tag}"),
+            |buffer, capacity, length| unsafe { f(text.as_ptr(), buffer, capacity, length) },
+        )?;
+        Ok(split_names(&all))
+    }
+
+    /// The names of a province's variables, in the game's order.
+    pub fn province_variable_names(&self, province: i32) -> Result<Vec<String>> {
+        let f = function!(self.table, AnvilGameWorldService, province_variable_names)?;
+        // SAFETY: the service fills at most `capacity` bytes.
+        let all = read_text(
+            || format!("world province_variable_names {province}"),
+            |buffer, capacity, length| unsafe { f(province, buffer, capacity, length) },
+        )?;
+        Ok(split_names(&all))
+    }
+}
+
+/// Names that each end with a NUL, one after the other.
+fn split_names(all: &str) -> Vec<String> {
+    all.split_terminator('\0').map(str::to_owned).collect()
+}
+
+fn flags(
+    context: impl Fn() -> String,
+    call: impl FnMut(*mut AnvilGameFlag, u32, *mut u32) -> crate::sys::AnvilResult,
+) -> Result<Vec<Flag>> {
+    let empty = AnvilGameFlag {
+        id: 0,
+        reserved: 0,
+        date: AnvilGameDate {
+            size: 0,
+            year: 0,
+            month: 0,
+            day: 0,
+            session: 0,
+        },
+    };
+    let raw = read_list(empty, context, call)?;
+    Ok(raw
+        .iter()
+        .map(|f| Flag {
+            id: FlagId(f.id),
+            date: Date::from_raw(&f.date),
+        })
+        .collect())
 }

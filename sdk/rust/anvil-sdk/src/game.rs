@@ -77,7 +77,7 @@ pub struct Date {
 }
 
 impl Date {
-    fn from_raw(raw: &AnvilGameDate) -> Self {
+    pub(crate) fn from_raw(raw: &AnvilGameDate) -> Self {
         Self {
             year: raw.year,
             month: raw.month,

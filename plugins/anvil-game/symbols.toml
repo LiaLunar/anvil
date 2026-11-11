@@ -838,6 +838,281 @@ build."eu4-1.37.5-steam-win64" = { rva = 0xCF460 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xCF490 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0xCF490 }
 
+# --- rulers, heirs and consorts (anvil-game.world) --------------------------------
+# A country without a ruler, an heir or a consort points at the game's
+# placeholder of that kind: one object per process, shared by every country and
+# never reset (eu4-engine-lab#150). The service answers "none" for it and reads
+# nothing from it. All of these may be declared absent together.
+
+[symbol.monarch_of_type]
+bytes = "48 8B 81 B0 12 00 00 C3 48 8B 81 98 12 00 00 C3 48 8B 81 80 12 00 00 C3"
+memory = "code"
+values.consort = { at = 3, size = 4 }
+values.heir = { at = 11, size = 4 }
+values.ruler = { at = 19, size = 4 }
+note = "CCountry::GetMonarchOfType by EMonarchType (0 ruler, 1 heir, 2 queen): CMonarch* at +0x1280, +0x1298, +0x12B0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x409C58 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x409B28 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x409B28 }
+
+[symbol.null_monarch]
+memory = "code"
+values.instance = { at = 3, rip_relative = 7 }
+note = "CNullMonarch::GetNullMonarch: the placeholder ruler's global, null until first asked; it allocates 0x120 bytes once"
+
+[symbol.null_monarch.build."eu4-1.37.5-steam-win64"]
+rva = 0xA48A76
+bytes = "48 8B 05 23 75 8F 01 48 85 C0 0F 85 8E 00 00 00 B9 20 01 00 00"
+
+[symbol.null_monarch.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xA47A36
+bytes = "48 8B 05 E3 C3 8D 01 48 85 C0 0F 85 8E 00 00 00 B9 20 01 00 00"   # mov rax,[2323E20h] (CNullMonarch::_pNullMonarch)
+
+[symbol.null_monarch.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xA47A36
+bytes = "48 8B 05 E3 C3 8D 01 48 85 C0 0F 85 8E 00 00 00 B9 20 01 00 00"
+
+[symbol.null_heir]
+memory = "code"
+values.instance = { at = 3, rip_relative = 7 }
+note = "CNullHeir::GetNullHeir: the placeholder heir's global (0x150 bytes), which CCountry::ClearCurrentHeir puts in +0x1298"
+
+[symbol.null_heir.build."eu4-1.37.5-steam-win64"]
+rva = 0xA56926
+bytes = "48 8B 05 7B 96 8E 01 48 85 C0 75 61 B9 50 01 00 00"
+
+[symbol.null_heir.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xA558E6
+bytes = "48 8B 05 3B E5 8C 01 48 85 C0 75 61 B9 50 01 00 00"               # mov rax,[2323E28h] (CNullHeir::_pNullHeir)
+
+[symbol.null_heir.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xA558E6
+bytes = "48 8B 05 3B E5 8C 01 48 85 C0 75 61 B9 50 01 00 00"
+
+[symbol.null_consort]
+memory = "code"
+values.instance = { at = 3, rip_relative = 7 }
+note = "CNullQueen::GetNullQueen: the placeholder consort's global (0x150 bytes)"
+
+[symbol.null_consort.build."eu4-1.37.5-steam-win64"]
+rva = 0xA57B7A
+bytes = "48 8B 05 2F 84 8E 01 48 85 C0 75 7B B9 50 01 00 00"
+
+[symbol.null_consort.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xA56B3A
+bytes = "48 8B 05 EF D2 8C 01 48 85 C0 75 7B B9 50 01 00 00"               # mov rax,[2323E30h] (CNullQueen::_pNullQueen)
+
+[symbol.null_consort.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xA56B3A
+bytes = "48 8B 05 EF D2 8C 01 48 85 C0 75 7B B9 50 01 00 00"
+
+[symbol.monarch_name]
+bytes = "48 8D 57 28 48 83 7A 18 10 72 03 48 8B 12"
+memory = "code"
+values.name = { at = 3, size = 1 }
+note = "CMonarch::GetName: the name, a std::string at +0x28; empty in an interregnum, where the game shows a fixed text instead"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA4B273 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA4A233 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA4A233 }
+
+[symbol.monarch_skills]
+bytes = "48 63 C2 8B 44 81 48 C3"
+memory = "code"
+values.skills = { at = 6, size = 1 }
+note = "CMonarch::GetSkill by MonarchAbility (0 administrative, 1 diplomatic, 2 military): int32s at +0x48"
+build."eu4-1.37.5-steam-win64" = { rva = 0x988D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x98900 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x98900 }
+
+[symbol.monarch_birth]
+bytes = "48 83 EC 20 4C 8D 61 70 49 8B CC"
+memory = "code"
+values.birth = { at = 7, size = 1 }
+note = "CMonarch::GetAgeInYears: the birth date, a date in hours at +0x70"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA4E2EA }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA4D2AA }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA4D2AA }
+
+[symbol.monarch_female]
+bytes = "0F B6 41 74 C3"
+memory = "code"
+values.female = { at = 3, size = 1 }
+note = "CMonarch::IsFemale: a byte at +0x74"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2809C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x280970 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x280970 }
+
+[symbol.monarch_leader]
+bytes = "48 8D B9 98 00 00 00 83 3F 31 0F 85 A6 01 00 00"
+memory = "code"
+values.leader = { at = 3, size = 4 }
+values.leader_type = { at = 9, size = 1 }
+note = "CMonarch::GetLeader: the id of the leader they are (+0x98), a leader's when its type, the low half, is 0x31"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA4BFA1 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA4AF61 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA4AF61 }
+
+[symbol.monarch_regency]
+bytes = "48 8B 03 48 8B CB FF 50 60 84 C0 75 5D 48 83 7B 78 00 74 56"
+memory = "code"
+values.queen_regent_slot = { at = 8, size = 1 }
+values.regency = { at = 16, size = 1 }
+note = "CMonarch::GetDynasty: unless IsQueenRegent (vtable slot 0x60), a monarch with a regency (+0x78) whose country has a valid heir shows the heir's dynasty"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA4E500 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA4D4C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA4D4C0 }
+
+[symbol.monarch_dynasty]
+bytes = "48 8B 43 68 48 83 C4 20 5B C3"
+memory = "code"
+values.dynasty = { at = 3, size = 1 }
+note = "CMonarch::GetDynasty: otherwise its own, a CDynasty* at +0x68"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA4E56A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA4D52A }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA4D52A }
+
+[symbol.dynasty_name]
+bytes = "48 8D 41 08 C3"
+memory = "code"
+values.name = { at = 3, size = 1 }
+note = "CDynasty::GetKey: the dynasty's name, a std::string at +8"
+build."eu4-1.37.5-steam-win64" = { rva = 0xCC350 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xCC380 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xCC380 }
+
+[symbol.heir_claim]
+bytes = "8B 81 48 01 00 00 89 02 48 8B C2 C3"
+memory = "code"
+values.claim = { at = 2, size = 4 }
+note = "CHeir::GetClaimStrength: a fixed point at +0x148"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA55B50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA54B10 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA54B10 }
+
+# --- flags (anvil-game.world) ------------------------------------------------------
+# CIntegerFlags: a std::vector of int16 flag indexes and a parallel one of the
+# dates they were set. The names are global: index n is entry n of an array the
+# game only appends to. All of these may be declared absent together.
+
+[symbol.flag_dates]
+bytes = """
+4C 8B 49 10 4C 8B D9 4C 8B 51 18 4D 3B CA 74 0F 66 45 39 01 74 09 49 83 C1 02 4D 3B CA 75 F1
+48 8B 41 10 4C 3B C8 72 1B 4D 3B CA 73 16 4C 2B C8 49 8B 43 28 49 D1 F9 41 8B C9 8B 0C 88
+48 8B C2 89 0A C3 C7 02 F8 77 9C 02
+"""
+memory = "code"
+values.begin = { at = 3, size = 1 }
+values.end = { at = 10, size = 1 }
+values.dates = { at = 51, size = 1 }
+note = "CIntegerFlags::GetFlagDate: int16 indexes from +0x10 to +0x18, int32 dates (hours) from +0x28 at the same position"
+build."eu4-1.37.5-steam-win64" = { rva = 0x7371A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7363D0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7363D0 }
+
+[symbol.flag_names]
+memory = "code"
+values.names = { at = 10, rip_relative = 14 }
+note = "CIntegerFlags::CreateFlagIndex: a new flag's index is the count so far, and its name is appended to _AllFlagsReverse, an array of std::string (begin, end)"
+
+[symbol.flag_names.build."eu4-1.37.5-steam-win64"]
+rva = 0x737F4E
+bytes = "66 89 79 30 48 8B D3 48 8D 0D 24 FE C1 01"
+
+[symbol.flag_names.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x73717E
+bytes = "66 89 79 30 48 8B D3 48 8D 0D 6C 4A C0 01"   # mov [rcx+30h],di; mov rdx,rbx; lea rcx,[233BBF8h] (CIntegerFlags::_AllFlagsReverse)
+
+[symbol.flag_names.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x73717E
+bytes = "66 89 79 30 48 8B D3 48 8D 0D 6C 4A C0 01"
+
+[symbol.country_flags]
+bytes = "48 8D 81 70 02 00 00 C3"
+memory = "code"
+values.flags = { at = 3, size = 4 }
+note = "CCountry::GetFlags: the country's CIntegerFlags at +0x270"
+build."eu4-1.37.5-steam-win64" = { rva = 0xBBE460 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xBBCC10 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xBBCC10 }
+
+[symbol.province_flags]
+bytes = """
+4C 8B 81 D0 01 00 00 4C 8B C9 48 8B 81 C8 01 00 00 49 3B C0 74 0E 66 39 10 74 2D 48 83 C0 02
+49 3B C0 75 F2 48 8B 89 10 02 00 00 49 8B 81 08 02 00 00
+"""
+memory = "code"
+values.flags_end = { at = 3, size = 4 }
+values.flags_begin = { at = 13, size = 4 }
+values.permanent_end = { at = 39, size = 4 }
+values.permanent_begin = { at = 46, size = 4 }
+note = "CProvince::IsFlagSet: a province flag is set in _Flags (+0x1B8) or _PermanentFlags (+0x1F8); here their index vectors"
+build."eu4-1.37.5-steam-win64" = { rva = 0xBBE3F0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xBBCBA0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xBBCBA0 }
+
+[symbol.global_flags]
+memory = "code"
+values.root = { at = 3, rip_relative = 7 }
+values.end = { at = 10, size = 4 }
+values.begin = { at = 17, size = 4 }
+note = "CHasGlobalFlagTrigger::Evaluate: the global flags in the game root (+0xB38), here their index vector"
+
+[symbol.global_flags.build."eu4-1.37.5-steam-win64"]
+rva = 0xC4D50D
+bytes = "48 8B 0D 64 29 6F 01 48 8B 91 50 0B 00 00 48 8B 89 48 0B 00 00 48 3B CA 74 0E 66 39 01"
+
+[symbol.global_flags.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xC4BCBD
+bytes = "48 8B 0D 34 80 6D 01 48 8B 91 50 0B 00 00 48 8B 89 48 0B 00 00 48 3B CA 74 0E 66 39 01"   # mov rcx,[2323CF8h]
+
+[symbol.global_flags.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xC4BCBD
+bytes = "48 8B 0D 34 80 6D 01 48 8B 91 50 0B 00 00 48 8B 89 48 0B 00 00 48 3B CA 74 0E 66 39 01"
+
+[symbol.monarch_flags]
+bytes = "48 8D 81 A0 00 00 00 C3"
+memory = "code"
+values.flags = { at = 3, size = 4 }
+note = "CMonarch::GetRulerFlags: a ruler's, heir's or consort's CIntegerFlags at +0xA0"
+build."eu4-1.37.5-steam-win64" = { rva = 0xBBE440 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xBBCBF0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xBBCBF0 }
+
+# --- variables (anvil-game.world) ---------------------------------------------------
+# CVariables: an unordered_map from the name, a std::string, to a fixed point;
+# read as its list of nodes (next, previous, then the pair), never by hash. All
+# of these may be declared absent together.
+
+[symbol.country_variables]
+bytes = "48 8B 88 18 01 00 00 48 8B 04 D1 48 05 30 03 00 00 EB 8B"
+memory = "code"
+values.countries = { at = 3, size = 4 }
+values.variables = { at = 13, size = 4 }
+note = "CVariables::AccessVariablesForScope: a country's CVariables at +0x330"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD7CC76 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD7B426 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD7B426 }
+
+[symbol.province_variables]
+bytes = "48 03 88 A8 1C 00 00 0F 84 DE FD FF FF 48 8D 81 38 02 00 00"
+memory = "code"
+values.province_array = { at = 3, size = 4 }
+values.variables = { at = 16, size = 4 }
+note = "CVariables::AccessVariablesForScope: a province's CVariables at +0x238"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD7CC9B }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD7B44B }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD7B44B }
+
+[symbol.variable_list]
+bytes = "48 8B 48 08 48 85 C9 75 04 48 8B 4F 18 48 3B 4F 18 74 18 8B 41 30 89 03"
+memory = "code"
+values.head = { at = 12, size = 1 }
+values.fixed_point = { at = 21, size = 1 }
+note = "CVariables::GetVariable: the map's list head (the end of a lookup) at +0x18, its size after it; a node's value, a fixed point, at +0x30 after its name"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD7C407 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD7ABB7 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD7ABB7 }
+
 # --- game commands (anvil-game.commands) ---
 # The unit panel's drill, split and merge buttons each build a game command and
 # hand it to the session's post function (CSession::Post); anvil-game.commands

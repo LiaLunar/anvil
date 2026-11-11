@@ -116,6 +116,55 @@ struct WorldLayout {
     std::uint32_t session = 0;          // root: the session
     std::uint32_t map_input = 0;        // session: pointer to its map input
     std::uint32_t selection = 0;        // map input: the selection list
+
+    // Rulers, heirs and consorts: `ruler` 0 when absent on this build.
+    std::uint32_t ruler = 0;                // country: CMonarch*, never null in a running game
+    std::uint32_t heir = 0;                 // country: CHeir*
+    std::uint32_t consort = 0;              // country: CQueen*
+    std::uintptr_t null_monarch = 0;        // the addresses of the globals of the game's placeholders
+    std::uintptr_t null_heir = 0;
+    std::uintptr_t null_consort = 0;
+    std::uint32_t object_id = 0;            // any game object: its id, 8 bytes
+    std::uint32_t monarch_name = 0;         // monarch: std::string
+    std::uint32_t skills = 0;               // monarch: three int32
+    std::uint32_t birth = 0;                // monarch: int32, hours
+    std::uint32_t female = 0;               // monarch: byte
+    std::uint32_t monarch_leader = 0;       // monarch: 8 bytes, the type in the low half
+    std::uint32_t leader_type = 0;          // the type of a leader's id
+    std::uint32_t regency = 0;              // monarch: pointer, null without a regency
+    std::uint32_t queen_regent_slot = 0;    // monarch's vtable: IsQueenRegent
+    std::uint32_t dynasty = 0;              // monarch: CDynasty*
+    std::uint32_t dynasty_name = 0;         // dynasty: std::string
+    std::uint32_t claim = 0;                // heir: fixed point
+
+    // Flags: `flag_names` 0 when absent on this build. Each CIntegerFlags holds
+    // a vector of int16 indexes and a vector of int32 dates at the same positions.
+    std::uintptr_t flag_names = 0;          // the address of the names' array: begin, end; std::string each
+    std::uint32_t flags_begin = 0;          // flags: the indexes' vector
+    std::uint32_t flags_end = 0;
+    std::uint32_t flag_dates = 0;           // flags: the dates' vector
+    std::uint32_t country_flags = 0;        // country: CIntegerFlags
+    std::uint32_t province_flags = 0;       // province: CIntegerFlags
+    std::uint32_t permanent_flags = 0;      // province: CIntegerFlags
+    std::uint32_t global_flags = 0;         // root: CIntegerFlags
+    std::uint32_t monarch_flags = 0;        // monarch: CIntegerFlags
+
+    // Variables: `variable_head` 0 when absent on this build.
+    std::uint32_t country_variables = 0;    // country: CVariables
+    std::uint32_t province_variables = 0;   // province: CVariables
+    std::uint32_t variable_head = 0;        // variables: the list's sentinel node, the count after it
+    std::uint32_t variable_value = 0;       // node: int32 fixed point, its name the std::string before it
+};
+
+// A flag that is set, its date still the game's hours.
+struct FlagEntry {
+    std::int32_t id = 0;
+    std::int32_t hours = 0;
+};
+
+struct VariableEntry {
+    std::string name;  // as the game stores it
+    std::int32_t value = 0;
 };
 
 // Main thread only, after an outer frame, in a session: the service checks.
@@ -140,6 +189,24 @@ AnvilResult read_unit(const WorldLayout& l, std::string_view tag, std::uint64_t 
 AnvilResult read_unit_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8);
 AnvilResult read_unit_leader_name(const WorldLayout& l, std::string_view tag, std::uint64_t id, std::string& utf8);
 AnvilResult read_selected_units(const WorldLayout& l, std::vector<AnvilGameUnitRef>& out);
+
+// `kind` is ANVIL_GAME_MONARCH_*; the caller checks it. out.birth.session is 0.
+AnvilResult read_monarch(const WorldLayout& l, std::string_view tag, std::uint32_t kind, AnvilGameMonarch& out);
+AnvilResult read_monarch_name(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::string& utf8);
+AnvilResult read_monarch_dynasty(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::string& utf8);
+
+AnvilResult read_flag_id(const WorldLayout& l, std::string_view name, std::int32_t& id);
+AnvilResult read_flag_name(const WorldLayout& l, std::int32_t id, std::string& utf8);
+AnvilResult read_country_flags(const WorldLayout& l, std::string_view tag, std::vector<FlagEntry>& out);
+AnvilResult read_province_flags(const WorldLayout& l, std::int32_t province, std::vector<FlagEntry>& out);
+AnvilResult read_monarch_flags(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::vector<FlagEntry>& out);
+AnvilResult read_global_flags(const WorldLayout& l, std::vector<FlagEntry>& out);
+
+AnvilResult read_country_variables(const WorldLayout& l, std::string_view tag, std::vector<VariableEntry>& out);
+AnvilResult read_province_variables(const WorldLayout& l, std::int32_t province, std::vector<VariableEntry>& out);
+
+// A getter of 3 bytes that returns a constant bool: xor al,al; ret or mov al,1; ret.
+bool decode_bool_getter(const std::uint8_t* code, std::size_t size, bool& value);
 
 // For anvil-game.commands: the country the player commands, the root's player
 // and never the observed one (ANVIL_ERROR_NOT_FOUND in observe mode), and a
