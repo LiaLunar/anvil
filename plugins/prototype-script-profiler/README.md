@@ -37,6 +37,10 @@ before it to the old tag's CSV and starts a new one at level 2 or 3.
 
 ## Run
 
+`src/owners.inc` and `src/vtables.inc` are generated from the GOG PDB and
+are not in Git: the lab keeps them and their generators (private). Without
+them the plugin does not build.
+
 Build Anvil as usual (the prototype is added in the top-level
 `CMakeLists.txt`), then install `build/plugin/prototype-script-profiler`
 next to `anvil-overlay` and `anvil-game`, e.g. with the lab's
