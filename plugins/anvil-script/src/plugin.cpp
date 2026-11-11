@@ -17,7 +17,13 @@
 // CGameState::HandleDailyTick calls the game's day, then the subscribers in
 // the order they subscribed, on the main thread, before the day's command
 // compares checksums.
+//
+// has_dlc for plugin names (anvil#316, docs/spec/has-dlc-v1.md): a function
+// hook on CHasDLCTrigger::Assign takes a name "anvil:<id>" for itself and gives
+// that trigger a copy of the game's vtable whose Evaluate answers from a table
+// fixed when a session starts or ends. Every other name goes on to the game.
 #include <anvil/anvil.hpp>
+#include <anvil/anvil_game.h>
 #include <anvil/anvil_script.h>
 
 #define NOMINMAX
@@ -25,6 +31,7 @@
 
 #include "anvil_control.h"
 #include "day_end.hpp"
+#include "dlc_gate.hpp"
 #include "registry.hpp"
 #include "text.hpp"
 #include "symbols.gen.hpp"
@@ -299,7 +306,69 @@ AnvilResult svc_register_effect(AnvilPlugin* self, const AnvilScriptEffect* effe
 
 const AnvilScriptEffectsService kService{sizeof(AnvilScriptEffectsService), svc_register_effect};
 
-bool g_effects = false, g_day_end_hooked = false;
+// --- has_dlc for plugin names ------------------------------------------------------
+
+constexpr std::size_t kTriggerSlots = 16;    // CHasDLCTrigger::vftable, CTrigger's 16 virtual slots
+constexpr std::size_t kSlotEvaluate = 6;     // bool Evaluate(CEventScope&)
+constexpr std::size_t kSlotAssign = 7;       // bool Assign(const CToken&)
+
+GateTable g_gates;
+anvil::HookOf<sym::has_dlc_assign> g_has_dlc_assign;
+void* g_gate_vtable[kTriggerSlots];
+std::size_t g_gate_index_offset = 0;  // the padding after the DLC bits: our index
+std::atomic<bool> g_gate_full_logged{false};
+
+bool gate_evaluate(void* self, void*) noexcept {
+    return g_gates.answer(read_at<std::int32_t>(self, g_gate_index_offset));
+}
+
+bool detour_has_dlc_assign(void* self, const void* token) noexcept {
+    const char* text = static_cast<const char*>(token) + kTokenText;
+    const std::string_view id = gate_id(std::string_view(text, strnlen(text, kMaxGateId + kDlcPrefix.size() + 1)));
+    if (id.empty()) return g_has_dlc_assign.next(self, token);
+    const int index = g_gates.intern(id);
+    if (index < 0) {
+        if (!g_gate_full_logged.exchange(true)) {
+            anvil::Host{}.warn("has_dlc: more than {} plugin names; {} is left to the game, which answers false",
+                               kMaxGates, text);
+        }
+        return g_has_dlc_assign.next(self, token);
+    }
+    // The game's constructor cleared the DLC bits, so its own tooltip, which
+    // the copy keeps, names no DLC. The index goes into the padding behind them.
+    std::memcpy(static_cast<std::uint8_t*>(self) + g_gate_index_offset, &index, sizeof index);
+    void** vptr = g_gate_vtable;
+    std::memcpy(self, &vptr, sizeof vptr);
+    return true;
+}
+
+// A session started or ended: the answers for it. Anvil suspends plugins
+// before any plugin hears of the session, so the entries say who acts now.
+void on_session(const void* payload) {
+    AnvilGameSession s{};
+    if (payload != nullptr) std::memcpy(&s, payload, std::min<std::size_t>(sizeof s, *static_cast<const std::uint32_t*>(payload)));
+    const bool allowed = s.change == ANVIL_GAME_SESSION_STARTED && s.multiplayer == 0;
+    std::vector<std::string> active;
+    AnvilControlStatus status{};
+    status.size = sizeof status;
+    if (g_control != nullptr) g_control->status(&status);
+    for (std::uint32_t i = 0; allowed && g_control != nullptr && i < status.plugins; ++i) {
+        AnvilControlPlugin p{};
+        p.size = sizeof p;
+        if (g_control->plugin(i, &p) == 0 || p.id == nullptr || p.state == nullptr) continue;
+        if (std::strcmp(p.state, "loaded") == 0 && p.suspended == 0) active.emplace_back(p.id);
+    }
+    g_gates.update(allowed, active);
+    if (g_gates.size() == 0) return;
+    std::string answers;
+    for (std::size_t i = 0; i < g_gates.size(); ++i) {
+        if (!answers.empty()) answers += ", ";
+        answers += g_gates.id(static_cast<int>(i)) + (g_gates.answer(static_cast<int>(i)) ? " yes" : " no");
+    }
+    anvil::Host{}.info("has_dlc for this {}: {}", allowed ? "session" : (s.change == ANVIL_GAME_SESSION_STARTED ? "multiplayer session" : "menu"), answers);
+}
+
+bool g_effects = false, g_day_end_hooked = false, g_gate = false;
 
 std::string day_end_subscribers() {
     if (!g_day_end_hooked) return "day end: not on this build";
@@ -312,10 +381,21 @@ std::string day_end_subscribers() {
     return ids.empty() ? "day end: no subscriber" : "day end: " + ids;
 }
 
+std::string gate_names() {
+    if (!g_gate) return "has_dlc for plugins: not on this build";
+    if (g_gates.size() == 0) return "has_dlc for plugins: no name parsed";
+    std::string names;
+    for (std::size_t i = 0; i < g_gates.size(); ++i) {
+        if (!names.empty()) names += ", ";
+        names += g_gates.id(static_cast<int>(i)) + " " + std::to_string(g_gates.parsed(static_cast<int>(i)));
+    }
+    return "has_dlc for plugins: " + names;
+}
+
 void report_ready() {
     anvil::Host host;
     const std::size_t n = g_registry.size();
-    const std::string day_end = day_end_subscribers();
+    const std::string day_end = day_end_subscribers() + "; " + gate_names();
     if (!g_effects) {
         host.info("game ready: no effects on this build; {}", day_end);
         return;
@@ -352,9 +432,13 @@ struct AnvilScript : anvil::Plugin {
                          host.present(sym::scope_province_site), host.present(sym::scope_country_site),
                          host.present(sym::cstring_from_text)});
         g_day_end_hooked = host.present(sym::daily_tick) && host.present(sym::daily_tick_date_site);
-        if (!g_effects && !g_day_end_hooked) {
-            throw anvil::Error(ANVIL_ERROR_NOT_DECLARED, "neither the effects' nor the day end's symbols are on this build");
+        g_gate = host.present(sym::has_dlc_assign) && host.present(sym::has_dlc_make);
+        if (!g_effects && !g_day_end_hooked && !g_gate) {
+            throw anvil::Error(ANVIL_ERROR_NOT_DECLARED,
+                               "neither the effects', the day end's nor has_dlc's symbols are on this build");
         }
+        if (g_gate) g_gate = load_gate(host);
+        else host.warn("has_dlc's symbols are absent on this build: no plugin names in has_dlc");
         if (g_effects) load_effects(host);
         else host.warn("the effects' symbols are absent on this build: no anvil-script.effects");
         if (g_day_end_hooked) {
@@ -365,6 +449,31 @@ struct AnvilScript : anvil::Plugin {
             host.warn("the day end's symbols are absent on this build: no anvil-script.day_end");
         }
         host.subscribe("anvil-game.ready", [] { report_ready(); });
+    }
+
+    // The trigger's layout and the game's vtable must be the ones this plugin
+    // knows; anything else leaves has_dlc to the game.
+    static bool load_gate(anvil::Host& host) {
+        const std::size_t size = host.value(sym::has_dlc_make, "trigger_size");
+        const std::size_t bits = host.value(sym::has_dlc_make, "dlc_bits");
+        void* const* game = host.data(sym::dlc_vtable);
+        const std::uintptr_t base = host.game().image_base;
+        const std::uintptr_t end = base + host.game().image_size;
+        bool inside = game != nullptr;
+        for (std::size_t i = 0; inside && i < kTriggerSlots; ++i) {
+            const auto slot = reinterpret_cast<std::uintptr_t>(game[i]);
+            inside = slot >= base && slot < end;
+        }
+        if (!inside || game[kSlotAssign] != host.address(sym::has_dlc_assign) || bits + 8 > size) {
+            host.warn("CHasDLCTrigger is not the one this plugin knows: no plugin names in has_dlc");
+            return false;
+        }
+        g_gate_index_offset = bits + 4;
+        std::memcpy(g_gate_vtable, game, sizeof g_gate_vtable);
+        g_gate_vtable[kSlotEvaluate] = reinterpret_cast<void*>(&gate_evaluate);
+        host.hook(g_has_dlc_assign, sym::has_dlc_assign, &detour_has_dlc_assign);
+        host.subscribe(ANVIL_GAME_EVENT_SESSION, [](std::string_view, const void* payload) { on_session(payload); });
+        return true;
     }
 
     static void load_effects(anvil::Host& host) {

@@ -15,9 +15,11 @@
 #include "test_support.hpp"
 
 #include "../plugins/anvil-script/src/day_end.hpp"
+#include "../plugins/anvil-script/src/dlc_gate.hpp"
 #include "../plugins/anvil-script/src/registry.hpp"
 #include "anvil_control.h"
 
+#include <anvil/anvil_game.h>
 #include <anvil/anvil_plugin.h>
 #include <anvil/anvil_script.h>
 #include <windows.h>
@@ -177,6 +179,37 @@ void day_end_tests() {
     });
 }
 
+// ---- has_dlc's table on its own --------------------------------------------------
+
+void gate_tests() {
+    using anvil_script::gate_id;
+    run("has_dlc gate: a name is anvil: and a plugin id", [] {
+        CHECK(gate_id("anvil:chisel") == "chisel" && gate_id("anvil:anvil-map") == "anvil-map" &&
+              gate_id("anvil:a_b9") == "a_b9");
+        CHECK(gate_id("Conquest of Paradise").empty() && gate_id("anvil:").empty() && gate_id("Anvil:chisel").empty() &&
+              gate_id("anvil:Chisel").empty() && gate_id("anvil:chi sel").empty() && gate_id("anvil: chisel").empty() &&
+              gate_id("xanvil:chisel").empty());
+        CHECK(gate_id("anvil:" + std::string(64, 'a')).size() == 64 && gate_id("anvil:" + std::string(65, 'a')).empty());
+    });
+    run("has_dlc gate: false until a single-player session, then the active plugins", [] {
+        anvil_script::GateTable t;
+        const int chisel = t.intern("chisel"), map = t.intern("anvil-map");
+        CHECK(chisel == 0 && map == 1 && t.intern("chisel") == 0 && t.size() == 2 && t.parsed(0) == 2);
+        CHECK(!t.answer(chisel) && !t.answer(map) && !t.answer(2) && !t.answer(-1));
+        t.update(true, {"chisel", "mei"});
+        CHECK(t.answer(chisel) && !t.answer(map));
+        const int mei = t.intern("mei");  // first seen in a session: answered as of the last update
+        CHECK(mei == 2 && t.answer(mei) && t.id(mei) == "mei");
+        t.update(false, {"chisel", "mei"});  // multiplayer, or the menu
+        CHECK(!t.answer(chisel) && !t.answer(mei));
+    });
+    run("has_dlc gate: at most 256 names", [] {
+        anvil_script::GateTable t;
+        for (std::size_t i = 0; i < anvil_script::kMaxGates; ++i) CHECK(t.intern("p" + std::to_string(i)) == static_cast<int>(i));
+        CHECK(t.intern("one-more") == -1 && t.size() == anvil_script::kMaxGates);
+    });
+}
+
 // ---- the plugin end to end ------------------------------------------------------
 
 // An MSVC std::string as eu4.exe lays it out.
@@ -297,20 +330,40 @@ void fake_daily_tick(void* game_state) {
     if (g_inside_day) g_inside_day();
 }
 
+// CHasDLCTrigger: vtable, CTrigger's fields, the DLC bits at +0x68, padding.
+struct FakeDlcTrigger {
+    const void* vtable = nullptr;
+    std::uint8_t trigger[0x60] = {};
+    std::uint32_t bits = 0;
+    std::uint32_t padding = 0xCDCDCDCD;
+};
+static_assert(sizeof(FakeDlcTrigger) == 0x70 && offsetof(FakeDlcTrigger, bits) == 0x68);
+std::uintptr_t g_dlc_vtable_address = 0;
+std::vector<std::string> g_dlc_names;  // what reached the game's Assign
+bool fake_has_dlc_assign(void* trigger, const void* token) {
+    g_dlc_names.push_back(static_cast<const Token*>(token)->text);
+    if (std::strcmp(static_cast<const Token*>(token)->text, "Art of War") == 0) static_cast<FakeDlcTrigger*>(trigger)->bits |= 8;
+    return true;
+}
+bool fake_has_dlc_evaluate(void* trigger, void*) { return (static_cast<FakeDlcTrigger*>(trigger)->bits & 8) != 0; }
+
 // eu4.exe's size and sections (Steam), reserved; pages are committed only
 // where the symbols of anvil-script lie.
 struct FakeEu4 {
     static constexpr uint32_t kSize = 0x25E0000;
     static constexpr uint32_t kVtable = 0x1C9E548;
+    static constexpr uint32_t kDlcVtable = 0x1D172B0;
     uint8_t* base = nullptr;
 
     FakeEu4() {
         base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSize, MEM_RESERVE, PAGE_NOACCESS));
         commit(0x0, PAGE_READWRITE);
         for (uint32_t page :
-             {0xC9000u, 0x5DE000u, 0x5E0000u, 0x5E4000u, 0x5ED000u, 0x5EF000u, 0x623000u, 0x758000u, 0x1703000u})
+             {0xC9000u, 0x5DE000u, 0x5E0000u, 0x5E4000u, 0x5ED000u, 0x5EF000u, 0x623000u, 0x758000u, 0x1703000u,
+              0xBB4000u, 0xCC5000u})
             commit(page, PAGE_EXECUTE_READWRITE);
         commit(0x1C9E000, PAGE_READWRITE);
+        commit(0x1D17000, PAGE_READWRITE);
         write_headers();
         // ReadMember: mov [rsp+8],rbx; mov [rsp+10h],rsi; push rbp; push rdi; push r12; push r14; push r15,
         // then pop them and jump to the stand-in.
@@ -365,6 +418,24 @@ struct FakeEu4 {
         put_pointer(kVtable + 8 * 4, address(0x5DEC50));
         put_pointer(kVtable + 8 * 13, address(0x5ED100));
         g_vtable_address = address(kVtable);
+        // CHasDLCTrigger::Assign: its declared bytes, then undo them (add rsp,40h; pop rbp; restore
+        // rbx, rsi, rdi, r14) and jump to the stand-in.
+        put(0xCC5BA0, {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x48, 0x89, 0x7C, 0x24, 0x18,
+                       0x4C, 0x89, 0x74, 0x24, 0x20, 0x55, 0x48, 0x8B, 0xEC, 0x48, 0x83, 0xEC, 0x40,
+                       0x48, 0x83, 0xC4, 0x40, 0x5D, 0x48, 0x8B, 0x5C, 0x24, 0x08, 0x48, 0x8B, 0x74, 0x24, 0x10,
+                       0x48, 0x8B, 0x7C, 0x24, 0x18, 0x4C, 0x8B, 0x74, 0x24, 0x20});
+        jump(0xCC5BA0 + 53, &fake_has_dlc_assign);
+        // make_unique<CHasDLCTrigger> (not run): its size, its vtable at 0x1D172B0, the DLC bits at +0x68.
+        put(0xBB4012, {0xB9, 0x70, 0x00, 0x00, 0x00, 0xE8, 0xB8, 0xF2, 0xE7, 0x00, 0x48, 0x8B, 0xD8, 0x48, 0x89, 0x44,
+                       0x24, 0x30, 0x48, 0x8B, 0xC8, 0xE8, 0xE4, 0x56, 0xFD, 0xFF, 0x48, 0x8D, 0x05, 0x7D, 0x32, 0x16,
+                       0x01, 0x48, 0x89, 0x03, 0x48, 0x8D, 0x05, 0xDB, 0x7A, 0x0F, 0x01, 0x48, 0x89, 0x43, 0x38, 0x81,
+                       0x63, 0x68, 0x00, 0x00, 0x00, 0x80});
+        // Its vtable: Evaluate (slot 6) the game's stand-in, Assign (slot 7) the function above.
+        jump(0xCC5C00, &fake_has_dlc_evaluate);
+        for (int i = 0; i < 16; ++i) put_pointer(kDlcVtable + 8 * i, address(0x5ED200));
+        put_pointer(kDlcVtable + 8 * 6, address(0xCC5C00));
+        put_pointer(kDlcVtable + 8 * 7, address(0xCC5BA0));
+        g_dlc_vtable_address = address(kDlcVtable);
     }
     ~FakeEu4() { VirtualFree(base, 0, MEM_RELEASE); }
 
@@ -428,8 +499,30 @@ struct FakePlugin {
     bool affects_gameplay = true;
     bool early = true;
     bool suspended = false;
+    bool loaded = true;
 };
 std::map<const AnvilPlugin*, FakePlugin> g_plugins;
+
+void control_status(AnvilControlStatus* out) {
+    AnvilControlStatus s{};
+    s.size = sizeof(s);
+    s.plugins = static_cast<std::uint32_t>(g_plugins.size());
+    std::memcpy(out, &s, std::min<std::size_t>(out->size, sizeof(s)));
+}
+
+int control_plugin(std::uint32_t index, AnvilControlPlugin* out) {
+    if (index >= g_plugins.size() || out == nullptr) return 0;
+    auto it = g_plugins.begin();
+    std::advance(it, index);
+    AnvilControlPlugin full{};
+    full.size = sizeof(full);
+    full.id = it->second.id.c_str();
+    full.state = it->second.loaded ? "loaded" : "failed";
+    full.affects_gameplay = it->second.affects_gameplay ? 1 : 0;
+    full.suspended = it->second.suspended ? 1 : 0;
+    std::memcpy(out, &full, std::min<std::size_t>(out->size, sizeof(full)));
+    return 1;
+}
 
 int control_plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin* out) {
     const auto it = g_plugins.find(plugin);
@@ -495,6 +588,7 @@ int main(int argc, char** argv) {
     const fs::path plugins_dir = fs::absolute(argv[1]);
     registry_tests();
     day_end_tests();
+    gate_tests();
 
     // As in the game, the image and the host outlive the plugin.
     FakeEu4& image = *new FakeEu4;
@@ -517,6 +611,8 @@ int main(int argc, char** argv) {
     AnvilControlService& control = *new AnvilControlService{};
     control.size = sizeof(control);
     control.plugin_of = control_plugin_of;
+    control.status = control_status;
+    control.plugin = control_plugin;
     CHECK(bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION, &control) == ANVIL_OK);
     AnvilPlugin* plugin = nullptr;
 
@@ -530,7 +626,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 13);
+        CHECK(reason.empty() && verified.symbols.size() == 15);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -544,7 +640,7 @@ int main(int argc, char** argv) {
         if (p->module == nullptr) return;
         const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
         const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 2 && changes.count(p->owner) == 2);
+        CHECK(outcome.result == ANVIL_OK && outcome.staged == 3 && changes.count(p->owner) == 3);
         plugin = p;
     });
     if (plugin == nullptr) {
@@ -776,6 +872,69 @@ int main(int argc, char** argv) {
         CHECK(day_end->subscribe(chisel, record, chisel_name) == ANVIL_ERROR_WRONG_PHASE);
         CHECK(contains(log, "anvil-script: chisel: day end refused: the game has already ended a day; subscribe in "
                             "the plugin's load"));
+    });
+
+    // has_dlc: anvil-game's session event decides; the game's own names stay the game's.
+    auto* assign = reinterpret_cast<bool (*)(void*, const void*)>(image.address(0xCC5BA0));
+    AnvilPlugin& game_plugin = *new AnvilPlugin;
+    game_plugin.context = &context;
+    game_plugin.manifest = manifest(plugin_toml("anvil-game"));
+    const auto session = [&](std::uint32_t change, std::uint32_t multiplayer) {
+        AnvilGameSession s{};
+        s.size = sizeof(s);
+        s.change = change;
+        s.multiplayer = multiplayer;
+        s.number = 1;
+        CHECK(host.publish(&game_plugin, ANVIL_GAME_EVENT_SESSION, &s) == ANVIL_OK);
+    };
+    const auto evaluate = [](FakeDlcTrigger& t) {
+        using EvaluateFn = bool(void*, void*);
+        FakeScope scope{1, "RUS"};
+        return reinterpret_cast<EvaluateFn* const*>(t.vtable)[6](&t, &scope);
+    };
+    Token& token = *new Token;
+    const auto parse = [&](FakeDlcTrigger& t, const char* name) {
+        t.vtable = reinterpret_cast<const void*>(g_dlc_vtable_address);
+        std::snprintf(token.text, sizeof token.text, "%s", name);
+        return assign(&t, &token);
+    };
+
+    AnvilPlugin* const chisel_handle = chisel;
+    AnvilPlugin* const late_handle = late;
+    run("has_dlc: a plugin's name is Anvil's, every other name the game's", [&] {
+        FakeDlcTrigger aow, chisel, unknown, stats;
+        g_dlc_names.clear();
+        CHECK(parse(aow, "Art of War") && parse(chisel, "anvil:chisel") && parse(unknown, "anvil:Chisel") &&
+              parse(stats, "anvil:stats"));
+        CHECK((g_dlc_names == std::vector<std::string>{"Art of War", "anvil:Chisel"}));
+        CHECK(aow.vtable == reinterpret_cast<const void*>(g_dlc_vtable_address) &&
+              chisel.vtable != aow.vtable && chisel.bits == 0 && chisel.padding == 0 && stats.padding == 1);
+        // The plugin's copy keeps the game's slots but Evaluate.
+        const auto* ours = static_cast<void* const*>(chisel.vtable);
+        const auto* game = reinterpret_cast<void* const*>(g_dlc_vtable_address);
+        CHECK(ours[0] == game[0] && ours[7] == game[7] && ours[9] == game[9] && ours[6] != game[6]);
+        // Before any session: false; the game's own DLC is the game's answer.
+        CHECK(!evaluate(chisel) && !evaluate(unknown) && evaluate(aow));
+        session(ANVIL_GAME_SESSION_STARTED, 0);
+        CHECK(evaluate(chisel) && evaluate(stats) && !evaluate(unknown) && evaluate(aow));
+        CHECK(contains(log, "anvil-script: has_dlc for this session: chisel yes, stats yes"));
+        // A suspended plugin and one that failed to load are not there.
+        g_plugins[chisel_handle].suspended = true;
+        session(ANVIL_GAME_SESSION_STARTED, 0);
+        CHECK(!evaluate(chisel) && evaluate(stats));
+        g_plugins[chisel_handle].suspended = false;
+        // Multiplayer: false for every plugin; the menu: false.
+        session(ANVIL_GAME_SESSION_STARTED, 1);
+        CHECK(!evaluate(chisel) && !evaluate(stats) && evaluate(aow));
+        CHECK(contains(log, "anvil-script: has_dlc for this multiplayer session: chisel no, stats no"));
+        session(ANVIL_GAME_SESSION_ENDED, 0);
+        CHECK(!evaluate(chisel));
+        session(ANVIL_GAME_SESSION_STARTED, 0);
+        FakeDlcTrigger later;
+        CHECK(parse(later, "anvil:late") && evaluate(later));  // first seen in a session
+        g_plugins[late_handle].loaded = false;
+        session(ANVIL_GAME_SESSION_STARTED, 0);
+        CHECK(!evaluate(later) && evaluate(chisel));
     });
 
     if (g_failures) {

@@ -146,3 +146,39 @@ note = "HandleDailyTick+0x91: the date (CGameState+0x1DD0, int32 hours) gets the
 build."eu4-1.37.5-steam-win64" = { rva = 0x7584C1 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x757681 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x757681 }
+
+# --- has_dlc for plugin names (anvil#316) ---
+# CHasDLCTrigger keeps one bit per DLC the game knows, set by Assign from the
+# name (a strcmp chain, nothing logged and nothing kept for another name), and
+# Evaluate tests them: no bit is false. A name "anvil:<id>" becomes a trigger
+# of the plugin's own vtable instead, whose Evaluate answers from a table fixed
+# at the session's start.
+
+[symbol.has_dlc_assign]
+# mov [rsp+8],rbx; mov [rsp+10h],rsi; mov [rsp+18h],rdi; mov [rsp+20h],r14; push rbp; mov rbp,rsp; sub rsp,40h
+bytes = "48 89 5C 24 08 48 89 74 24 10 48 89 7C 24 18 4C 89 74 24 20 55 48 8B EC 48 83 EC 40"
+memory = "code"
+signature = "bool (void* trigger, const void* token)"
+note = "CHasDLCTrigger::Assign(const CToken&): the DLC's name (token text at +4) to the trigger's bits; vtable slot 7"
+build."eu4-1.37.5-steam-win64" = { rva = 0xCC5BA0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xCC4350 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xCC4350 }
+
+[symbol.has_dlc_make]
+memory = "code"
+values.trigger_size = { at = 1, size = 4 }
+values.dlc_vtable = { at = 29, rip_relative = 33, type = "void*" }
+values.dlc_bits = { at = 49, size = 1 }
+note = "std::make_unique<CHasDLCTrigger>: 0x70 bytes, the vtable (16 slots, Evaluate in slot 6), the DLC bits at +0x68 cleared but bit 31; +0x6C to the end is padding"
+
+[symbol.has_dlc_make.build."eu4-1.37.5-steam-win64"]
+rva = 0xBB4012
+bytes = "B9 70 00 00 00 E8 B8 F2 E7 00 48 8B D8 48 89 44 24 30 48 8B C8 E8 E4 56 FD FF 48 8D 05 7D 32 16 01 48 89 03 48 8D 05 DB 7A 0F 01 48 89 43 38 81 63 68 00 00 00 80"
+
+[symbol.has_dlc_make.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xBB27C2
+bytes = "B9 70 00 00 00 E8 88 A7 E6 00 48 8B D8 48 89 44 24 30 48 8B C8 E8 E4 56 FD FF 48 8D 05 DD D0 14 01 48 89 03 48 8D 05 AB 1E 0E 01 48 89 43 38 81 63 68 00 00 00 80"
+
+[symbol.has_dlc_make.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xBB27C2
+bytes = "B9 70 00 00 00 E8 88 A7 E6 00 48 8B D8 48 89 44 24 30 48 8B C8 E8 E4 56 FD FF 48 8D 05 DD D0 14 01 48 89 03 48 8D 05 AB 1E 0E 01 48 89 43 38 81 63 68 00 00 00 80"

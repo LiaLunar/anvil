@@ -10,6 +10,6 @@ if(NOT COMMAND anvil_add_plugin)
 endif()
 
 # The text rule is anvil-map's (ADR 0007), from its own source.
-anvil_add_plugin(anvil_script SOURCES src/plugin.cpp src/registry.cpp src/day_end.cpp ../anvil-map/src/text.cpp)
+anvil_add_plugin(anvil_script SOURCES src/plugin.cpp src/registry.cpp src/day_end.cpp src/dlc_gate.cpp ../anvil-map/src/text.cpp)
 target_include_directories(anvil_script PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control
     ${CMAKE_CURRENT_SOURCE_DIR}/../anvil-map/src)
