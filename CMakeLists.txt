@@ -225,6 +225,8 @@ add_subdirectory(plugins/anvil-map)
 # effects (ADR 0008, docs/spec/script-effects-v1.md), released next to them.
 add_subdirectory(plugins/anvil-script)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
+# PROTOTYPE (eu4-engine-lab#154): throwaway, on prototype/script-profiler only.
+add_subdirectory(plugins/prototype-script-profiler)
 # The standard plugins ship only inside the package, so their version is
 # Anvil's: release-please bumps their manifests with version.txt.
 foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script)

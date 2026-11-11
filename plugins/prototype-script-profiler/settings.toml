@@ -1,0 +1,40 @@
+# PROTOTYPE (eu4-engine-lab#154), throwaway.
+
+[setting.mode]
+type = "int"
+default = 3
+min = 0
+max = 3
+label = "Mode"
+description = "0 = no hooks, 1 = hooks that only pass on, 2 = count root blocks, 3 = count and time them."
+restart = true
+
+[setting.auto_start]
+type = "bool"
+default = false
+label = "Measure from the first day"
+description = "Start measuring at the first day of each session (for unattended runs); otherwise the panel's Start button."
+restart = true
+
+[setting.effects]
+type = "bool"
+default = true
+label = "Effects too"
+description = "Also hook CEffect::Execute."
+restart = true
+
+[setting.errors]
+type = "bool"
+default = true
+label = "Count log lines per block"
+description = "Count each log line written while a measured block runs on the same thread, for that block."
+restart = true
+
+[setting.top]
+type = "int"
+default = 30
+min = 5
+max = 200
+label = "Rows in the panel"
+description = "How many blocks the panel lists."
+restart = true

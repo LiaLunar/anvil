@@ -1,0 +1,22 @@
+id = "prototype-script-profiler"
+name = "PROTOTYPE: script profiler"
+version = "0.0.1"
+authors = ["Happy Dwarf Team"]
+description = "Throwaway prototype for eu4-engine-lab#154: times every root trigger block (CAndTrigger::Evaluate) and effect block (CEffect::Execute) and names their owners. Never released."
+api = 2
+entry = "prototype_script_profiler.dll"
+phase = "main"
+symbols = "symbols.toml"
+settings = "settings.toml"
+# It only reads and times; it changes nothing the game computes.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+[[dependencies]]
+id = "anvil-overlay"
+version = "^1"
+
+[[dependencies]]
+id = "anvil-game"
+version = "^1"

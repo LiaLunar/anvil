@@ -1,0 +1,23 @@
+# PROTOTYPE (eu4-engine-lab#154), throwaway: branch prototype/script-profiler, never merged.
+# Steam 1.37.5 only. Names from the GOG 1.37.5.2 eu4.pdb, paired with Steam by
+# the lab's pdb_to_steam.py (work/pdb/steam-map.tsv).
+builds = ["eu4-1.37.5-steam-win64"]
+
+[symbol.and_trigger_evaluate]
+bytes = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 59 08"
+memory = "code"
+signature = "bool (void* trigger, void* scope)"
+note = "CAndTrigger::Evaluate(CEventScope&), 96 B: every AND block (a CRootTrigger root, limit, AND =) evaluates its children through vtable slot +0x30 and stops at the first false"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB98200 }
+
+[symbol.effect_execute]
+bytes = "48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20"
+memory = "code"
+signature = "void (void* effect, void* scope, int32_t flags)"
+note = "CEffect::Execute(CEventScope&, int), 119 B: runs the children of an effect block (CArray<CEffect*> at +0x10) through their own Execute"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5ED800 }
+
+[symbol.file_sink_write_slot]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D94BB0, points_to = 0x1562BE0 }
+note = "copied from anvil-log-throttle: slot +8 of the file sink class, write(sink, channel, file, line, message); only counted here, to see whether a log line comes from inside a measured block"
