@@ -50,7 +50,7 @@
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
-      "version": "1.3.2",
+      "version": "1.3.3",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -59,9 +59,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.3.2/hamweard-windows-x64.zip",
-        "size": 201870,
-        "sha256": "c2208ff6897d7da74ba3e5d3d2177258ffd5196577410b6467ec8764c95f354a"
+        "url": "https://github.com/happy-dwarf-team/hamweard/releases/download/v1.3.3/hamweard-windows-x64.zip",
+        "size": 203227,
+        "sha256": "ff2b3979262dae8695d4f239fd698fa8c826b516a651eee021764826304e42a6"
       }
     },
     {
