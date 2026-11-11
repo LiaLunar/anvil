@@ -33,3 +33,10 @@ default = "error.log"
 label = "Logs"
 description = "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them."
 restart = true
+
+[setting.panel]
+type = "bool"
+default = false
+label = "Script errors panel"
+description = "For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel."
+restart = false

@@ -80,7 +80,7 @@ everything a plugin can see:
   [ADR 0001](docs/adr/0001-plugin-api-2-compatibility.md).
 - `sdk/rust/anvil-sys/src/bindings.rs` is generated from `anvil_plugin.h` and
   the service headers `anvil_game.h`, `anvil_panel.h`, `anvil_input.h`, `anvil_benchmark.h`,
-  `anvil_map.h` and `anvil_script.h` (`sdk/rust/bindings.h`), and committed. After a change to one of them run
+  `anvil_map.h`, `anvil_script.h` and `anvil_log_throttle.h` (`sdk/rust/bindings.h`), and committed. After a change to one of them run
   `sdk/rust/regen-bindings.ps1` (bindgen and libclang, see the script) and
   commit the result; CI fails when the file differs from what the headers give.
 

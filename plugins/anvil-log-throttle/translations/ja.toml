@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "標準プラグイン：ゲームの error.log で繰り返される行は数回だけ書き込み、その後は数えるだけにして、1 分ごととゲームがログを閉じるときに回数を報告します。"
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "標準プラグイン：ゲームの error.log で繰り返される行は数回だけ書き込み、その後は数えるだけにして、1 分ごととゲームがログを閉じるときに回数を報告します。MOD 制作者向けに、スクリプトエラーとその回数のパネルもあります（既定ではオフ）。"
 "Write every line" = "すべての行を書き込む"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "抑制をオフにします。すべての行がログに書き込まれ、それまでに数えた繰り返しも報告されます。"
 "Lines kept per message" = "メッセージごとに残す行数"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "ログが書き込まれている間、抑制された行の回数をどのくらいの頻度でログに書くか。最後の回数はゲームがログを閉じるときに書き込まれます。"
 "Logs" = "ログ"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "抑制するゲームのログファイル。カンマ区切り（例：\"error.log, game.log\"）、またはすべてなら *。"
+"Script errors panel" = "スクリプトエラーパネル"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "MOD 制作者向け：抑制したログのメッセージを種類ごとにまとめ、その回数をリアルタイムで表示するオーバーレイのウィンドウです。オン：Anvil はそれ以降のすべてのメッセージを保持し、ウィンドウが開きます。起動のたびにも開きます。閉じた後は Anvil パネルの「状態」タブにあります。"

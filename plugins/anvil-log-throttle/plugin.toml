@@ -2,7 +2,7 @@ id = "anvil-log-throttle"
 name = "Anvil log throttle"
 version = "1.19.0"
 authors = ["Happy Dwarf Team"]
-description = "Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log."
+description = "Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)."
 api = 2
 entry = "anvil_log_throttle.dll"
 # Early, so that its swaps are in place before the game opens its logs.
@@ -14,3 +14,10 @@ settings = "settings.toml"
 affects_gameplay = false
 issues = "https://github.com/happy-dwarf-team/anvil/issues"
 repository = "https://github.com/happy-dwarf-team/anvil"
+
+# The script errors panel is a window of the overlay; without it the plugin
+# only throttles.
+[[dependencies]]
+id = "anvil-overlay"
+version = "^1"
+optional = true

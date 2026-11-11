@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Standard-Plugin: Eine Zeile, die sich in error.log des Spiels wiederholt, wird einige Male geschrieben und dann gezählt, mit einem Bericht der Anzahl jede Minute und wenn das Spiel das Log schließt."
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "Standard-Plugin: Eine Zeile, die sich in error.log des Spiels wiederholt, wird einige Male geschrieben und dann gezählt, mit einem Bericht der Anzahl jede Minute und wenn das Spiel das Log schließt; für Modder ein Fenster der Skriptfehler mit ihrer Anzahl (standardmäßig aus)."
 "Write every line" = "Jede Zeile schreiben"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Schaltet die Drosselung ab: Jede Zeile kommt ins Log, und die bisher gezählten Wiederholungen werden gemeldet."
 "Lines kept per message" = "Behaltene Zeilen pro Meldung"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Wie oft die Anzahl einer gedrosselten Zeile ins Log geschrieben wird, solange das Log geschrieben wird; die letzte Anzahl wird geschrieben, wenn das Spiel das Log schließt."
 "Logs" = "Logs"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Die Logdateien des Spiels, die gedrosselt werden, durch Kommas getrennt (z. B. \"error.log, game.log\"), oder * für alle."
+"Script errors panel" = "Panel der Skriptfehler"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "Für Modder: ein Fenster des Overlays mit den Meldungen der gedrosselten Logs, nach Art gruppiert, mit ihrer Anzahl in Echtzeit. An: Anvil behält ab dann jede Meldung, und das Fenster öffnet sich, auch bei jedem Start; geschlossen ist es im Tab Status des Anvil-Panels."

@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "표준 플러그인: 게임의 error.log에서 반복되는 줄은 몇 번만 기록하고 그다음에는 세기만 하며, 1분마다 그리고 게임이 로그를 닫을 때 횟수를 보고합니다."
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "표준 플러그인: 게임의 error.log에서 반복되는 줄은 몇 번만 기록하고 그다음에는 세기만 하며, 1분마다 그리고 게임이 로그를 닫을 때 횟수를 보고합니다. 모드 제작자를 위해 스크립트 오류와 그 횟수를 보여 주는 패널도 있습니다(기본값은 꺼짐)."
 "Write every line" = "모든 줄 기록"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "제한을 끕니다. 모든 줄이 로그에 기록되고, 그때까지 센 반복도 보고됩니다."
 "Lines kept per message" = "메시지당 남기는 줄 수"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "로그가 기록되는 동안 제한된 줄의 횟수를 얼마나 자주 로그에 기록할지. 마지막 횟수는 게임이 로그를 닫을 때 기록됩니다."
 "Logs" = "로그"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "제한할 게임 로그 파일. 쉼표로 구분(예: \"error.log, game.log\")하거나, 모두는 *."
+"Script errors panel" = "스크립트 오류 패널"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "모드 제작자용: 제한된 로그의 메시지를 종류별로 묶어 그 횟수를 실시간으로 보여 주는 오버레이 창입니다. 켜면 Anvil이 그때부터 모든 메시지를 보관하고 창이 열리며, 시작할 때마다 열립니다. 닫은 뒤에는 Anvil 패널의 상태 탭에 있습니다."

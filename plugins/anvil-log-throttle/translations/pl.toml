@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Wtyczka standardowa: wiersz, który powtarza się w error.log gry, jest zapisywany kilka razy, a potem tylko liczony, z raportem liczby co minutę i przy zamknięciu logu przez grę."
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "Wtyczka standardowa: wiersz, który powtarza się w error.log gry, jest zapisywany kilka razy, a potem tylko liczony, z raportem liczby co minutę i przy zamknięciu logu przez grę; dla modderów panel błędów skryptu z ich liczbą (domyślnie wyłączony)."
 "Write every line" = "Zapisuj każdy wiersz"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Wyłącza ograniczanie: każdy wiersz trafia do logu, a dotąd policzone powtórzenia są raportowane."
 "Lines kept per message" = "Zapisane wiersze na komunikat"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Jak często liczba ograniczanego wiersza trafia do logu, dopóki log jest zapisywany; ostatnia liczba jest zapisywana, gdy gra zamyka log."
 "Logs" = "Logi"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Pliki logów gry do ograniczania, oddzielone przecinkami (np. \"error.log, game.log\"), albo * dla wszystkich."
+"Script errors panel" = "Panel błędów skryptu"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "Dla modderów: okno nakładki z komunikatami ograniczanych logów, pogrupowanymi według rodzaju, z ich liczbą na bieżąco. Włączone: Anvil od tej chwili zapamiętuje każdy komunikat, a okno się otwiera, także przy każdym uruchomieniu; zamknięte jest w zakładce Status panelu Anvila."

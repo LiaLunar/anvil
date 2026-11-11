@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Plugin estándar: una línea que se repite en el error.log del juego se escribe unas cuantas veces y después se cuenta, con un informe del recuento cada minuto y cuando el juego cierra el registro."
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "Plugin estándar: una línea que se repite en el error.log del juego se escribe unas cuantas veces y después se cuenta, con un informe del recuento cada minuto y cuando el juego cierra el registro; para los modders, un panel de los errores de script con su recuento (desactivado por defecto)."
 "Write every line" = "Escribir todas las líneas"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Desactiva la limitación: cada línea llega al registro, y se informa de las repeticiones contadas hasta entonces."
 "Lines kept per message" = "Líneas conservadas por mensaje"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Con qué frecuencia se escribe en el registro el recuento de una línea limitada, mientras se escribe el registro; el último recuento se escribe cuando el juego cierra el registro."
 "Logs" = "Registros"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Los archivos de registro del juego que se limitan, separados por comas (p. ej. \"error.log, game.log\"), o * para todos."
+"Script errors panel" = "Panel de errores de script"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "Para modders: una ventana de la superposición con los mensajes de los registros limitados, agrupados por tipo, con su cuenta en tiempo real. Activado: Anvil guarda cada mensaje desde ese momento y la ventana se abre, también en cada inicio; una vez cerrada, está en la pestaña Estado del panel de Anvil."

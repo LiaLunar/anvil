@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "标准插件：游戏 error.log 中重复出现的行只写入几次，之后只计数，每分钟以及游戏关闭日志时报告计数。"
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "标准插件：游戏 error.log 中重复出现的行只写入几次，之后只计数，每分钟以及游戏关闭日志时报告计数；为模组作者提供脚本错误面板及其计数（默认关闭）。"
 "Write every line" = "写入每一行"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "关闭限流：每一行都写入日志，并报告到目前为止计数的重复次数。"
 "Lines kept per message" = "每条消息保留的行数"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "在写入日志期间，被限流的行的计数多久写入一次日志；游戏关闭日志时写入最后的计数。"
 "Logs" = "日志"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "要限流的游戏日志文件，用逗号分隔（例如 \"error.log, game.log\"），或用 * 表示全部。"
+"Script errors panel" = "脚本错误面板"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "供模组作者使用：叠加层中的一个窗口，按类型列出被限流日志的消息，并实时显示其次数。开启后：Anvil 从此保留每条消息，窗口随即打开，每次启动时也会打开；关闭后，它位于 Anvil 面板的“状态”选项卡中。"

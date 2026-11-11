@@ -9,8 +9,8 @@ use std::sync::{Mutex, MutexGuard};
 
 use crate::sys::*;
 use crate::{
-    commands, game, input, map, panel, script, world, Change, ErrorCode, FunctionHook, Host,
-    Payload, Plugin, Tag,
+    commands, game, input, log_throttle, map, panel, script, world, Change, ErrorCode,
+    FunctionHook, Host, Payload, Plugin, Tag,
 };
 
 /// One test at a time: the host is global to the crate, as in a plugin DLL.
@@ -133,6 +133,7 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-script.day_end", 1) => ptr::from_ref(&*FAKE_DAY_END).cast(),
         ("anvil-script.effects", 1) => ptr::from_ref(&*FAKE_EFFECTS).cast(),
         ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
+        ("anvil-log-throttle.messages", 1) => ptr::from_ref(&*FAKE_LOG_MESSAGES).cast(),
         _ => ptr::null(),
     }
 }
@@ -216,6 +217,73 @@ unsafe extern "C" fn commands_post(
 static FAKE_COMMANDS: Shared<AnvilGameCommandsService> = Shared(AnvilGameCommandsService {
     size: std::mem::size_of::<AnvilGameCommandsService>() as u32,
     post: Some(commands_post),
+});
+
+// --- a fake anvil-log-throttle.messages ------------------------------------------
+
+static LOG_KEPT: AtomicU32 = AtomicU32::new(0);
+
+unsafe extern "C" fn log_keep() -> AnvilResult {
+    LOG_KEPT.store(1, Ordering::SeqCst);
+    ANVIL_OK
+}
+
+unsafe extern "C" fn log_totals(out: *mut AnvilLogTotals) -> AnvilResult {
+    let out = unsafe { &mut *out };
+    if out.size < std::mem::size_of::<AnvilLogTotals>() as u32 {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    out.keeping = LOG_KEPT.load(Ordering::SeqCst);
+    out.version = 2500;
+    out.messages = 2500;
+    out.written = 2600;
+    out.counted = 7;
+    ANVIL_OK
+}
+
+// 2500 messages: message i has version i + 1, i written lines and, for the
+// first, 7 counted ones.
+unsafe extern "C" fn log_read(
+    first: u64,
+    changed_after: u64,
+    out: *mut AnvilLogMessage,
+    capacity: u32,
+    message_size: u32,
+    count: *mut u32,
+    next: *mut u64,
+) -> AnvilResult {
+    if message_size < std::mem::size_of::<AnvilLogMessage>() as u32 {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    let mut n = 0u32;
+    let mut i = first;
+    while i < 2500 && n < capacity {
+        if i + 1 > changed_after {
+            let m = unsafe { &mut *out.add(n as usize) };
+            m.index = i;
+            m.version = i + 1;
+            m.written = i;
+            m.counted = if i == 0 { 7 } else { 0 };
+            m.log = c"error.log".as_ptr();
+            m.source = c"gamestate.cpp".as_ptr();
+            m.source_line = 7653;
+            m.text = c"Undefined event target: destination_province".as_ptr();
+            n += 1;
+        }
+        i += 1;
+    }
+    unsafe {
+        *count = n;
+        *next = i;
+    }
+    ANVIL_OK
+}
+
+static FAKE_LOG_MESSAGES: Shared<AnvilLogMessagesService> = Shared(AnvilLogMessagesService {
+    size: std::mem::size_of::<AnvilLogMessagesService>() as u32,
+    keep: Some(log_keep),
+    totals: Some(log_totals),
+    read: Some(log_read),
 });
 
 // --- a fake panel service -------------------------------------------------------
@@ -1385,4 +1453,43 @@ fn effects_register_with_the_plugin_and_pass_the_call() {
             .count(),
         1
     );
+}
+
+#[test]
+fn log_messages_keep_totals_and_what_changed() {
+    let (_guard, table) = fake_host();
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let m = log_throttle::Messages::get(&host).unwrap();
+    m.keep().unwrap();
+    let totals = m.totals().unwrap();
+    assert!(totals.keeping);
+    assert_eq!(
+        (
+            totals.version,
+            totals.messages,
+            totals.written,
+            totals.counted
+        ),
+        (2500, 2500, 2600, 7)
+    );
+    let (part, next) = m.read(0, 0, 3).unwrap();
+    assert_eq!(next, 3);
+    assert_eq!(part.len(), 3);
+    assert_eq!(part[0].count(), 7);
+    assert_eq!(part[0].text, "Undefined event target: destination_province");
+    assert_eq!(
+        (
+            part[0].log.as_str(),
+            part[0].source.as_str(),
+            part[0].source_line
+        ),
+        ("error.log", "gamestate.cpp", 7653)
+    );
+    // The whole table in pieces, and only what changed after a version.
+    assert_eq!(m.changed_since(0).unwrap().len(), 2500);
+    let changed = m.changed_since(2400).unwrap();
+    assert_eq!(changed.len(), 100);
+    assert_eq!(changed[0].index, 2400);
+    assert!(m.read(0, 0, 0).unwrap().0.is_empty());
 }

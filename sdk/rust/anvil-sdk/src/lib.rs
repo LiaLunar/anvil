@@ -14,8 +14,9 @@
 //! - [`Change`] is a handle whose `Drop` removes the change.
 //! - Typed wrappers of the services Anvil ships: [`game`] (`anvil-game.game`),
 //!   [`world`] (`anvil-game.world`), [`panel`] (`anvil-overlay.panel`),
-//!   [`benchmark`] (`anvil.benchmark`), [`map`] (`anvil-map.modes`) and
-//!   [`script`] (`anvil-script.effects`, `anvil-script.day_end`).
+//!   [`benchmark`] (`anvil.benchmark`), [`map`] (`anvil-map.modes`),
+//!   [`script`] (`anvil-script.effects`, `anvil-script.day_end`) and
+//!   [`log_throttle`] (`anvil-log-throttle.messages`).
 //!
 //! # Where `unsafe` stays
 //!
@@ -91,6 +92,7 @@ pub mod benchmark;
 pub mod commands;
 pub mod game;
 pub mod input;
+pub mod log_throttle;
 pub mod map;
 pub mod panel;
 pub mod script;

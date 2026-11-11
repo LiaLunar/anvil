@@ -12,6 +12,7 @@
 // echo to a debugger) is untouched: only the bytes that reach the file differ.
 // The writes come from any thread of the game.
 #include <anvil/anvil.hpp>
+#include <anvil/anvil_log_throttle.h>
 
 #include <windows.h>
 
@@ -25,6 +26,8 @@
 #include "settings.gen.hpp"
 #include "symbols.gen.hpp"
 
+#include "panel.hpp"
+#include "tally.hpp"
 #include "throttle.hpp"
 
 namespace {
@@ -66,6 +69,9 @@ anvil::PointerSwap<WriteFn> g_write;
 anvil::PointerSwap<DestroyFn> g_destroy;
 // Kept for the process: the game may still write a line while the DLLs detach.
 log_throttle::Throttle& g_throttle = *new log_throttle::Throttle;
+// The messages with their counts, for the service and the panel; kept only
+// once one of them asks (Tally::keep).
+log_throttle::Tally& g_tally = *new log_throttle::Tally;
 const log_throttle::LogNames* g_logs = nullptr;  // set before the swaps
 std::uint32_t g_file_offset = 0;  // sink+: the file object
 std::uint32_t g_path_offset = 0;  // file object+: its path
@@ -86,16 +92,9 @@ std::string_view log_path(const void* sink) {
     return reinterpret_cast<const GameString*>(file + g_path_offset)->view();
 }
 
-std::string_view file_name(std::string_view path) {
-    const std::size_t slash = path.find_last_of("/\\");
-    return slash == std::string_view::npos ? path : path.substr(slash + 1);
-}
-
+using log_throttle::file_name;
 // A game message may end with its own line break; anvil.log adds one.
-std::string_view without_line_end(std::string_view text) {
-    while (!text.empty() && (text.back() == '\n' || text.back() == '\r')) text.remove_suffix(1);
-    return text;
-}
+using log_throttle::without_line_end;
 
 std::string shortened(std::string_view text) {
     constexpr std::size_t kMax = 300;
@@ -122,8 +121,9 @@ void write_lines(const std::vector<log_throttle::Line>& lines) {
 
 void on_write(void* sink, int channel, const GameString* file, int line, const GameString* message) noexcept {
     WriteFn* const next = g_write.previous();
+    const std::string_view path = log_path(sink);
     // The game's writer drops the message CALL_STACK; it is not counted either.
-    if (file == nullptr || message == nullptr || message->view() == "CALL_STACK" || !g_logs->matches(log_path(sink))) {
+    if (file == nullptr || message == nullptr || message->view() == "CALL_STACK" || !g_logs->matches(path)) {
         next(sink, channel, file, line, message);
         return;
     }
@@ -136,6 +136,9 @@ void on_write(void* sink, int channel, const GameString* file, int line, const G
     try {
         verdict = g_throttle.record(sink, channel, file->view(), line, message->view(), GetTickCount64(), config, out);
         write_lines(out);
+        if (g_tally.keeping()) {
+            g_tally.add(file_name(path), file->view(), line, message->view(), verdict == log_throttle::Verdict::count);
+        }
     } catch (...) {
         // Only a failed allocation can throw: the game's line is written.
         verdict = log_throttle::Verdict::write;
@@ -162,6 +165,66 @@ void* on_destroy(void* sink, unsigned flags) noexcept {
     return g_destroy.previous()(sink, flags);
 }
 
+// ---- the service anvil-log-throttle.messages (anvil_log_throttle.h) ----
+
+AnvilResult svc_keep() {
+    try {
+        g_tally.keep(GetTickCount64());
+        return ANVIL_OK;
+    } catch (...) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult svc_totals(AnvilLogTotals* out) {
+    if (out == nullptr || out->size < sizeof(AnvilLogTotals)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    const log_throttle::TallyTotals t = g_tally.totals();
+    const std::uint32_t size = out->size;
+    std::memset(out, 0, sizeof(AnvilLogTotals));
+    out->size = size;
+    out->keeping = t.keeping ? 1 : 0;
+    out->version = t.version;
+    out->since_ms = t.since_ms;
+    out->messages = t.messages;
+    out->written = t.written;
+    out->counted = t.counted;
+    out->untracked = t.untracked;
+    return ANVIL_OK;
+}
+
+AnvilResult svc_read(std::uint64_t first, std::uint64_t changed_after, AnvilLogMessage* out, std::uint32_t capacity,
+                     std::uint32_t message_size, std::uint32_t* count, std::uint64_t* next) {
+    if (count == nullptr || next == nullptr || (out == nullptr && capacity != 0) || message_size < sizeof(AnvilLogMessage)) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    try {
+        std::vector<log_throttle::TallyRow> rows;
+        rows.reserve(capacity < 4096 ? capacity : 4096);
+        *next = g_tally.read(first, changed_after, capacity, rows);
+        auto* bytes = reinterpret_cast<std::uint8_t*>(out);
+        for (std::size_t i = 0; i < rows.size(); ++i) {
+            const log_throttle::TallyRow& r = rows[i];
+            auto* m = reinterpret_cast<AnvilLogMessage*>(bytes + i * message_size);
+            std::memset(m, 0, message_size);
+            m->index = r.index;
+            m->version = r.version;
+            m->written = r.written;
+            m->counted = r.counted;
+            m->log = r.message->log.c_str();
+            m->source = r.message->source.c_str();
+            m->source_line = r.message->source_line;
+            m->text = r.message->text.c_str();
+        }
+        *count = static_cast<std::uint32_t>(rows.size());
+        return ANVIL_OK;
+    } catch (...) {
+        *count = 0;
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+const AnvilLogMessagesService kService = {sizeof(AnvilLogMessagesService), &svc_keep, &svc_totals, &svc_read};
+
 struct LogThrottle : anvil::Plugin {
     void load(anvil::Host& host) override {
         g_file_offset = sym::channel_log_path.file;
@@ -174,6 +237,9 @@ struct LogThrottle : anvil::Plugin {
         host.subscribe_setting(cfg::repeats, [](std::int64_t v) { g_repeats.store(v); });
         host.subscribe_setting(cfg::report_seconds, [](std::int64_t v) { g_report_seconds.store(v); });
         host.subscribe_setting(cfg::full_log, [](bool on) { g_full_log.store(on); });
+        host.register_service(ANVIL_LOG_MESSAGES_SERVICE, ANVIL_LOG_MESSAGES_SERVICE_VERSION, kService);
+        log_throttle::panel::load(host, g_tally, cfg::panel.get());
+        host.subscribe_setting(cfg::panel, [](bool on) { log_throttle::panel::set_on(on); });
         if (!g_logs->all && g_logs->names.empty()) {
             host.info("no logs to throttle (logs = \"{}\"); nothing changed", logs);
             return;

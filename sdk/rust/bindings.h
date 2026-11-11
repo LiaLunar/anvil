@@ -7,3 +7,4 @@
 #include <anvil/anvil_benchmark.h>
 #include <anvil/anvil_map.h>
 #include <anvil/anvil_script.h>
+#include <anvil/anvil_log_throttle.h>

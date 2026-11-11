@@ -3,7 +3,7 @@
 status = "draft"
 
 [text]
-"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Plugin standard : une ligne qui se répète dans error.log du jeu est écrite quelques fois, puis comptée, avec un rapport du compte chaque minute et quand le jeu ferme le journal."
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log; for modders, a panel of the script errors with their counts (off by default)." = "Plugin standard : une ligne qui se répète dans error.log du jeu est écrite quelques fois, puis comptée, avec un rapport du compte chaque minute et quand le jeu ferme le journal ; pour les moddeurs, un panneau des erreurs de script avec leur nombre (désactivé par défaut)."
 "Write every line" = "Écrire chaque ligne"
 "Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Désactive la limitation : chaque ligne arrive dans le journal, et les répétitions comptées jusque-là sont signalées."
 "Lines kept per message" = "Lignes gardées par message"
@@ -12,3 +12,5 @@ status = "draft"
 "How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "À quelle fréquence le compte d'une ligne limitée est écrit dans le journal, tant que le journal est écrit ; le dernier compte est écrit quand le jeu ferme le journal."
 "Logs" = "Journaux"
 "The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Les fichiers journaux du jeu à limiter, séparés par des virgules (p. ex. \"error.log, game.log\"), ou * pour tous."
+"Script errors panel" = "Panneau des erreurs de script"
+"For modders: a window of the overlay with the messages of the throttled logs, grouped by kind, with their counts as they happen. On: Anvil keeps every message from then on, and the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel." = "Pour les moddeurs : une fenêtre de la surcouche avec les messages des journaux limités, groupés par type, avec leur nombre en direct. Activé : Anvil garde chaque message à partir de ce moment, et la fenêtre s'ouvre, aussi à chaque démarrage ; une fois fermée, elle se trouve dans l'onglet État du panneau d'Anvil."

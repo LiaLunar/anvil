@@ -405,8 +405,11 @@ if(ANVIL_BUILD_TESTS)
 
     # anvil-log-throttle's throttling on its own, and the plugin end to end on
     # a synthetic image (tests/log_throttle_tests.cpp).
-    add_executable(anvil_log_throttle_tests tests/log_throttle_tests.cpp plugins/anvil-log-throttle/src/throttle.cpp)
-    target_link_libraries(anvil_log_throttle_tests PRIVATE anvil_loader)
+    add_executable(anvil_log_throttle_tests tests/log_throttle_tests.cpp plugins/anvil-log-throttle/src/throttle.cpp
+        plugins/anvil-log-throttle/src/tally.cpp plugins/anvil-log-throttle/src/errors_model.cpp
+        plugins/anvil-log-throttle/src/texts.cpp plugins/anvil-log-throttle/src/playset.cpp)
+    target_link_libraries(anvil_log_throttle_tests PRIVATE anvil_loader shell32 ole32)
+    target_compile_definitions(anvil_log_throttle_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(anvil_log_throttle_tests anvil_log_throttle)
     add_test(NAME anvil_log_throttle_tests COMMAND anvil_log_throttle_tests ${CMAKE_BINARY_DIR}/plugin)
 
