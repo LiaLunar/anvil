@@ -22,6 +22,7 @@
 #include "safe_mode.hpp"
 #include "seh_guard.hpp"
 #include "services.hpp"
+#include "plugin_translation.hpp"
 #include "settings.hpp"
 #include "symbol_check.hpp"
 
@@ -791,6 +792,26 @@ void startup_impl(const std::filesystem::path& game_dir) {
     if (!crash_names.empty()) sources.previous_crash = crash_names.front();
     sources.mods = &g_runtime->mods;
     sources.language = player_language;
+    // The plugins' own texts in that language (design §5.4). A file that
+    // does not parse is left out with a warning; the plugin loads as before.
+    const auto translation = [&](const std::filesystem::path& folder, const std::string& id) {
+        PluginTranslationResult t = load_plugin_translation(folder, player_language);
+        if (!t.error.empty()) {
+            log_warning(id + ": " + kTranslationsFolder + "/" + player_language + ".toml" +
+                        (t.line != 0 ? ":" + std::to_string(t.line) : std::string()) + " ignored: " + t.error);
+        }
+        return t.translation;
+    };
+    if (player_language != "en") {
+        for (const auto& p : g_runtime->plugins) {
+            if (auto t = translation(p->manifest.folder, p->manifest.id)) sources.translations.emplace(p->manifest.id, std::move(*t));
+        }
+        for (uint32_t i = 0; i < g_runtime->mods.plugins.size(); ++i) {
+            const ModPlugin& p = g_runtime->mods.plugins[i];
+            if (!p.manifest) continue;
+            if (auto t = translation(p.folder, p.id)) sources.mod_translations.emplace(i, std::move(*t));
+        }
+    }
     g_runtime->control = std::make_unique<Control>(std::move(sources));
     if (g_runtime->bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION,
                                         g_runtime->control->service()) != ANVIL_OK) {

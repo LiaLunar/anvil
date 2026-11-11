@@ -504,7 +504,7 @@ void map_font(MappedFont& font) {
 // ideograph takes that language's form. Between frames only.
 void merge_system_fonts() {
     Ui& u = ui();
-    if (u.system_fonts || !shared().panels.wants_cjk()) return;
+    if (u.system_fonts || !(shared().panels.wants_cjk() || ControlClient::translated_cjk())) return;
     u.system_fonts = true;
     SystemFont order[] = {kYaHei, kJhengHei, kYuGothic, kMalgun};
     switch (anvil::i18n::language()) {

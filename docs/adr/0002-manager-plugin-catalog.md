@@ -21,3 +21,4 @@ A player who has Anvil does not learn from it which plugins exist, and installin
 - The pins lag behind releases until that pull request is merged; the Manager never offers a release CI has not verified.
 - Mei's zip has no fonts (the game reads them from a mod's `gfx/fonts/mei/`), so its entry says the Workshop item carries both. The tab also links each plugin's page.
 - A list from `main` reaches every Manager that fetches it, old ones included: a new field is ignored by an older Manager, and a change it would misread raises `schema`, which older Managers refuse.
+- *Added in 1.20 ([ADR 0010](0010-plugin-translations.md)):* an entry's `translations` gives its summary and note in each language of the Manager, by the codes of `ANVIL_LANGUAGE`; the Manager shows the player's language's and English otherwise, an older Manager ignores the field, and the `catalog` job requires every language.

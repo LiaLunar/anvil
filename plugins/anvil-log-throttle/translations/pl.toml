@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in Polish (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Wtyczka standardowa: wiersz, który powtarza się w error.log gry, jest zapisywany kilka razy, a potem tylko liczony, z raportem liczby co minutę i przy zamknięciu logu przez grę."
+"Write every line" = "Zapisuj każdy wiersz"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Wyłącza ograniczanie: każdy wiersz trafia do logu, a dotąd policzone powtórzenia są raportowane."
+"Lines kept per message" = "Zapisane wiersze na komunikat"
+"How many times a line is written before its repeats are only counted." = "Ile razy wiersz jest zapisywany, zanim jego powtórzenia będą już tylko liczone."
+"Report every (s)" = "Raport co (s)"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Jak często liczba ograniczanego wiersza trafia do logu, dopóki log jest zapisywany; ostatnia liczba jest zapisywana, gdy gra zamyka log."
+"Logs" = "Logi"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Pliki logów gry do ograniczania, oddzielone przecinkami (np. \"error.log, game.log\"), albo * dla wszystkich."

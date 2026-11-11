@@ -56,6 +56,7 @@ endif()
 # The Manager therefore always installs the Anvil of its own version.
 set(ANVIL_MANAGER_STAGE ${CMAKE_CURRENT_BINARY_DIR}/package)
 set(ANVIL_MANAGER_PACKAGE ${CMAKE_CURRENT_BINARY_DIR}/anvil-package.zip)
+file(GLOB ANVIL_STANDARD_TRANSLATIONS CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/plugins/*/translations/*.toml)
 add_custom_command(
     OUTPUT ${ANVIL_MANAGER_PACKAGE}
     COMMAND ${CMAKE_COMMAND} -E rm -rf ${ANVIL_MANAGER_STAGE}
@@ -64,7 +65,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E chdir ${ANVIL_MANAGER_STAGE}
         ${CMAKE_COMMAND} -E tar cf ${ANVIL_MANAGER_PACKAGE} --format=zip -- version.dll anvil
     DEPENDS version_dll anvil_game anvil_overlay anvil_log_throttle anvil_map anvil_script ${PROJECT_SOURCE_DIR}/dist/anvil.toml
-        ${PROJECT_SOURCE_DIR}/dist/plugins-README.txt ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/README.md
+        ${PROJECT_SOURCE_DIR}/dist/plugins-README.txt ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/README.md ${ANVIL_STANDARD_TRANSLATIONS}
     COMMENT "Anvil package for AnvilManager.exe"
     VERBATIM)
 add_custom_target(anvil_manager_package DEPENDS ${ANVIL_MANAGER_PACKAGE})

@@ -1,0 +1,6 @@
+# anvil-script's texts in Japanese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: gameplay plugins add effects of their own to the game's script language, which mods use in events, decisions and scripted effects, and mods ask has_dlc = \"anvil:<id>\" whether a plugin acts." = "標準プラグイン：ゲームプレイ系プラグインがゲームのスクリプト言語に独自のエフェクトを加え、Mod はそれをイベント、ディシジョン、スクリプトエフェクトで使えます。また Mod は has_dlc = \"anvil:<id>\" でプラグインが動作しているかを確かめられます。"

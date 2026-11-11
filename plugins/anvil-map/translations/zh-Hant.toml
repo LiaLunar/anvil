@@ -1,0 +1,6 @@
+# anvil-map's texts in Traditional Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: map modes from plugins, with a button on the minimap's list, a colour for each province and lines in the province's tooltip." = "標準外掛：來自外掛的地圖模式，在小地圖清單中有一個按鈕，為每個省份著色，並在省份提示中加入文字行。"

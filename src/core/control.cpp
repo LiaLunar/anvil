@@ -242,6 +242,15 @@ int svc_plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin* out) {
     return fill_sized(out, [&](AnvilControlPlugin& full) { return g_control->plugin_of(plugin, full); });
 }
 
+const char* svc_plugin_text(const char* plugin_id, const char* english) {
+    if (g_control == nullptr || plugin_id == nullptr) return english;
+    return g_control->plugin_text(plugin_id, english);
+}
+
+const char* svc_mod_plugin_text(uint32_t index, const char* english) {
+    return g_control != nullptr ? g_control->mod_plugin_text(index, english) : english;
+}
+
 const AnvilControlService kService{
     sizeof(AnvilControlService),
     svc_status,
@@ -264,6 +273,8 @@ const AnvilControlService kService{
     svc_revoke_mod_plugin,
     svc_language,
     svc_plugin_of,
+    svc_plugin_text,
+    svc_mod_plugin_text,
 };
 
 const char* skipped_state(const Skipped&) { return "skipped"; }
@@ -271,6 +282,27 @@ const char* skipped_state(const Skipped&) { return "skipped"; }
 }  // namespace
 
 // ---- Control ---------------------------------------------------------------------
+
+namespace {
+
+// The translation's own copy of the words, which lives as long as `t`.
+const char* translated(const PluginTranslation& t, const char* english) {
+    if (english == nullptr) return english;
+    const auto it = t.text.find(std::string_view(english));
+    return it != t.text.end() ? it->second.c_str() : english;
+}
+
+}  // namespace
+
+const char* Control::plugin_text(std::string_view plugin_id, const char* english) const {
+    const auto it = sources_.translations.find(plugin_id);
+    return it != sources_.translations.end() ? translated(it->second, english) : english;
+}
+
+const char* Control::mod_plugin_text(uint32_t index, const char* english) const {
+    const auto it = sources_.mod_translations.find(index);
+    return it != sources_.mod_translations.end() ? translated(it->second, english) : english;
+}
 
 Control::Control(ControlSources sources) : sources_(std::move(sources)) {
     if (sources_.plugins != nullptr) {

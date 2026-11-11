@@ -30,6 +30,10 @@ _Avoid_: service API version, interface version
 A plugin that declares it can change the simulation's state or results. Anvil takes its changes out of ironman and multiplayer games unless both the plugin's author and the player allow it there.
 _Avoid_: cheat plugin, unsafe plugin
 
+**Plugin translation**:
+A file of a plugin package, `translations/<code>.toml`, with one language's words for the plugin's texts the player reads in the overlay and the Manager: its description and its settings' labels, descriptions, groups and option labels, each found by its English words.
+_Avoid_: catalog (Anvil's own texts have catalogs; the Plugin catalog is the list of plugins), locale
+
 **Plugin catalog**:
 The list of the team's plugins that the Manager offers to install, each pinned to one release zip by its size and SHA-256 (`catalog/plugins.json`).
 _Avoid_: store, marketplace, plugin registry

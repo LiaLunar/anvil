@@ -238,6 +238,7 @@ void ManagerApp::poll() {
     using namespace std::chrono;
     if (pending_.valid() && pending_.wait_for(0s) == std::future_status::ready) {
         snapshot_ = pending_.get();
+        translations_.clear();   // a plugin installed or updated may bring other translations
         follow_language(game_);  // the overlay's setting may be new: the folder was installed or changed
     }
     if (release_pending_.valid() && release_pending_.wait_for(0s) == std::future_status::ready) {
@@ -594,6 +595,18 @@ void ManagerApp::draw_anvil_tab() {
     }
 }
 
+const std::string& ManagerApp::plugin_text(const fs::path& folder, const std::string& english) const {
+    const std::string code = i18n::language_code(i18n::language());
+    if (english.empty() || folder.empty() || code == "en") return english;
+    auto it = translations_.find({folder, code});
+    if (it == translations_.end()) {
+        it = translations_.emplace(std::pair{folder, code}, load_plugin_translation(folder, code).translation).first;
+    }
+    if (!it->second) return english;
+    const auto found = it->second->text.find(english);
+    return found != it->second->text.end() ? found->second : english;
+}
+
 void ManagerApp::draw_catalog_tab() {
     const auto& report = snapshot_->report;
     ImGui::Spacing();
@@ -632,8 +645,9 @@ void ManagerApp::draw_catalog_tab() {
         ImGui::PushID(plugin.id.c_str());
         ImGui::Separator();
         ImGui::Text("%s %s", plugin.name.c_str(), plugin.version.c_str());
-        if (!plugin.summary.empty()) wrapped(plugin.summary);
-        if (!plugin.note.empty()) weak_wrapped(plugin.note);
+        const char* code = i18n::language_code(i18n::language());
+        if (!plugin.summary.empty()) wrapped(plugin.summary_in(code));
+        if (!plugin.note.empty()) weak_wrapped(plugin.note_in(code));
         if (plugin.affects_gameplay) {
             weak_wrapped(tr("It changes the game. Anvil keeps it out of ironman and multiplayer games unless you allow it there."));
         }
@@ -755,7 +769,9 @@ void ManagerApp::draw_plugins_tab() {
                 ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
                 ImGui::TextUnformatted(trf("id {0}, folder {1}", {manifest->id, plugin.folder}).c_str());
                 if (!manifest->authors.empty()) ImGui::TextUnformatted(trf("by {0}", {join(manifest->authors)}).c_str());
-                if (!manifest->description.empty()) ImGui::TextUnformatted(manifest->description.c_str());
+                if (!manifest->description.empty()) {
+                    ImGui::TextUnformatted(plugin_text(manifest->folder, manifest->description).c_str());
+                }
                 ImGui::PopTextWrapPos();
                 ImGui::EndTooltip();
             }
@@ -942,7 +958,7 @@ void ManagerApp::draw_approve_modal() {
     ImGui::Text("%s %s", m.name.empty() ? m.id.c_str() : m.name.c_str(), p.version.c_str());
     weak(m.authors.empty() ? trf("id {0}", {m.id}) : trf("id {0}, by {1}", {m.id, join(m.authors)}));
     weak(trf("from {0}", {mod_source(p)}));
-    if (!m.description.empty()) wrapped(m.description);
+    if (!m.description.empty()) wrapped(plugin_text(m.folder, m.description));
     if (!m.repository.empty() && m.repository.starts_with("https://")) {
         if (ImGui::SmallButton(tr("Open its repository"))) open_url(m.repository);
     }
@@ -996,6 +1012,7 @@ void ManagerApp::open_settings(const cli::GamePlugin& plugin) {
     const Manifest& manifest = *plugin.report.manifest;
     SettingsEditor editor;
     editor.plugin = manifest.id;
+    editor.folder = game_ / "anvil" / "plugins" / widen(plugin.folder);
     editor.player_file = game_ / "anvil" / "data" / widen(manifest.id) / "settings.toml";
     const SettingsFileResult schema =
         load_settings(game_ / "anvil" / "plugins" / widen(plugin.folder) / fs::path(widen(manifest.settings)));
@@ -1056,10 +1073,10 @@ void ManagerApp::draw_settings_tab() {
         if (setting.group != group) {
             group = setting.group;
             ImGui::Spacing();
-            ImGui::SeparatorText(group.c_str());
+            ImGui::SeparatorText(plugin_text(editor.folder, group).c_str());
         }
         ImGui::PushID(static_cast<int>(setting.id));
-        const std::string label = setting.label.empty() ? setting.name : setting.label;
+        const std::string label = setting.label.empty() ? setting.name : plugin_text(editor.folder, setting.label);
         bool changed = false;
         ImGui::SetNextItemWidth(ImGui::GetFontSize() * 14);
         switch (setting.type) {
@@ -1087,10 +1104,11 @@ void ManagerApp::draw_settings_tab() {
         }
         case SettingType::Enum: {
             const auto index = static_cast<size_t>(value.integer);
-            const std::string shown = index < setting.options.size() ? setting.options[index].label : "?";
+            const std::string shown =
+                index < setting.options.size() ? plugin_text(editor.folder, setting.options[index].label) : "?";
             if (ImGui::BeginCombo(label.c_str(), shown.c_str())) {
                 for (size_t i = 0; i < setting.options.size(); ++i) {
-                    if (ImGui::Selectable(setting.options[i].label.c_str(), i == index)) {
+                    if (ImGui::Selectable(plugin_text(editor.folder, setting.options[i].label).c_str(), i == index)) {
                         value.integer = static_cast<int64_t>(i);
                         changed = true;
                     }
@@ -1126,7 +1144,7 @@ void ManagerApp::draw_settings_tab() {
         }
         if (!setting.description.empty()) {
             ImGui::Indent();
-            weak(setting.description);
+            weak(plugin_text(editor.folder, setting.description));
             ImGui::Unindent();
         }
         editor.dirty = editor.dirty || changed;
@@ -1605,7 +1623,7 @@ void ManagerApp::draw_zip_modal() {
         const Manifest& m = *check.report.manifest;
         ImGui::Text("%s %s", m.name.empty() ? m.id.c_str() : m.name.c_str(), check.version.c_str());
         weak(m.authors.empty() ? trf("id {0}", {m.id}) : trf("id {0}, by {1}", {m.id, join(m.authors)}));
-        if (!m.description.empty()) wrapped(m.description);
+        if (!m.description.empty()) wrapped(plugin_text(m.folder, m.description));
         if (!m.repository.empty() && m.repository.starts_with("https://")) {
             if (ImGui::SmallButton(tr("Open its repository"))) open_url(m.repository);
         }

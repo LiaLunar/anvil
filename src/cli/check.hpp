@@ -40,6 +40,12 @@ struct CheckOptions {
     // The build id of an eu4.exe by its SHA-256 (upper-case hex), or nullptr
     // when the build is unknown. Empty: the table compiled into Anvil.
     std::function<const char*(std::string_view sha256)> build_of;
+    // translations/ (design §5.4): checked only for a plugin folder of its
+    // own; check --game leaves them out, since the loader never skips a
+    // plugin for them. `complete_translations`: a missing translation is an
+    // error, not a warning (--complete-translations).
+    bool translations = true;
+    bool complete_translations = false;
 };
 
 // A verified `memory = "code"` symbol with declared bytes: [rva, rva + size).
@@ -75,6 +81,10 @@ struct CheckReport {
     std::string exe_build;     // empty: not a known build
     std::string lock;          // symbols.lock: "written", "unchanged", "matches" or empty
     std::vector<Problem> problems;
+    // What does not fail the check: a text of the plugin without a
+    // translation (without --complete-translations).
+    std::vector<Problem> warnings;
+    size_t translations = 0;  // files in translations/ that parsed
 };
 
 // `anvil check <plugin-dir> [--exe <eu4.exe>]` (design §16): the strict

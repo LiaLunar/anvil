@@ -5,6 +5,32 @@
       "id": "bellows",
       "name": "Bellows",
       "summary": "Makes the game start faster and the years pass sooner, without changing game files or rules.",
+      "translations": {
+        "fr": {
+          "summary": "Fait démarrer le jeu plus vite et passer les années plus tôt, sans changer les fichiers ni les règles du jeu."
+        },
+        "de": {
+          "summary": "Lässt das Spiel schneller starten und die Jahre schneller vergehen, ohne Spieldateien oder Regeln zu ändern."
+        },
+        "es": {
+          "summary": "Hace que el juego arranque más rápido y que los años pasen antes, sin cambiar los archivos ni las reglas del juego."
+        },
+        "zh-Hans": {
+          "summary": "让游戏启动更快、年份推进更快，不修改游戏文件或规则。"
+        },
+        "zh-Hant": {
+          "summary": "讓遊戲啟動更快、年份推進更快，不修改遊戲檔案或規則。"
+        },
+        "ja": {
+          "summary": "ゲームファイルやルールを変えずに、ゲームの起動を速くし、年の進みを早めます。"
+        },
+        "ko": {
+          "summary": "게임 파일이나 규칙을 바꾸지 않고 게임을 더 빨리 시작하고 해가 더 빨리 지나가게 합니다."
+        },
+        "pl": {
+          "summary": "Przyspiesza uruchamianie gry i upływ lat, bez zmiany plików i zasad gry."
+        }
+      },
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
@@ -26,6 +52,32 @@
       "id": "tongs",
       "name": "Tongs",
       "summary": "Lets scripts and agents control a running game: read its state, take screenshots, use keyboard and mouse.",
+      "translations": {
+        "fr": {
+          "summary": "Permet à des scripts et à des agents de piloter une partie en cours : lire son état, faire des captures d'écran, utiliser le clavier et la souris."
+        },
+        "de": {
+          "summary": "Lässt Skripte und Agenten ein laufendes Spiel steuern: seinen Zustand lesen, Screenshots machen, Tastatur und Maus benutzen."
+        },
+        "es": {
+          "summary": "Permite que scripts y agentes controlen una partida en curso: leer su estado, hacer capturas de pantalla, usar el teclado y el ratón."
+        },
+        "zh-Hans": {
+          "summary": "让脚本和智能体控制正在运行的游戏：读取其状态、截图、使用键盘和鼠标。"
+        },
+        "zh-Hant": {
+          "summary": "讓腳本和智慧代理控制執行中的遊戲：讀取其狀態、截圖、使用鍵盤和滑鼠。"
+        },
+        "ja": {
+          "summary": "スクリプトやエージェントが実行中のゲームを操作できるようにします：状態の読み取り、スクリーンショット、キーボードとマウスの操作。"
+        },
+        "ko": {
+          "summary": "스크립트와 에이전트가 실행 중인 게임을 제어하게 합니다: 상태 읽기, 스크린샷, 키보드와 마우스 사용."
+        },
+        "pl": {
+          "summary": "Pozwala skryptom i agentom sterować uruchomioną grą: czytać jej stan, robić zrzuty ekranu, używać klawiatury i myszy."
+        }
+      },
       "repo": "https://github.com/happy-dwarf-team/tongs",
       "page": "https://anvil.happydwarf.dev/plugins/tongs/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3826695093",
@@ -47,6 +99,32 @@
       "id": "hamweard",
       "name": "Hamweard",
       "summary": "Takes you from a campaign back to the main menu in seconds, without restarting the game.",
+      "translations": {
+        "fr": {
+          "summary": "Vous ramène d'une campagne au menu principal en quelques secondes, sans redémarrer le jeu."
+        },
+        "de": {
+          "summary": "Bringt dich in Sekunden aus einer Kampagne zurück ins Hauptmenü, ohne das Spiel neu zu starten."
+        },
+        "es": {
+          "summary": "Te lleva de una campaña al menú principal en segundos, sin reiniciar el juego."
+        },
+        "zh-Hans": {
+          "summary": "几秒钟内从战役回到主菜单，无需重启游戏。"
+        },
+        "zh-Hant": {
+          "summary": "幾秒鐘內從戰役回到主選單，無需重新啟動遊戲。"
+        },
+        "ja": {
+          "summary": "ゲームを再起動せずに、キャンペーンから数秒でメインメニューに戻れます。"
+        },
+        "ko": {
+          "summary": "게임을 다시 시작하지 않고 캠페인에서 몇 초 만에 메인 메뉴로 돌아갑니다."
+        },
+        "pl": {
+          "summary": "Przenosi cię z kampanii do menu głównego w kilka sekund, bez ponownego uruchamiania gry."
+        }
+      },
       "repo": "https://github.com/happy-dwarf-team/hamweard",
       "page": "https://anvil.happydwarf.dev/plugins/hamweard/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832650792",
@@ -72,6 +150,40 @@
       "page": "https://anvil.happydwarf.dev/plugins/mei/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3832685486",
       "note": "The zip holds the plugin. Mei's fonts come with its Workshop item; on GOG they are mei-fonts.zip in its release, for a local mod. Without them the game's own fonts stay.",
+      "translations": {
+        "fr": {
+          "summary": "Affiche, coupe, recherche et saisit le texte d'un mod de traduction en chinois, japonais ou coréen.",
+          "note": "Le zip contient le plugin. Les polices de Mei viennent avec son objet du Workshop ; sur GOG, elles sont dans mei-fonts.zip de sa version, pour un mod local. Sans elles, le jeu garde ses propres polices."
+        },
+        "de": {
+          "summary": "Zeigt, umbricht, durchsucht und tippt den Text einer chinesischen, japanischen oder koreanischen Übersetzungsmod.",
+          "note": "Das Zip enthält das Plugin. Meis Schriften kommen mit ihrem Workshop-Objekt; auf GOG sind sie mei-fonts.zip in ihrem Release, für eine lokale Mod. Ohne sie bleiben die Schriften des Spiels."
+        },
+        "es": {
+          "summary": "Muestra, ajusta, busca y escribe el texto de un mod de traducción al chino, japonés o coreano.",
+          "note": "El zip contiene el plugin. Las fuentes de Mei vienen con su objeto del Workshop; en GOG son mei-fonts.zip de su versión, para un mod local. Sin ellas se quedan las fuentes del propio juego."
+        },
+        "zh-Hans": {
+          "summary": "让游戏能够显示、换行、搜索和输入中文、日文或韩文汉化 Mod 的文字。",
+          "note": "zip 中只有插件。Mei 的字体随其创意工坊物品提供；在 GOG 上，字体是其发布版本中的 mei-fonts.zip，作为本地 Mod 使用。没有字体时，游戏保留自己的字体。"
+        },
+        "zh-Hant": {
+          "summary": "讓遊戲能夠顯示、換行、搜尋和輸入中文、日文或韓文翻譯模組的文字。",
+          "note": "zip 中只有外掛。Mei 的字型隨其工作坊物品提供；在 GOG 上，字型是其發行版本中的 mei-fonts.zip，作為本機模組使用。沒有字型時，遊戲保留自己的字型。"
+        },
+        "ja": {
+          "summary": "中国語・日本語・韓国語の翻訳 Mod のテキストを表示・折り返し・検索・入力できるようにします。",
+          "note": "zip にはプラグインが入っています。Mei のフォントはワークショップのアイテムに付属します。GOG ではリリースの mei-fonts.zip をローカル Mod として使います。フォントがなければゲーム本来のフォントのままです。"
+        },
+        "ko": {
+          "summary": "중국어, 일본어 또는 한국어 번역 모드의 텍스트를 표시하고 줄바꿈하고 검색하고 입력할 수 있게 합니다.",
+          "note": "zip에는 플러그인이 들어 있습니다. Mei의 글꼴은 창작마당 항목과 함께 제공되며, GOG에서는 릴리스의 mei-fonts.zip을 로컬 모드로 사용합니다. 글꼴이 없으면 게임 자체의 글꼴이 그대로 쓰입니다."
+        },
+        "pl": {
+          "summary": "Wyświetla, zawija, wyszukuje i pozwala wpisywać tekst moda tłumaczącego grę na chiński, japoński albo koreański.",
+          "note": "Zip zawiera wtyczkę. Fonty Mei przychodzą z jej przedmiotem z Warsztatu Steam; na GOG to mei-fonts.zip w jej wydaniu, jako lokalny mod. Bez nich zostają fonty samej gry."
+        }
+      },
       "version": "0.7.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,

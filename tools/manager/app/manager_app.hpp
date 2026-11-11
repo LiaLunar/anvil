@@ -3,6 +3,7 @@
 #include "benchmark_tab.hpp"
 #include "cli/game.hpp"
 #include "core/discovery.hpp"
+#include "core/plugin_translation.hpp"
 #include "core/settings.hpp"
 #include "game.hpp"
 #include "install.hpp"
@@ -14,6 +15,7 @@
 #include <chrono>
 #include <filesystem>
 #include <future>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -48,6 +50,7 @@ private:
     };
     struct SettingsEditor {
         std::string plugin;  // id
+        std::filesystem::path folder;  // the plugin's, for its translations
         std::filesystem::path player_file;
         SettingsFile schema;
         std::vector<SettingValue> values;
@@ -145,6 +148,11 @@ private:
     bool zip_anyway_ = false;
 
     std::optional<SettingsEditor> editor_;
+    // A text of the plugin in `folder` in the player's language from its
+    // translations/ (design §5.4), or `english` itself. Each file is read
+    // once per language.
+    const std::string& plugin_text(const std::filesystem::path& folder, const std::string& english) const;
+    mutable std::map<std::pair<std::filesystem::path, std::string>, std::optional<PluginTranslation>> translations_;
     std::string crash_selected_;
     std::string crash_text_;
     std::string log_text_;

@@ -96,6 +96,7 @@ add_library(anvil_core STATIC
     src/core/platform.cpp
     src/core/playset.cpp
     src/core/plugin_hash.cpp
+    src/core/plugin_translation.cpp
     src/core/resolver.cpp
     src/core/settings.cpp
     src/core/symbols.cpp
@@ -259,7 +260,7 @@ if(ANVIL_BUILD_TESTS)
     enable_testing()
     add_executable(anvil_tests tests/test_main.cpp tests/manifest_tests.cpp tests/resolver_tests.cpp
         tests/change_tests.cpp tests/gameplay_tests.cpp tests/settings_tests.cpp tests/control_tests.cpp
-        tests/benchmark_tests.cpp)
+        tests/benchmark_tests.cpp tests/translation_tests.cpp)
     target_link_libraries(anvil_tests PRIVATE anvil_loader)
     target_compile_definitions(anvil_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(anvil_tests version_dll)
@@ -400,7 +401,7 @@ if(ANVIL_BUILD_TESTS)
     target_link_libraries(anvil_overlay_d3d_tests PRIVATE anvil_loader d3d9)
     add_dependencies(anvil_overlay_d3d_tests anvil_overlay)
     add_test(NAME anvil_overlay_d3d_tests COMMAND anvil_overlay_d3d_tests ${CMAKE_BINARY_DIR}/plugin)
-    add_test(NAME anvil_overlay_check COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-overlay)
+    add_test(NAME anvil_overlay_check COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-overlay --complete-translations)
 
     # anvil-log-throttle's throttling on its own, and the plugin end to end on
     # a synthetic image (tests/log_throttle_tests.cpp).
@@ -427,11 +428,12 @@ if(ANVIL_BUILD_TESTS)
 
     # The symbols.lock of anvil-game and of every example matches its
     # symbols.toml (anvil check without --exe; the locks come from anvil check
-    # --exe on the real eu4.exe).
-    add_test(NAME anvil_game_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-game)
-    add_test(NAME anvil_log_throttle_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-log-throttle)
-    add_test(NAME anvil_map_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-map)
-    add_test(NAME anvil_script_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-script)
+    # --exe on the real eu4.exe), and the standard plugins translate every
+    # text into every language (translations/, design §5.4).
+    add_test(NAME anvil_game_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-game --complete-translations)
+    add_test(NAME anvil_log_throttle_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-log-throttle --complete-translations)
+    add_test(NAME anvil_map_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-map --complete-translations)
+    add_test(NAME anvil_script_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-script --complete-translations)
     foreach(example hello-c hello-cpp hello-rust)
         add_test(NAME anvil_${example}_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/examples/${example})
     endforeach()
@@ -481,6 +483,10 @@ install(FILES $<TARGET_FILE:anvil_map> plugins/anvil-map/plugin.toml plugins/anv
     DESTINATION anvil/plugins/anvil-map COMPONENT anvil)
 install(FILES $<TARGET_FILE:anvil_script> plugins/anvil-script/plugin.toml plugins/anvil-script/symbols.toml
     DESTINATION anvil/plugins/anvil-script COMPONENT anvil)
+# Their plugin translations (design §5.4).
+foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script)
+    install(DIRECTORY plugins/${_standard}/translations DESTINATION anvil/plugins/${_standard} COMPONENT anvil)
+endforeach()
 install(FILES LICENSE README.md DESTINATION anvil/docs COMPONENT anvil)
 # Third-party code compiled into version.dll: ship its license texts.
 # Zydis is declared inside SafetyHook's scope; fetch its properties here.

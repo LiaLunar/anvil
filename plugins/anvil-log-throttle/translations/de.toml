@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in German (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Standard-Plugin: Eine Zeile, die sich in error.log des Spiels wiederholt, wird einige Male geschrieben und dann gezählt, mit einem Bericht der Anzahl jede Minute und wenn das Spiel das Log schließt."
+"Write every line" = "Jede Zeile schreiben"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Schaltet die Drosselung ab: Jede Zeile kommt ins Log, und die bisher gezählten Wiederholungen werden gemeldet."
+"Lines kept per message" = "Behaltene Zeilen pro Meldung"
+"How many times a line is written before its repeats are only counted." = "Wie oft eine Zeile geschrieben wird, bevor ihre Wiederholungen nur noch gezählt werden."
+"Report every (s)" = "Bericht alle (s)"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Wie oft die Anzahl einer gedrosselten Zeile ins Log geschrieben wird, solange das Log geschrieben wird; die letzte Anzahl wird geschrieben, wenn das Spiel das Log schließt."
+"Logs" = "Logs"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Die Logdateien des Spiels, die gedrosselt werden, durch Kommas getrennt (z. B. \"error.log, game.log\"), oder * für alle."

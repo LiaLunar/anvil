@@ -5,6 +5,7 @@
 #include "core/instructions.hpp"
 #include "core/manifest.hpp"
 #include "core/pe_image.hpp"
+#include "core/plugin_translation.hpp"
 #include "core/settings.hpp"
 #include "core/symbols.hpp"
 
@@ -443,6 +444,7 @@ CheckReport check_plugin(const CheckOptions& options) {
         }
     }
     // settings.toml: the loader skips a plugin whose declarations do not parse.
+    std::optional<SettingsFile> settings_file;
     if (!m.settings.empty()) {
         const std::filesystem::path relative = utf8_path(m.settings);
         const std::string settings_path = shown_path(options.plugin_dir, relative);
@@ -456,6 +458,7 @@ CheckReport check_plugin(const CheckOptions& options) {
         if (text.starts_with("\xEF\xBB\xBF")) text.erase(0, 3);  // saved by Notepad, as load_settings allows
         const SettingsFileResult settings = parse_settings_text(text);
         report.has_settings = true;
+        if (settings.file) settings_file = settings.file;
         if (settings.file) {
             report.settings = settings.file->settings.size();
             const GeneratedHeaders headers =
@@ -468,9 +471,27 @@ CheckReport check_plugin(const CheckOptions& options) {
             if (report.skip_reason.empty()) set_skip(report, settings.error);
         }
     }
+    // translations/ (design §5.4): once the texts they translate are known.
+    if (options.translations && (m.settings.empty() || settings_file)) {
+        const std::vector<std::string> texts = plugin_texts(m, settings_file ? &*settings_file : nullptr);
+        for (const TranslationProblem& p :
+             check_plugin_translations(options.plugin_dir, texts, options.complete_translations)) {
+            Problem problem{shown_path(options.plugin_dir, utf8_path(p.file)), p.line, p.message};
+            (p.error ? report.problems : report.warnings).push_back(std::move(problem));
+        }
+        std::error_code dir_ec;
+        for (const auto& code : translation_codes()) {
+            if (std::filesystem::is_regular_file(
+                    options.plugin_dir / kTranslationsFolder / utf8_path(code + ".toml"), dir_ec) &&
+                load_plugin_translation(options.plugin_dir, code).translation) {
+                ++report.translations;
+            }
+        }
+    }
     // In file order, so the output reads like a compiler's.
-    std::stable_sort(report.problems.begin(), report.problems.end(),
-                     [](const Problem& a, const Problem& b) { return std::tie(a.file, a.line) < std::tie(b.file, b.line); });
+    const auto by_place = [](const Problem& a, const Problem& b) { return std::tie(a.file, a.line) < std::tie(b.file, b.line); };
+    std::stable_sort(report.problems.begin(), report.problems.end(), by_place);
+    std::stable_sort(report.warnings.begin(), report.warnings.end(), by_place);
     report.exit_code = report.problems.empty() ? kExitOk : kExitProblems;
     return report;
 }
@@ -517,7 +538,16 @@ std::string report_json(const CheckReport& report, const std::string& pad, const
         out += std::string(i == 0 ? "\n" : ",\n") + in + "  {\"file\": " + json_string(p.file) +
                ", \"line\": " + std::to_string(p.line) + ", \"message\": " + json_string(p.message) + "}";
     }
-    out += report.problems.empty() ? "]\n" + pad + "}" : "\n" + in + "]\n" + pad + "}";
+    out += report.problems.empty() ? "]" : "\n" + in + "]";
+    if (report.warnings.empty() && report.translations == 0) return out + "\n" + pad + "}";
+    out += ",\n" + in + "\"translations\": " + std::to_string(report.translations) + ",\n";
+    out += in + "\"warnings\": [";
+    for (size_t i = 0; i < report.warnings.size(); ++i) {
+        const Problem& p = report.warnings[i];
+        out += std::string(i == 0 ? "\n" : ",\n") + in + "  {\"file\": " + json_string(p.file) +
+               ", \"line\": " + std::to_string(p.line) + ", \"message\": " + json_string(p.message) + "}";
+    }
+    out += report.warnings.empty() ? "]\n" + pad + "}" : "\n" + in + "]\n" + pad + "}";
     return out;
 }
 
@@ -555,14 +585,16 @@ std::string report_summary(const CheckReport& report) {
         if (!report.lock.empty()) summary += "; " + std::string(kLockFile) + " " + report.lock;
     }
     if (report.has_settings) summary += "; " + std::to_string(report.settings) + " setting(s)";
+    if (report.translations != 0) summary += "; " + std::to_string(report.translations) + " translation(s)";
     summary += report.problems.empty() ? ": OK" : ": " + std::to_string(report.problems.size()) + " problem(s)";
+    if (!report.warnings.empty()) summary += ", " + std::to_string(report.warnings.size()) + " warning(s)";
     return summary;
 }
 
 std::string format_report(const CheckReport& report, Format format) {
     if (format == Format::Json) return report_json(report) + "\n";
 
-    std::string out = problem_lines(report.problems, format, "error");
+    std::string out = problem_lines(report.problems, format, "error") + problem_lines(report.warnings, format, "warning");
     if (report.exit_code == kExitCannotCheck) {
         out += format == Format::Github ? "::error title=anvil check::" + github_escape(report.cannot_check, false) + "\n"
                                         : "error: cannot check: " + report.cannot_check + "\n";

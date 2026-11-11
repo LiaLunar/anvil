@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in Spanish (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "Plugin estándar: una línea que se repite en el error.log del juego se escribe unas cuantas veces y después se cuenta, con un informe del recuento cada minuto y cuando el juego cierra el registro."
+"Write every line" = "Escribir todas las líneas"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "Desactiva la limitación: cada línea llega al registro, y se informa de las repeticiones contadas hasta entonces."
+"Lines kept per message" = "Líneas conservadas por mensaje"
+"How many times a line is written before its repeats are only counted." = "Cuántas veces se escribe una línea antes de que sus repeticiones solo se cuenten."
+"Report every (s)" = "Informe cada (s)"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "Con qué frecuencia se escribe en el registro el recuento de una línea limitada, mientras se escribe el registro; el último recuento se escribe cuando el juego cierra el registro."
+"Logs" = "Registros"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "Los archivos de registro del juego que se limitan, separados por comas (p. ej. \"error.log, game.log\"), o * para todos."

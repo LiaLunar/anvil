@@ -98,12 +98,37 @@ std::string check_plugin(const Json& entry, CatalogPlugin& out) {
             out.builds.push_back(build.as_string());
         }
     }
+    if (const Json* translations = entry.find("translations")) {
+        if (!translations->is_object()) return "translations is not an object of languages";
+        for (const auto& [code, words_of] : translations->members()) {
+            if (code.empty() || !words_of.is_object()) return "translations." + code + " is not an object";
+            CatalogText words;
+            for (const auto& [key, to] : {std::pair<const char*, std::string*>{"summary", &words.summary},
+                                          std::pair<const char*, std::string*>{"note", &words.note}}) {
+                const Json* value = words_of.find(key);
+                if (value == nullptr) continue;
+                if (!value->is_string()) return "translations." + code + "." + key + " is not a string";
+                *to = value->as_string();
+            }
+            out.translations[code] = std::move(words);
+        }
+    }
     const Json* zip = entry.find("zip");
     if (zip == nullptr) return "zip is missing";
     return check_zip(*zip, out.zip);
 }
 
 }  // namespace
+
+const std::string& CatalogPlugin::summary_in(std::string_view code) const {
+    const auto it = translations.find(code);
+    return it != translations.end() && !it->second.summary.empty() ? it->second.summary : summary;
+}
+
+const std::string& CatalogPlugin::note_in(std::string_view code) const {
+    const auto it = translations.find(code);
+    return it != translations.end() && !it->second.note.empty() && !note.empty() ? it->second.note : note;
+}
 
 std::optional<Catalog> parse_catalog(std::string_view json, std::string& error) {
     if (json.size() > kMaxCatalogBytes) {

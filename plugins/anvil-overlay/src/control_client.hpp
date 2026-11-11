@@ -74,8 +74,10 @@ public:
     std::string log_tail(uint32_t max_lines) const;
 
     uint32_t setting_count(const std::string& plugin) const;
+    // The label, description and group come in the player's language when
+    // the plugin's translation has them (plugin_text), else as written.
     std::optional<AnvilControlSetting> setting_info(const std::string& plugin, AnvilSetting setting) const;
-    // (name, label) of each option of an enum setting.
+    // (name, label) of each option of an enum setting, the label translated likewise.
     std::vector<std::pair<std::string, std::string>> setting_options(const std::string& plugin,
                                                                      AnvilSetting setting) const;
     std::string setting_value(const std::string& plugin, AnvilSetting setting, uint32_t which) const;
@@ -87,7 +89,15 @@ public:
     std::string reset(const std::string& plugin, AnvilSetting setting) const;
     std::string disable_next_start(const std::string& plugin) const;
 
-    // Plugins in mods; none from a core without them.
+    // A text of the plugin in the player's language from its translations/
+    // (design §5.4), or `english` from a core before 1.20 or without one.
+    const char* plugin_text(const std::string& plugin, const char* english) const;
+    // Some plugin text came back in Chinese, Japanese or Korean, which Anvil's
+    // own font subsets do not cover: the overlay merges the fonts of Windows.
+    static bool translated_cjk();
+
+    // Plugins in mods; none from a core without them. The description is
+    // translated as plugin_text does.
     std::vector<ModRow> mod_plugins() const;
     std::string approve_mod_plugin(const ModRow& plugin) const;  // with the hash it shows
     std::string revoke_mod_plugin(const ModRow& plugin) const;

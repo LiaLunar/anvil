@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in Korean (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "표준 플러그인: 게임의 error.log에서 반복되는 줄은 몇 번만 기록하고 그다음에는 세기만 하며, 1분마다 그리고 게임이 로그를 닫을 때 횟수를 보고합니다."
+"Write every line" = "모든 줄 기록"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "제한을 끕니다. 모든 줄이 로그에 기록되고, 그때까지 센 반복도 보고됩니다."
+"Lines kept per message" = "메시지당 남기는 줄 수"
+"How many times a line is written before its repeats are only counted." = "반복을 세기만 하기 전에 한 줄을 몇 번 기록할지."
+"Report every (s)" = "보고 간격(초)"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "로그가 기록되는 동안 제한된 줄의 횟수를 얼마나 자주 로그에 기록할지. 마지막 횟수는 게임이 로그를 닫을 때 기록됩니다."
+"Logs" = "로그"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "제한할 게임 로그 파일. 쉼표로 구분(예: \"error.log, game.log\")하거나, 모두는 *."

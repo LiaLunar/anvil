@@ -133,6 +133,7 @@ GameReport check_game(const GameOptions& options) {
             check.exe = exe;
             check.write_lock = false;
             check.build_of = options.build_of;
+            check.translations = false;
             plugin.report = check_plugin(check);
         }
         const bool by_id = plugin.report.manifest && disabled_ids.contains(plugin.report.manifest->id);
@@ -188,6 +189,7 @@ GameReport check_game(const GameOptions& options) {
         check.exe = exe;
         check.write_lock = false;
         check.build_of = options.build_of;
+        check.translations = false;
         gm.report = check_plugin(check);
         if (p.state == ModPluginState::UpdatePending) {
             check.plugin_dir = p.folder;

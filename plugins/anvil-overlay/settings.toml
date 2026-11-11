@@ -44,8 +44,9 @@ restart = false
 
 [setting.language]
 type = "enum"
-# The options are i18n::kLanguageSettingOptions, in that order; labels in
-# English, which every atlas draws.
+# The options are i18n::kLanguageSettingOptions, in that order. Each
+# translation in translations/ names the languages in its own script, which
+# its language's fonts draw.
 values = [
     { name = "game", label = "Like the game" },
     { name = "en", label = "English" },

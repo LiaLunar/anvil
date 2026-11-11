@@ -1,0 +1,6 @@
+# anvil-map's texts in Polish (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: map modes from plugins, with a button on the minimap's list, a colour for each province and lines in the province's tooltip." = "Wtyczka standardowa: tryby mapy z wtyczek, z przyciskiem na liście minimapy, kolorem każdej prowincji i wierszami w podpowiedzi prowincji."

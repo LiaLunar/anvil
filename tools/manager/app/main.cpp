@@ -92,6 +92,36 @@ float g_scale = 1.0f;
 bool g_fonts_dirty = true;
 anvil::i18n::Language g_fonts_language = anvil::i18n::Language::English;  // the atlas's
 
+// A font of Windows mapped read-only for the process, as the overlay maps
+// them: the atlas reads its glyphs from the view, and the file is not copied
+// into memory. Null when it cannot be opened.
+struct MappedFont {
+    const void* view = nullptr;
+    int size = 0;
+};
+
+MappedFont map_system_font(const fs::path& path) {
+    static std::vector<std::pair<fs::path, MappedFont>> mapped;
+    for (const auto& [p, font] : mapped) {
+        if (p == path) return font;
+    }
+    MappedFont font;
+    const HANDLE file = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file != INVALID_HANDLE_VALUE) {
+        LARGE_INTEGER size{};
+        if (GetFileSizeEx(file, &size) && size.QuadPart > 0 && size.QuadPart < INT_MAX) {
+            if (const HANDLE mapping = CreateFileMappingW(file, nullptr, PAGE_READONLY, 0, 0, nullptr)) {
+                font.view = MapViewOfFile(mapping, FILE_MAP_READ, 0, 0, 0);
+                if (font.view != nullptr) font.size = static_cast<int>(size.QuadPart);
+                CloseHandle(mapping);
+            }
+        }
+        CloseHandle(file);
+    }
+    mapped.emplace_back(path, font);
+    return font;
+}
+
 void load_fonts(float scale) {
     ImGuiIO& io = ImGui::GetIO();
     io.Fonts->Clear();
@@ -123,6 +153,22 @@ void load_fonts(float scale) {
         merge.GlyphOffset.y = 1.0f * scale;
         io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(cjk.data), static_cast<int>(cjk.size), 17.0f * 1.12f * scale,
                                        &merge);
+        // Plugins' translations and the catalog's (design §5.4) use characters
+        // Anvil's subset lacks: the language's font of Windows covers them.
+        const wchar_t* system = nullptr;
+        switch (g_fonts_language) {
+        case anvil::i18n::Language::SimplifiedChinese: system = L"msyh.ttc"; break;
+        case anvil::i18n::Language::TraditionalChinese: system = L"msjh.ttc"; break;
+        case anvil::i18n::Language::Japanese: system = L"YuGothR.ttc"; break;
+        case anvil::i18n::Language::Korean: system = L"malgun.ttf"; break;
+        default: break;
+        }
+        const MappedFont mapped = system != nullptr ? map_system_font(fs::path(windows) / "Fonts" / system) : MappedFont{};
+        if (mapped.view != nullptr) {
+            ImFontConfig windows_font = merge;
+            windows_font.GlyphOffset.y = 0.0f;
+            io.Fonts->AddFontFromMemoryTTF(const_cast<void*>(mapped.view), mapped.size, 17.0f * scale, &windows_font);
+        }
     }
     ImGui::GetStyle() = ImGuiStyle();
     anvil::ui::use_dark_colors();

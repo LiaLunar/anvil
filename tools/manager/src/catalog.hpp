@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -29,6 +30,13 @@ struct CatalogZip {
     std::string sha256;  // lower-case hex
 };
 
+// One language's words for an entry's summary and note (design §15, ADR
+// 0010); a field left out stays English.
+struct CatalogText {
+    std::string summary;
+    std::string note;
+};
+
 struct CatalogPlugin {
     std::string id;
     std::string name;
@@ -41,6 +49,13 @@ struct CatalogPlugin {
     bool affects_gameplay = false;
     std::vector<std::string> builds;  // from its symbols.toml; empty: every build
     CatalogZip zip;
+    // `translations`: by language code as ANVIL_LANGUAGE writes it ("fr",
+    // "zh-Hans", ...). A code this Manager does not show is kept and ignored.
+    std::map<std::string, CatalogText, std::less<>> translations;
+
+    // The summary or note in the language with this code, or the English one.
+    const std::string& summary_in(std::string_view code) const;
+    const std::string& note_in(std::string_view code) const;
 };
 
 struct Catalog {

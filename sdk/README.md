@@ -49,7 +49,8 @@ configure with `-DAnvilPlugin_DIR=<sdk>/cmake` (or put the folder in
   `cfg::<name>.get()` in C++),
 - builds `<entry>.dll` with the static CRT, C++20 (C11 for C sources) and `/W4`,
 - lays out `<build>/plugin/<id>/` with `plugin.toml`, `symbols.toml`, `settings.toml`
-  (when the manifest names one) and the DLL, the same for every configuration.
+  (when the manifest names one), `translations/*.toml` (the plugin translations, when
+  there are any; design §5.4) and the DLL, the same for every configuration.
 
 It also adds:
 

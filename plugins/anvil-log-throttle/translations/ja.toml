@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in Japanese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "標準プラグイン：ゲームの error.log で繰り返される行は数回だけ書き込み、その後は数えるだけにして、1 分ごととゲームがログを閉じるときに回数を報告します。"
+"Write every line" = "すべての行を書き込む"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "抑制をオフにします。すべての行がログに書き込まれ、それまでに数えた繰り返しも報告されます。"
+"Lines kept per message" = "メッセージごとに残す行数"
+"How many times a line is written before its repeats are only counted." = "繰り返しを数えるだけにする前に、1 行を何回書き込むか。"
+"Report every (s)" = "報告の間隔（秒）"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "ログが書き込まれている間、抑制された行の回数をどのくらいの頻度でログに書くか。最後の回数はゲームがログを閉じるときに書き込まれます。"
+"Logs" = "ログ"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "抑制するゲームのログファイル。カンマ区切り（例：\"error.log, game.log\"）、またはすべてなら *。"

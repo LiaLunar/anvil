@@ -1,0 +1,6 @@
+# anvil-game's texts in Korean (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: game readiness, a frame event, work on the main thread, the game date and its events, read-only provinces, countries, units, rulers, flags and variables, a session event with ironman and multiplayer, which Anvil uses to suspend gameplay plugins, and the unit panel's commands for gameplay plugins." = "표준 플러그인: 게임 준비 완료, 프레임 이벤트, 메인 스레드 작업, 게임 날짜와 그 이벤트, 읽기 전용 프로빈스·국가·부대·통치자·플래그·변수, 아이언맨과 멀티플레이를 포함한 세션 이벤트(Anvil은 이것으로 게임플레이 플러그인을 일시 중지합니다), 그리고 게임플레이 플러그인을 위한 부대 패널 명령."

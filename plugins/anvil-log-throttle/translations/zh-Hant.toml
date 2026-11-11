@@ -1,0 +1,14 @@
+# anvil-log-throttle's texts in Traditional Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: a line that repeats in the game's error.log is written a few times, then counted, with a report of the count every minute and when the game closes the log." = "標準外掛：遊戲 error.log 中重複出現的行只寫入幾次，之後只計數，每分鐘以及遊戲關閉記錄時回報計數。"
+"Write every line" = "寫入每一行"
+"Turns throttling off: every line reaches the log, and repeats counted so far are reported." = "關閉限流：每一行都寫入記錄，並回報目前為止計數的重複次數。"
+"Lines kept per message" = "每則訊息保留的行數"
+"How many times a line is written before its repeats are only counted." = "一行寫入幾次之後，其重複只計數。"
+"Report every (s)" = "回報間隔（秒）"
+"How often the count of a throttled line is written to the log, while the log is written; the last count is written when the game closes the log." = "在寫入記錄期間，被限流的行的計數多久寫入一次記錄；遊戲關閉記錄時寫入最後的計數。"
+"Logs" = "記錄檔"
+"The game's log files to throttle, separated by commas (e.g. \"error.log, game.log\"), or * for all of them." = "要限流的遊戲記錄檔，以逗號分隔（例如 \"error.log, game.log\"），或以 * 表示全部。"

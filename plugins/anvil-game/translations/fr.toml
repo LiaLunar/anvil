@@ -1,0 +1,6 @@
+# anvil-game's texts in French (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: game readiness, a frame event, work on the main thread, the game date and its events, read-only provinces, countries, units, rulers, flags and variables, a session event with ironman and multiplayer, which Anvil uses to suspend gameplay plugins, and the unit panel's commands for gameplay plugins." = "Plugin standard : l'état prêt du jeu, un événement par image, du travail sur le thread principal, la date du jeu et ses événements, les provinces, pays, unités, souverains, drapeaux et variables en lecture seule, un événement de session avec ironman et multijoueur, qu'Anvil utilise pour suspendre les plugins de gameplay, et les commandes du panneau des unités pour les plugins de gameplay."

@@ -814,7 +814,44 @@ int main(int argc, char** argv) {
             CHECK(plugin.zip.url.starts_with("https://github.com/happy-dwarf-team/" + plugin.id + "/releases/download/v" +
                                              plugin.version + "/"));
             for (const std::string& build : plugin.builds) CHECK(build.starts_with("eu4-1.37.5"));
+            // Every language has the summary and the note (catalog/update.py --check).
+            for (const char* code : {"fr", "de", "es", "zh-Hans", "zh-Hant", "ja", "ko", "pl"}) {
+                CHECK(plugin.summary_in(code) != plugin.summary);
+                if (!plugin.note.empty()) CHECK(plugin.note_in(code) != plugin.note);
+            }
         }
+    });
+
+    run("catalog: translations of the summary and the note", [] {
+        const std::string json =
+            "{\"schema\":1,\"plugins\":[{\"id\":\"bellows\",\"name\":\"Bellows\",\"version\":\"0.19.0\","
+            "\"page\":\"https://anvil.happydwarf.dev/plugins/bellows/\",\"summary\":\"Faster.\",\"note\":\"A note.\","
+            "\"translations\":{\"de\":{\"summary\":\"Schneller.\",\"note\":\"Ein Hinweis.\"},\"fr\":{\"summary\":\"Plus vite.\"},"
+            "\"pt-BR\":{\"summary\":\"Mais rápido.\",\"later\":1}},"
+            "\"zip\":{\"url\":\"https://github.com/happy-dwarf-team/bellows/releases/download/v0.19.0/b.zip\",\"size\":1,"
+            "\"sha256\":\"" + std::string(64, 'a') + "\"}}]}";
+        std::string error;
+        const auto catalog = parse_catalog(json, error);
+        CHECK(catalog && error.empty());
+        if (!catalog) return;
+        const CatalogPlugin& p = catalog->plugins[0];
+        CHECK(p.summary_in("de") == "Schneller." && p.note_in("de") == "Ein Hinweis.");
+        CHECK(p.summary_in("fr") == "Plus vite." && p.note_in("fr") == "A note.");  // no note: English
+        CHECK(p.summary_in("en") == "Faster." && p.summary_in("ja") == "Faster.");
+        CHECK(p.translations.contains("pt-BR"));  // a code this Manager does not show is kept
+        const auto refused = [&](const std::string& translations, const std::string& why) {
+            std::string e;
+            std::string bad = json;
+            const size_t from = bad.find("\"translations\":");
+            const size_t to = bad.find(",\"zip\"");
+            bad.replace(from, to - from, "\"translations\":" + translations);
+            const bool ok = !parse_catalog(bad, e) && contains(e, why);
+            if (!ok) std::printf("    expected '%s', got '%s'\n", why.c_str(), e.c_str());
+            return ok;
+        };
+        CHECK(refused("[]", "translations is not an object"));
+        CHECK(refused("{\"de\":\"Schneller.\"}", "translations.de is not an object"));
+        CHECK(refused("{\"de\":{\"summary\":1}}", "translations.de.summary is not a string"));
     });
 
     run("catalog: only the team's release zips, links and pins", [] {

@@ -39,11 +39,13 @@ void print_usage(std::FILE* out) {
                "      *settings.toml or one with [setting.<name>] tables); both languages without --lang.\n"
                "      --lang rust writes symbols.gen.rs and settings.gen.rs only.\n"
                "      A file whose content would not change is not rewritten.\n"
-               "  check <plugin-dir> [--exe <eu4.exe>] [--format text|json|github]\n"
-               "      check plugin.toml, symbols.toml and settings.toml against their schemas. With\n"
+               "  check <plugin-dir> [--exe <eu4.exe>] [--format text|json|github] [--complete-translations]\n"
+               "      check plugin.toml, symbols.toml, settings.toml and translations/<code>.toml against\n"
+               "      their schemas. With\n"
                "      --exe, also the game build, every symbol (bytes, memory, pointers, exports, values) and\n"
                "      instruction boundaries, and write symbols.lock; without it, check that\n"
-               "      symbols.lock matches symbols.toml.\n"
+               "      symbols.lock matches symbols.toml. A text without a translation is a warning;\n"
+               "      with --complete-translations, an error.\n"
                "  check --game <EU4 folder> [--format text|json|github] [--user-dir <folder>]\n"
                "      check every plugin in <folder>/anvil/plugins against <folder>/eu4.exe (nothing is\n"
                "      written), then resolve them as the game does at start-up: the load order, what is\n"
@@ -250,6 +252,8 @@ int run_check(const std::vector<std::wstring>& args) {
             const auto parsed = text ? parse_format(utf8(*text)) : std::nullopt;
             if (!parsed) return usage_error("check: --format must be text, json or github");
             format = *parsed;
+        } else if (args[i] == L"--complete-translations") {
+            options.complete_translations = true;
         } else if (args[i].starts_with(L"--")) {
             return usage_error("check: unknown option " + utf8(args[i]));
         } else {
@@ -258,7 +262,7 @@ int run_check(const std::vector<std::wstring>& args) {
     }
     if (user_dir && !game) return usage_error("check: --user-dir goes with --game");
     if (game) {
-        if (!positional.empty() || !options.exe.empty()) {
+        if (!positional.empty() || !options.exe.empty() || options.complete_translations) {
             return usage_error("check: --game takes the EU4 folder only (not a <plugin-dir> or --exe)");
         }
         GameOptions game_options;

@@ -1,0 +1,6 @@
+# anvil-game's texts in Simplified Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: game readiness, a frame event, work on the main thread, the game date and its events, read-only provinces, countries, units, rulers, flags and variables, a session event with ironman and multiplayer, which Anvil uses to suspend gameplay plugins, and the unit panel's commands for gameplay plugins." = "标准插件：游戏就绪、每帧事件、主线程上的工作、游戏日期及其事件、只读的省份、国家、部队、统治者、标记和变量、包含铁人和多人模式的会话事件（Anvil 用它暂停影响游戏的插件），以及供影响游戏的插件使用的部队面板命令。"

@@ -172,10 +172,19 @@ function(anvil_add_plugin target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 /utf-8 /permissive-)
     endif()
-    # plugin.toml, symbols.toml and settings.toml next to the DLL.
+    # plugin.toml, symbols.toml and settings.toml next to the DLL, and the
+    # plugin translations, translations/<code>.toml (design §5.4).
+    file(GLOB translations CONFIGURE_DEPENDS "${plugin_dir}/translations/*.toml")
+    set(copy_translations)
+    if(translations)
+        set(copy_translations
+            COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}/translations"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different ${translations} "${out_dir}/translations")
+    endif()
     add_custom_command(TARGET ${target} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${out_dir}"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different ${copied} "${out_dir}"
+        ${copy_translations}
         COMMENT "plugin folder ${out_dir}"
         VERBATIM)
 

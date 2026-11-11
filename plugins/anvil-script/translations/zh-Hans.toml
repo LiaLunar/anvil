@@ -1,0 +1,6 @@
+# anvil-script's texts in Simplified Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: gameplay plugins add effects of their own to the game's script language, which mods use in events, decisions and scripted effects, and mods ask has_dlc = \"anvil:<id>\" whether a plugin acts." = "标准插件：影响游戏的插件可以为游戏的脚本语言添加自己的效果，供 Mod 在事件、决议和脚本效果中使用；Mod 还可以用 has_dlc = \"anvil:<id>\" 询问某个插件是否生效。"

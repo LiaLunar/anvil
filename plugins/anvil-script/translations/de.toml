@@ -1,0 +1,6 @@
+# anvil-script's texts in German (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin: gameplay plugins add effects of their own to the game's script language, which mods use in events, decisions and scripted effects, and mods ask has_dlc = \"anvil:<id>\" whether a plugin acts." = "Standard-Plugin: Gameplay-Plugins fügen der Skriptsprache des Spiels eigene Effekte hinzu, die Mods in Ereignissen, Entscheidungen und Skript-Effekten verwenden, und Mods fragen mit has_dlc = \"anvil:<id>\", ob ein Plugin wirkt."

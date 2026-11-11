@@ -1,5 +1,8 @@
 #include "control_client.hpp"
 
+#include "panels.hpp"
+
+#include <atomic>
 #include <cstddef>
 
 namespace overlay {
@@ -10,6 +13,21 @@ void to_string(void* context, const char* text, size_t size) {
 }
 
 std::string text_or_empty(const char* text) { return text != nullptr ? std::string(text) : std::string(); }
+
+std::atomic<bool> g_translated_cjk{false};
+
+// The core has the functions of 1.20 (appended to the table).
+bool has_plugin_text(const AnvilControlService* service) {
+    return service != nullptr && service->size >= offsetof(AnvilControlService, mod_plugin_text) + sizeof(void*);
+}
+
+const char* noted(const char* english, const char* text) {
+    if (text == nullptr) return english;
+    if (text != english && !g_translated_cjk.load(std::memory_order_relaxed) && has_cjk(text)) {
+        g_translated_cjk.store(true, std::memory_order_release);
+    }
+    return text;
+}
 
 std::string result_text(AnvilResult result, const AnvilControlResult& out) {
     if (result == ANVIL_OK) return {};
@@ -106,8 +124,18 @@ std::optional<AnvilControlSetting> ControlClient::setting_info(const std::string
     AnvilControlSetting info{};
     info.size = sizeof(info);
     if (service_ == nullptr || service_->setting_info(plugin.c_str(), setting, &info) == 0) return std::nullopt;
+    info.label = plugin_text(plugin, info.label);
+    info.description = plugin_text(plugin, info.description);
+    info.group = plugin_text(plugin, info.group);
     return info;
 }
+
+const char* ControlClient::plugin_text(const std::string& plugin, const char* english) const {
+    if (english == nullptr || english[0] == '\0' || !has_plugin_text(service_)) return english;
+    return noted(english, service_->plugin_text(plugin.c_str(), english));
+}
+
+bool ControlClient::translated_cjk() { return g_translated_cjk.load(std::memory_order_acquire); }
 
 std::vector<std::pair<std::string, std::string>> ControlClient::setting_options(const std::string& plugin,
                                                                                 AnvilSetting setting) const {
@@ -117,7 +145,7 @@ std::vector<std::pair<std::string, std::string>> ControlClient::setting_options(
         const char* name = nullptr;
         const char* label = nullptr;
         if (service_->setting_option(plugin.c_str(), setting, i, &name, &label) == 0) break;
-        options.emplace_back(text_or_empty(name), text_or_empty(label));
+        options.emplace_back(text_or_empty(name), text_or_empty(plugin_text(plugin, label)));
     }
     return options;
 }
@@ -188,7 +216,9 @@ std::vector<ModRow> ControlClient::mod_plugins() const {
         row.name = text_or_empty(m.name);
         row.version = text_or_empty(m.version);
         row.authors = text_or_empty(m.authors);
-        row.description = text_or_empty(m.description);
+        row.description = text_or_empty(m.description != nullptr && m.description[0] != '\0' && has_plugin_text(service_)
+                                             ? noted(m.description, service_->mod_plugin_text(i, m.description))
+                                             : m.description);
         row.repository = text_or_empty(m.repository);
         row.issues = text_or_empty(m.issues);
         row.mod = text_or_empty(m.mod);

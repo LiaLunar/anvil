@@ -211,6 +211,18 @@ pull request says which entries are not checked yet. To see a language without
 changing EU4's settings, start the game or the Manager with `ANVIL_LANGUAGE`
 set to `en`, `fr`, `de`, `es` or `pl`.
 
+The standard plugins' own texts (the `description` in `plugin.toml` and the
+setting texts in `settings.toml`) are not in those catalogs: each plugin has
+its plugin translations, `plugins/<id>/translations/<code>.toml` (design
+§5.4, ADR 0010), and the catalog's `summary` and `note` have `translations`
+in `catalog/plugins.json`. A pull request that adds or changes such a text
+changes all eight files, or all eight languages of the entry, in the same
+commit: `anvil check plugins/<id> --complete-translations` (in `ctest`) and
+`python catalog/update.py --check` name what is missing or no longer matches.
+The agent drafts them; the pull request lists the new Polish texts for the
+maintainer's review, and a file of another language that was `checked` goes
+back to `status = "draft"` when its entries change.
+
 ## Benchmark receiver
 
 `services/bench-receiver/` is the Cloudflare Worker that takes the start-up

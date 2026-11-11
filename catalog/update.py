@@ -7,6 +7,9 @@ Both download the pinned zip, compare its size and SHA-256, verify its build
 provenance with `gh attestation verify --repo happy-dwarf-team/<repo>`, and
 compare plugin.toml and symbols.toml in the zip with the entry. They need the
 GitHub CLI (`gh`), signed in or with GH_TOKEN set, and Python 3.11 or newer.
+
+Each entry's summary and note need `translations` in every language the
+Manager shows (design §15, ADR 0010); the check names what is missing.
 """
 
 from __future__ import annotations
@@ -27,6 +30,8 @@ CATALOG = pathlib.Path(__file__).with_name("plugins.json")
 OWNER = "happy-dwarf-team"
 DOWNLOAD_PREFIX = f"https://github.com/{OWNER}/"
 MAX_ZIP_BYTES = 256 << 20  # the Manager's limit for a plugin zip
+# The languages of the Manager besides English, as ANVIL_LANGUAGE writes them.
+LANGUAGES = ["fr", "de", "es", "zh-Hans", "zh-Hant", "ja", "ko", "pl"]
 
 
 def gh(*args: str) -> str:
@@ -69,6 +74,31 @@ def builds_of(symbols: dict | None) -> list[str]:
     if "builds" in symbols:
         return list(symbols["builds"])
     return [symbols["build"]]
+
+
+def translation_problems(entry: dict) -> list[str]:
+    """What the entry's `translations` lack: every language needs the summary and, with one, the note."""
+    problems: list[str] = []
+    translations = entry.get("translations", {})
+    if not isinstance(translations, dict):
+        return ["translations is not an object of languages"]
+    for code in translations:
+        if code not in LANGUAGES:
+            problems.append(f"translations.{code}: not a language of the Manager ({', '.join(LANGUAGES)})")
+    for code in LANGUAGES:
+        words = translations.get(code)
+        if not isinstance(words, dict):
+            problems.append(f"translations.{code} is missing")
+            continue
+        for key in words:
+            if key not in ("summary", "note"):
+                problems.append(f"translations.{code}.{key}: only summary and note are translated")
+        for key in ("summary", "note"):
+            if entry.get(key) and not (isinstance(words.get(key), str) and words[key].strip()):
+                problems.append(f"translations.{code}.{key} is missing")
+            if not entry.get(key) and key in words:
+                problems.append(f"translations.{code}.{key}: the entry has no {key}")
+    return problems
 
 
 def verify(entry: dict) -> list[str]:
@@ -142,7 +172,7 @@ def main() -> int:
         parser.error("give a plugin id or --check")
     failed = False
     for entry in catalog["plugins"] if args.check or not args.id else entries:
-        problems = verify(entry)
+        problems = translation_problems(entry) + verify(entry)
         print(f"{entry['id']} {entry['version']}: {'ok' if not problems else 'FAIL'}")
         for problem in problems:
             print(f"  {problem}")

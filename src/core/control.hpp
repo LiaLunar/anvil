@@ -4,6 +4,7 @@
 #include "crash_history.hpp"
 #include "gameplay_policy.hpp"
 #include "mod_plugins.hpp"
+#include "plugin_translation.hpp"
 #include "resolver.hpp"
 #include "settings.hpp"
 
@@ -45,6 +46,11 @@ struct ControlSources {
     const ModDiscovery* mods = nullptr;
     // The player's language for the overlay (i18n::language_code).
     std::string language = "en";
+    // The plugins' translations into that language (design §5.4): by plugin
+    // id, and for the plugins in mods by their index in mods->plugins. A
+    // plugin without one is not listed.
+    std::map<std::string, PluginTranslation, std::less<>> translations;
+    std::map<uint32_t, PluginTranslation> mod_translations;
 };
 
 // The core's private service for anvil-overlay (src/control/anvil_control.h,
@@ -77,6 +83,10 @@ public:
     const AnvilControlCrash* previous_crash();
     std::string log_tail(uint32_t max_lines) const;
     const char* language() const { return sources_.language.c_str(); }
+    // `english` in the player's language from the plugin's translation, or
+    // `english` itself. The result lives as long as this object.
+    const char* plugin_text(std::string_view plugin_id, const char* english) const;
+    const char* mod_plugin_text(uint32_t index, const char* english) const;
     AnvilResult disable_next_start(std::string_view plugin_id, std::string& error);
     bool disabled_next_start(std::string_view plugin_id) const;
 
