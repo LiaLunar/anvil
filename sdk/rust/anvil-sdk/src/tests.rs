@@ -622,12 +622,108 @@ unsafe extern "C" fn world_country_variable_names(
     ANVIL_OK
 }
 
+// --- and of anvil-game 1.21: pending events and statistics -------------------------
+
+unsafe extern "C" fn world_pending_events(
+    tag: *const c_char,
+    ids: *mut i32,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    // The player's own country (null) has 5 and 8; TUR has 7.
+    let list: &[i32] = if tag.is_null() {
+        &[5, 8]
+    } else if text(tag) == "TUR" {
+        &[7]
+    } else {
+        return ANVIL_ERROR_NOT_FOUND;
+    };
+    unsafe {
+        *count = list.len() as u32;
+        ptr::copy_nonoverlapping(list.as_ptr(), ids, list.len().min(capacity as usize));
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_pending_event(
+    pending_id: i32,
+    out: *mut AnvilGamePendingEvent,
+) -> AnvilResult {
+    if pending_id != 7 {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    let size = unsafe { (*out).size };
+    assert_eq!(size as usize, std::mem::size_of::<AnvilGamePendingEvent>());
+    let mut e: AnvilGamePendingEvent = unsafe { std::mem::zeroed() };
+    e.size = size;
+    e.pending_id = 7;
+    e.country = Tag::new("TUR").unwrap().to_raw();
+    e.province = 151;
+    e.options = 2;
+    e.flags = ANVIL_GAME_PENDING_HIDDEN;
+    e.auto_select.year = 1719;
+    e.auto_select.month = 7;
+    e.auto_select.day = 17;
+    unsafe { *out = e };
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_pending_event_key(
+    pending_id: i32,
+    utf8: *mut c_char,
+    capacity: u32,
+    length: *mut u32,
+) -> AnvilResult {
+    if pending_id != 7 {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    let key = b"flavor_tur.203\0";
+    unsafe {
+        *length = (key.len() - 1) as u32;
+        if capacity as usize >= key.len() {
+            ptr::copy_nonoverlapping(key.as_ptr(), utf8.cast::<u8>(), key.len());
+        }
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_country_statistics(
+    tag: *const c_char,
+    kind: u32,
+    out: *mut AnvilGameStatisticPoint,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    if text(tag) != "RUS" || kind != ANVIL_GAME_STATISTIC_INCOME {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    let points = [
+        AnvilGameStatisticPoint {
+            year: 1717,
+            value: 0,
+        },
+        AnvilGameStatisticPoint {
+            year: 1718,
+            value: 1584,
+        },
+    ];
+    unsafe {
+        *count = points.len() as u32;
+        ptr::copy_nonoverlapping(points.as_ptr(), out, points.len().min(capacity as usize));
+    }
+    ANVIL_OK
+}
+
 static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
     let mut table: AnvilGameWorldService = unsafe { std::mem::zeroed() };
     table.size = std::mem::size_of::<AnvilGameWorldService>() as u32;
     table.monarch = Some(world_monarch);
     table.global_flags = Some(world_global_flags);
     table.country_variable_names = Some(world_country_variable_names);
+    table.pending_events = Some(world_pending_events);
+    table.pending_event = Some(world_pending_event);
+    table.pending_event_key = Some(world_pending_event_key);
+    table.country_statistics = Some(world_country_statistics);
     table
 });
 
@@ -948,6 +1044,74 @@ fn world_reads_rulers_flags_and_variable_names() {
 }
 
 #[test]
+fn world_reads_pending_events_and_statistics() {
+    let (_guard, table) = fake_host();
+    FULL_WORLD.store(true, Ordering::Relaxed);
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let w = world::World::get(&host).unwrap();
+    let tur = Tag::new("TUR").unwrap();
+    assert_eq!(w.pending_events(None).unwrap(), [5, 8]);
+    assert_eq!(w.pending_events(Some(tur)).unwrap(), [7]);
+    assert_eq!(
+        w.pending_events(Tag::new("SWE")).unwrap_err().code(),
+        ErrorCode::NotFound
+    );
+    let e = w.pending_event(7).unwrap();
+    assert_eq!(e.pending_id, 7);
+    assert_eq!(e.country, Some(tur));
+    assert_eq!(e.province, Some(151));
+    assert_eq!(e.options, 2);
+    assert!(e.hidden);
+    assert_eq!(e.auto_select.to_string(), "1719.7.17");
+    assert_eq!(w.pending_event(8).unwrap_err().code(), ErrorCode::NotFound);
+    assert_eq!(w.pending_event_key(7).unwrap(), "flavor_tur.203");
+    // In the table's size but not filled in: Unsupported.
+    assert_eq!(
+        w.pending_event_title(7).unwrap_err().code(),
+        ErrorCode::Unsupported
+    );
+    let rus = Tag::new("RUS").unwrap();
+    let income = w
+        .country_statistics(rus, world::StatisticKind::Income)
+        .unwrap();
+    assert_eq!(
+        income,
+        [
+            world::StatisticPoint {
+                year: 1717,
+                value: 0
+            },
+            world::StatisticPoint {
+                year: 1718,
+                value: 1584
+            }
+        ]
+    );
+    assert_eq!(
+        w.country_statistics(rus, world::StatisticKind::Score)
+            .unwrap_err()
+            .code(),
+        ErrorCode::NotFound
+    );
+    FULL_WORLD.store(false, Ordering::Relaxed);
+
+    let change = AnvilGamePendingChange {
+        size: std::mem::size_of::<AnvilGamePendingChange>() as u32,
+        change: ANVIL_GAME_PENDING_REMOVED as u32,
+        pending_id: 5,
+        country: rus.to_raw(),
+        session: 3,
+    };
+    let read = unsafe { game::PendingChange::read(ptr::from_ref(&change).cast()) }.unwrap();
+    assert_eq!(read.change, game::PendingChangeKind::Removed);
+    assert_eq!(
+        (read.pending_id, read.country, read.session),
+        (5, Some(rus), 3)
+    );
+}
+
+#[test]
 fn input_binds_and_delivers_presses_through_its_adapter() {
     let (_guard, table) = fake_host();
     assert_eq!(load::<Quiet>(table), ANVIL_OK);
@@ -1197,6 +1361,7 @@ fn event_and_service_names_are_the_headers() {
         (game::MONTH.name(), ANVIL_GAME_EVENT_MONTH),
         (game::YEAR.name(), ANVIL_GAME_EVENT_YEAR),
         (game::PLAYER.name(), ANVIL_GAME_EVENT_PLAYER),
+        (game::PENDING_EVENT.name(), ANVIL_GAME_EVENT_PENDING),
         (crate::benchmark::QUIT.name(), ANVIL_BENCHMARK_EVENT_QUIT),
         (map::SHOWN.name(), ANVIL_MAP_EVENT_SHOWN),
         (map::HIDDEN.name(), ANVIL_MAP_EVENT_HIDDEN),

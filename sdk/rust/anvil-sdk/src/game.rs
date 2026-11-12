@@ -11,8 +11,9 @@ use crate::error::{check, Result};
 use crate::event::{read_sized, Event, Payload};
 use crate::host::Host;
 use crate::sys::{
-    AnvilGameDate, AnvilGameDateChange, AnvilGameFrame, AnvilGameOosChange, AnvilGamePlayerChange,
-    AnvilGameService, AnvilGameSession, AnvilGameWarChange, ANVIL_GAME_SERVICE_VERSION,
+    AnvilGameDate, AnvilGameDateChange, AnvilGameFrame, AnvilGameOosChange, AnvilGamePendingChange,
+    AnvilGamePlayerChange, AnvilGameService, AnvilGameSession, AnvilGameWarChange,
+    ANVIL_GAME_PENDING_ADDED, ANVIL_GAME_PENDING_REMOVED, ANVIL_GAME_SERVICE_VERSION,
     ANVIL_GAME_SESSION_ENDED, ANVIL_GAME_SESSION_STARTED, ANVIL_GAME_WAR_ENDED,
     ANVIL_GAME_WAR_STARTED,
 };
@@ -203,6 +204,31 @@ pub struct WarChange {
     pub session: u64,
 }
 
+/// How a pending event of the player changed (anvil-game 1.21.0).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PendingChangeKind {
+    /// It came: the player can choose.
+    Added,
+    /// It left: chosen, by the player, a plugin or the game's auto-select.
+    Removed,
+    /// A value this crate does not know.
+    Other(u32),
+}
+
+/// `anvil-game.pending_event`'s payload.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingChange {
+    /// Added or removed.
+    pub change: PendingChangeKind,
+    /// The pending id ([`World::pending_event`](crate::world::World::pending_event));
+    /// no longer valid for a removal.
+    pub pending_id: i32,
+    /// The player's country.
+    pub country: Option<Tag>,
+    /// The [`Session::number`].
+    pub session: u64,
+}
+
 // SAFETY: anvil-game.frame publishes a const AnvilGameFrame*.
 unsafe impl Payload for Frame {
     unsafe fn read(raw: *const c_void) -> Option<Self> {
@@ -277,6 +303,25 @@ unsafe impl Payload for WarChange {
     }
 }
 
+// SAFETY: anvil-game.pending_event publishes a const AnvilGamePendingChange*.
+unsafe impl Payload for PendingChange {
+    unsafe fn read(raw: *const c_void) -> Option<Self> {
+        // SAFETY: the event's payload type.
+        let c = unsafe { read_sized::<AnvilGamePendingChange>(raw) }?;
+        let change = match c.change {
+            k if k == ANVIL_GAME_PENDING_ADDED as u32 => PendingChangeKind::Added,
+            k if k == ANVIL_GAME_PENDING_REMOVED as u32 => PendingChangeKind::Removed,
+            other => PendingChangeKind::Other(other),
+        };
+        Some(Self {
+            change,
+            pending_id: c.pending_id,
+            country: Tag::from_raw(&c.country),
+            session: c.session,
+        })
+    }
+}
+
 /// Once, when the game has finished initializing (the main menu is up).
 // SAFETY: anvil_game.h names the payload type, which this one reads.
 pub const READY: Event<()> = unsafe { Event::new(c"anvil-game.ready") };
@@ -307,6 +352,9 @@ pub const PLAYER: Event<PlayerChange> = unsafe { Event::new(c"anvil-game.player"
 /// A war started or ended (anvil-game 1.11.0).
 // SAFETY: anvil_game.h names the payload type, which this one reads.
 pub const WAR: Event<WarChange> = unsafe { Event::new(c"anvil-game.war") };
+/// A pending event of the player's own country came or left (anvil-game 1.21.0).
+// SAFETY: anvil_game.h names the payload type, which this one reads.
+pub const PENDING_EVENT: Event<PendingChange> = unsafe { Event::new(c"anvil-game.pending_event") };
 
 /// The `anvil-game.game` service.
 #[derive(Clone, Copy)]

@@ -109,6 +109,60 @@ const WarSeen* WarTracker::find(std::uint64_t session, std::uint64_t id) const {
     return nullptr;
 }
 
+namespace {
+
+bool has_key(const std::vector<PendingKey>& list, const PendingKey& key) {
+    for (const PendingKey& k : list) {
+        if (k == key) return true;
+    }
+    return false;
+}
+
+}  // namespace
+
+void PendingTracker::see(std::uint64_t session, std::vector<PendingKey> now) {
+    if (!known_ || session != session_) {
+        before_ = now;  // the session's first list: its baseline counts whole
+    } else {
+        before_ = std::move(now_);
+    }
+    now_ = std::move(now);
+    known_ = true;
+    session_ = session;
+}
+
+bool PendingTracker::counts(const PendingKey& key) const {
+    return known_ && has_key(now_, key) && has_key(before_, key);
+}
+
+PendingTracker::Changes PendingTracker::player(std::uint64_t session, const AnvilGameTag& tag,
+                                               std::vector<PendingKey> entries) {
+    Changes out;
+    const bool same = player_known_ && session == player_session_ &&
+                      std::char_traits<char>::compare(tag.text, player_.text, sizeof(tag.text)) == 0;
+    if (same) {
+        for (const PendingKey& k : mine_) {
+            if (!has_key(entries, k)) out.removed.push_back(k);
+        }
+        for (const PendingKey& k : entries) {
+            if (!has_key(mine_, k)) out.added.push_back(k);
+        }
+    }
+    player_known_ = true;
+    player_session_ = session;
+    player_ = tag;
+    mine_ = std::move(entries);
+    return out;
+}
+
+void PendingTracker::forget() {
+    known_ = false;
+    player_known_ = false;
+    before_.clear();
+    now_.clear();
+    mine_.clear();
+}
+
 SessionChanges SessionTracker::update(const SessionView& view) {
     SessionChanges out;
     if (!view.readable) return out;

@@ -9,6 +9,8 @@
 
 #include <anvil/anvil_game.h>
 
+#include "session.hpp"
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -154,7 +156,36 @@ struct WorldLayout {
     std::uint32_t province_variables = 0;   // province: CVariables
     std::uint32_t variable_head = 0;        // variables: the list's sentinel node, the count after it
     std::uint32_t variable_value = 0;       // node: int32 fixed point, its name the std::string before it
+
+    // Pending events: `pending_list` 0 when absent on this build. The list is a
+    // CPdxArray<CPendingEvent> in the root: data, then the count.
+    std::uint32_t pending_list = 0;         // root: the entries
+    std::uint32_t pending_count = 0;        // root: int32
+    std::uint32_t pending_size = 0;         // an entry's size
+    std::uint32_t pending_id = 0;           // entry: int32
+    std::uint32_t pending_event = 0;        // entry: CEvent*
+    std::uint32_t pending_scope = 0;        // entry: CEventScope*, owned
+    std::uint32_t auto_select = 0;          // entry: int32 date, hours
+    std::uint32_t scope_province = 0;       // scope: int32 province ID
+    std::uint32_t scope_country = 0;        // scope: tag
+    std::uint32_t scope_override = 0;       // scope: tag, used when its valid byte is set
+    std::uint32_t scope_override_valid = 0; // scope: byte
+    std::uint32_t event_key = 0;            // event: std::string
+    std::uint32_t event_title = 0;          // event: std::string
+    std::uint32_t event_options = 0;        // event: vector of pointers, its begin
+    std::uint32_t event_options_end = 0;
+    std::uint32_t event_hidden = 0;         // event: byte
+
+    // Statistics: `statistics_head` 0 when absent on this build. Each series is
+    // a CGraphStatistics in the root: an unordered_map from the tag's text, read
+    // as its list from the sentinel node, as the variables are.
+    std::uint32_t statistics[4] = {};       // root: by ANVIL_GAME_STATISTIC_*
+    std::uint32_t statistics_head = 0;      // series: the list's sentinel node, the count after it
+    std::uint32_t statistics_key = 0;       // node: std::string
+    std::uint32_t statistics_values = 0;    // node: vector of int32, its begin; end after it
+    std::uint32_t statistics_years = 0;     // node: vector of int32, its begin; end after it
 };
+
 
 // A flag that is set, its date still the game's hours.
 struct FlagEntry {
@@ -204,6 +235,21 @@ AnvilResult read_global_flags(const WorldLayout& l, std::vector<FlagEntry>& out)
 
 AnvilResult read_country_variables(const WorldLayout& l, std::string_view tag, std::vector<VariableEntry>& out);
 AnvilResult read_province_variables(const WorldLayout& l, std::int32_t province, std::vector<VariableEntry>& out);
+
+// The pending list now, in the game's order.
+AnvilResult read_pending_keys(const WorldLayout& l, std::vector<PendingKey>& out);
+// An entry of the list by its key, as AnvilGamePendingEvent: NOT_FOUND when it
+// is no longer there. The country follows the game's rule (CEventManager::
+// TriggerEvent): the override tag when it is set, else the scope's country, and
+// for a tag that is not valid the owner of the scope's province.
+// out.auto_select.session is 0.
+AnvilResult read_pending(const WorldLayout& l, const PendingKey& key, AnvilGamePendingEvent& out);
+// Its event's key (`title` false) or its title's localisation key.
+AnvilResult read_pending_text(const WorldLayout& l, const PendingKey& key, bool title, std::string& utf8);
+
+// `kind` is ANVIL_GAME_STATISTIC_*; the caller checks it.
+AnvilResult read_statistics(const WorldLayout& l, std::string_view tag, std::uint32_t kind,
+                            std::vector<AnvilGameStatisticPoint>& out);
 
 // A getter of 3 bytes that returns a constant bool: xor al,al; ret or mov al,1; ret.
 bool decode_bool_getter(const std::uint8_t* code, std::size_t size, bool& value);

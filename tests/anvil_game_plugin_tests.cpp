@@ -475,6 +475,76 @@ struct FakeWorld {
         set(province(1), 0x238 + 0x18, reinterpret_cast<uintptr_t>(moskva_head));
     }
 
+    // Pending events (1.37.5 on Steam): four entries in the root's list. 5 and 8
+    // wait for RUS (its own scope, then TUR's scope with RUS as the override), 6
+    // for Moskva's owner (a province scope without a country), 7 for TUR,
+    // hidden. Slot 4 is free for a test.
+    alignas(8) uint8_t event_a[0xA68] = {};
+    alignas(8) uint8_t event_b[0xA68] = {};
+    uintptr_t options_a[3] = {1, 2, 3};
+    uintptr_t options_b[1] = {1};
+    alignas(8) uint8_t scopes[5][0xD0] = {};
+    alignas(8) uint8_t entries[5][0x28] = {};
+    std::string long_event_key = "an_event_key_long_enough_for_the_heap.1";
+    // Statistics: income for RUS (two years) and TUR, an empty score series.
+    alignas(8) uint8_t series_heads[4][0x10] = {};
+    alignas(8) uint8_t series_nodes[2][0x90] = {};
+    int32_t rus_income[2] = {0, 1584};
+    int32_t rus_years[2] = {1717, 1718};
+    int32_t tur_income[1] = {2210};
+    int32_t tur_years[1] = {1718};
+
+    void set_entry(int slot, int32_t id, uint8_t* event, uint8_t* scope, int32_t auto_select) {
+        set(entries[slot], 0x10, reinterpret_cast<uintptr_t>(event));
+        set(entries[slot], 0x18, reinterpret_cast<uintptr_t>(scope));
+        set(entries[slot], 0x20, auto_select);
+        set(entries[slot], 0x24, id);
+    }
+    void install_events(uint8_t* root) {
+        set_key(event_a + 0x20, "flavor_rus.1");
+        set_key(event_a + 0x7E0, "flavor_rus.1.t");
+        set(event_a, 0x790, reinterpret_cast<uintptr_t>(options_a));
+        set(event_a, 0x798, reinterpret_cast<uintptr_t>(options_a + 3));
+        set_key(event_b + 0x20, long_event_key);
+        set_key(event_b + 0x7E0, "EVTNAME732");
+        set(event_b, 0x790, reinterpret_cast<uintptr_t>(options_b));
+        set(event_b, 0x798, reinterpret_cast<uintptr_t>(options_b + 1));
+        event_b[0xA61] = 1;
+        set(scopes[0], 0x2C, game_tag("RUS", 0));
+        set(scopes[1], 0x28, int32_t{1});  // a province event: Moskva, no country
+        set(scopes[2], 0x2C, game_tag("TUR", 1));
+        set(scopes[3], 0x2C, game_tag("TUR", 1));
+        set(scopes[3], 0x44, game_tag("RUS", 0));
+        scopes[3][0x4B] = 1;
+        set(scopes[4], 0x2C, game_tag("TUR", 1));
+        set_entry(0, 5, event_a, scopes[0], hours_of(1719, 7, 17));
+        set_entry(1, 6, event_a, scopes[1], hours_of(1719, 7, 18));
+        set_entry(2, 7, event_b, scopes[2], hours_of(1719, 3, 17));
+        set_entry(3, 8, event_a, scopes[3], hours_of(1719, 7, 19));
+        set(root, 0x1EA0, reinterpret_cast<uintptr_t>(entries));
+        set(root, 0x1EAC, int32_t{4});
+
+        for (int i = 0; i < 4; ++i) {
+            set(series_heads[i], 0, reinterpret_cast<uintptr_t>(series_heads[i]));  // empty
+            set(root, 0x1ED8 + i * 0x88 + 0x18, reinterpret_cast<uintptr_t>(series_heads[i]));
+            set(root, 0x1ED8 + i * 0x88 + 0x20, uint64_t{0});
+        }
+        set(series_heads[0], 0, reinterpret_cast<uintptr_t>(series_nodes[0]));
+        set(series_nodes[0], 0, reinterpret_cast<uintptr_t>(series_nodes[1]));
+        set(series_nodes[1], 0, reinterpret_cast<uintptr_t>(series_heads[0]));
+        set_key(series_nodes[0] + 0x10, "TUR");
+        set(series_nodes[0], 0x60, reinterpret_cast<uintptr_t>(tur_income));
+        set(series_nodes[0], 0x68, reinterpret_cast<uintptr_t>(tur_income + 1));
+        set(series_nodes[0], 0x78, reinterpret_cast<uintptr_t>(tur_years));
+        set(series_nodes[0], 0x80, reinterpret_cast<uintptr_t>(tur_years + 1));
+        set_key(series_nodes[1] + 0x10, "RUS");
+        set(series_nodes[1], 0x60, reinterpret_cast<uintptr_t>(rus_income));
+        set(series_nodes[1], 0x68, reinterpret_cast<uintptr_t>(rus_income + 2));
+        set(series_nodes[1], 0x78, reinterpret_cast<uintptr_t>(rus_years));
+        set(series_nodes[1], 0x80, reinterpret_cast<uintptr_t>(rus_years + 2));
+        set(root, 0x1ED8 + 0x20, uint64_t{2});
+    }
+
     template <class T>
     static void set(void* at, size_t offset, T value) {
         std::memcpy(static_cast<uint8_t*>(at) + offset, &value, sizeof(value));
@@ -610,6 +680,14 @@ void listen_campaign(const char* event, const void* payload, void* context) {
     heard->push_back(name.substr(std::strlen("anvil-game.")) + " " + std::to_string(c->days) + " " +
                      std::to_string(c->date.year) + "." + std::to_string(c->date.month) + "." +
                      std::to_string(c->date.day));
+}
+
+// "added 5 RUS", "removed 8 RUS": the pending changes a plugin hears.
+void listen_pending(const char*, const void* payload, void* context) {
+    const auto* c = static_cast<const AnvilGamePendingChange*>(payload);
+    static_cast<std::vector<std::string>*>(context)->push_back(
+        std::string(c->change == ANVIL_GAME_PENDING_ADDED ? "added " : "removed ") + std::to_string(c->pending_id) + " " +
+        c->country.text);
 }
 
 // Runs in the handler of the frame event, then clears itself.
@@ -864,6 +942,39 @@ int main(int argc, char** argv) {
         c = t.update(none);
         CHECK(c.count == 1 && c.items[0].change == ANVIL_GAME_SESSION_ENDED && c.items[0].ironman == 1 &&
               c.items[0].multiplayer == 1 && !t.active());
+    });
+
+    run("anvil-game: the pending tracker", [] {
+        using anvil_game::PendingKey;
+        anvil_game::PendingTracker t;
+        const PendingKey a{1, 0x100, 0x200}, b{2, 0x100, 0x300}, ai{3, 0x400, 0x500};
+        const AnvilGameTag rus{"RUS"}, tur{"TUR"};
+        CHECK(!t.counts(a));
+        // A session's first list counts whole, and the player's first call is a baseline.
+        t.see(1, {a});
+        CHECK(t.counts(a));
+        CHECK(t.player(1, rus, {a}).added.empty());
+        // A new entry counts at the next frame; an AI's that leaves at once never.
+        t.see(1, {a, b, ai});
+        CHECK(t.counts(a) && !t.counts(b) && !t.counts(ai));
+        CHECK(t.player(1, rus, {a}).added.empty());
+        t.see(1, {a, b});
+        CHECK(t.counts(b) && !t.counts(ai));
+        auto c = t.player(1, rus, {a, b});
+        CHECK(c.added.size() == 1 && c.added[0] == b && c.removed.empty());
+        // An id given again to another entry is a new entry.
+        const PendingKey b2{2, 0x100, 0x600};
+        t.see(1, {a, b2});
+        CHECK(!t.counts(b2));
+        c = t.player(1, rus, {a});
+        CHECK(c.removed.size() == 1 && c.removed[0] == b && c.added.empty());
+        // Another country of the player, or another session: a new baseline.
+        CHECK(t.player(1, tur, {}).removed.empty());
+        t.see(2, {b2});
+        CHECK(t.counts(b2) && !t.counts(a));
+        CHECK(t.player(2, tur, {b2}).added.empty());
+        t.forget();
+        CHECK(!t.counts(b2));
     });
 
     run("anvil-game: dates decode as the game counts them", [] {
@@ -1202,6 +1313,8 @@ int main(int argc, char** argv) {
         bus.subscribe("listener", event, listen_campaign, &campaign);
     }
     bus.subscribe("listener", ANVIL_GAME_EVENT_FRAME, run_in_frame_handler, nullptr);
+    std::vector<std::string> pending_heard;
+    bus.subscribe("listener", ANVIL_GAME_EVENT_PENDING, listen_pending, &pending_heard);
     for (const char* event : {ANVIL_GAME_EVENT_READY, ANVIL_GAME_EVENT_FRAME, ANVIL_GAME_EVENT_SESSION,
                               ANVIL_GAME_EVENT_MAIN_MENU, ANVIL_GAME_EVENT_OOS}) {
         bus.subscribe("listener", event, listen, &heard);
@@ -1238,7 +1351,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 101);
+        CHECK(reason.empty() && verified.symbols.size() == 115);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -1262,7 +1375,7 @@ int main(int argc, char** argv) {
         CHECK(contains(log, "anvil-game: frame hook staged; events anvil-game.ready, anvil-game.frame, "
                             "anvil-game.session, anvil-game.main_menu; service anvil-game.game v1"));
         CHECK(contains(log, "anvil-game: service anvil-game.world v1; events anvil-game.day, anvil-game.month, "
-                            "anvil-game.year, anvil-game.player, anvil-game.war"));
+                            "anvil-game.year, anvil-game.player, anvil-game.war, anvil-game.pending_event"));
         g_service = service;
     });
     if (plugin == nullptr || service == nullptr) {
@@ -2064,6 +2177,156 @@ int main(int argc, char** argv) {
         CHECK(anvil_game::decode_bool_getter(no, sizeof no, flag) && !flag);
         CHECK(anvil_game::decode_bool_getter(yes, sizeof yes, flag) && flag);
         CHECK(!anvil_game::decode_bool_getter(other, sizeof other, flag) && !anvil_game::decode_bool_getter(no, 2, flag));
+    });
+
+    run("anvil-game.world: pending events and statistics", [&] {
+        const auto* world = static_cast<const AnvilGameWorldService*>(
+            bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
+        CHECK(world != nullptr && ANVIL_GAME_WORLD_HAS(world, country_statistics));
+        if (world == nullptr) return;
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
+        frame(game.app, 1);
+        AnvilGameSession session{};
+        CHECK(service->session(&session) == 1);
+        pending_heard.clear();
+        fake.install_events(game.root);
+
+        // The frame the entries appear in: none counts yet.
+        int32_t ids[8] = {};
+        uint32_t count = 99;
+        g_in_frame_handler = [&] {
+            CHECK(world->pending_events(nullptr, ids, 8, &count) == ANVIL_OK && count == 0);
+        };
+        frame(game.app, 1);
+        CHECK(pending_heard.empty() && g_in_frame_handler == nullptr);
+        CHECK(world->pending_events(nullptr, ids, 8, &count) == ANVIL_ERROR_WRONG_PHASE);  // between frames
+
+        // The next frame: the player's three are told, TUR's is not.
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            CHECK(world->pending_events(nullptr, ids, 8, &count) == ANVIL_OK && count == 3 && ids[0] == 5 &&
+                  ids[1] == 6 && ids[2] == 8);
+            CHECK(world->pending_events("rus", ids, 1, &count) == ANVIL_OK && count == 3 && ids[0] == 5);
+            CHECK(world->pending_events("TUR", ids, 8, &count) == ANVIL_OK && count == 1 && ids[0] == 7);
+            CHECK(world->pending_events("O00", nullptr, 0, &count) == ANVIL_OK && count == 0);
+            CHECK(world->pending_events("SWE", ids, 8, &count) == ANVIL_ERROR_NOT_FOUND &&
+                  world->pending_events("RU", ids, 8, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->pending_events(nullptr, nullptr, 8, &count) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+            AnvilGamePendingEvent e{};
+            e.size = sizeof(e);
+            CHECK(world->pending_event(5, &e) == ANVIL_OK && e.size == sizeof(e) && e.pending_id == 5 &&
+                  std::strcmp(e.country.text, "RUS") == 0 && e.province == 0 && e.options == 3 && e.flags == 0 &&
+                  e.auto_select.year == 1719 && e.auto_select.month == 7 && e.auto_select.day == 17 &&
+                  e.auto_select.session == session.number);
+            CHECK(world->pending_event(6, &e) == ANVIL_OK && std::strcmp(e.country.text, "RUS") == 0 && e.province == 1);
+            CHECK(world->pending_event(7, &e) == ANVIL_OK && std::strcmp(e.country.text, "TUR") == 0 &&
+                  e.flags == ANVIL_GAME_PENDING_HIDDEN && e.options == 1);
+            CHECK(world->pending_event(8, &e) == ANVIL_OK && std::strcmp(e.country.text, "RUS") == 0);
+            CHECK(world->pending_event(9, &e) == ANVIL_ERROR_NOT_FOUND &&
+                  world->pending_event(5, nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            // A struct as an older header knows it: nothing behind its size is written.
+            struct Older {
+                uint32_t size;
+                int32_t pending_id;
+                uint32_t guard;
+            } older{offsetof(AnvilGamePendingEvent, country), 0, 0xA5A5A5A5u};
+            CHECK(world->pending_event(5, reinterpret_cast<AnvilGamePendingEvent*>(&older)) == ANVIL_OK &&
+                  older.pending_id == 5 && older.guard == 0xA5A5A5A5u);
+
+            char text[64] = {};
+            uint32_t length = 0;
+            CHECK(world->pending_event_key(5, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "flavor_rus.1") == 0 && length == 12);
+            CHECK(world->pending_event_title(5, text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "flavor_rus.1.t") == 0);
+            CHECK(world->pending_event_key(7, text, 8, &length) == ANVIL_OK && std::strcmp(text, "an_even") == 0 &&
+                  length == fake.long_event_key.size());
+            CHECK(world->pending_event_title(9, text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND);
+
+            AnvilGameStatisticPoint points[4] = {};
+            CHECK(world->country_statistics("rus", ANVIL_GAME_STATISTIC_INCOME, points, 4, &count) == ANVIL_OK &&
+                  count == 2 && points[0].year == 1717 && points[0].value == 0 && points[1].year == 1718 &&
+                  points[1].value == 1584);
+            CHECK(world->country_statistics("TUR", ANVIL_GAME_STATISTIC_INCOME, points, 1, &count) == ANVIL_OK &&
+                  count == 1 && points[0].value == 2210);
+            CHECK(world->country_statistics("RUS", ANVIL_GAME_STATISTIC_INCOME, nullptr, 0, &count) == ANVIL_OK &&
+                  count == 2);
+            CHECK(world->country_statistics("RUS", ANVIL_GAME_STATISTIC_SCORE, points, 4, &count) == ANVIL_ERROR_NOT_FOUND &&
+                  world->country_statistics("SWE", ANVIL_GAME_STATISTIC_INCOME, points, 4, &count) == ANVIL_ERROR_NOT_FOUND &&
+                  world->country_statistics("RUS", 4, points, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_statistics("RU", 0, points, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT);
+            // Years and values that disagree cost that answer.
+            FakeWorld::set(fake.series_nodes[1], 0x80, reinterpret_cast<uintptr_t>(fake.rus_years + 1));
+            CHECK(world->country_statistics("RUS", ANVIL_GAME_STATISTIC_INCOME, points, 4, &count) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.series_nodes[1], 0x80, reinterpret_cast<uintptr_t>(fake.rus_years + 2));
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        CHECK((pending_heard == std::vector<std::string>{"added 5 RUS", "added 6 RUS", "added 8 RUS"}));
+        frame(game.app, 1);
+        CHECK(pending_heard.size() == 3);
+
+        // The last one is chosen: told once. An AI's event for one frame and one
+        // of the player's that leaves at once (hidden, or a duplicate) are never told.
+        pending_heard.clear();
+        FakeWorld::set(game.root, 0x1EAC, int32_t{3});
+        frame(game.app, 1);
+        CHECK((pending_heard == std::vector<std::string>{"removed 8 RUS"}));
+        fake.set_entry(3, 9, fake.event_b, fake.scopes[4], 0);
+        fake.set_entry(4, 10, fake.event_a, fake.scopes[0], 0);
+        FakeWorld::set(game.root, 0x1EAC, int32_t{5});
+        g_in_frame_handler = [&] {
+            CHECK(world->pending_events("TUR", ids, 8, &count) == ANVIL_OK && count == 1 && ids[0] == 7);
+            CHECK(world->pending_event_key(9, nullptr, 0, nullptr) == ANVIL_ERROR_NOT_FOUND);
+        };
+        frame(game.app, 1);
+        FakeWorld::set(game.root, 0x1EAC, int32_t{3});
+        frame(game.app, 1);
+        CHECK(pending_heard.size() == 1 && g_in_frame_handler == nullptr);
+
+        // Observe mode: no own country, so NULL is NOT_FOUND, and a new baseline.
+        FakeWorld::set(game.root, 0x1E60, game_tag("O00", 2, 7));
+        FakeWorld::set(game.root, 0x1E68, game_tag("RUS", 0));
+        g_in_frame_handler = [&] {
+            CHECK(world->pending_events(nullptr, ids, 8, &count) == ANVIL_ERROR_NOT_FOUND);
+            CHECK(world->pending_events("RUS", ids, 8, &count) == ANVIL_OK && count == 2);
+        };
+        frame(game.app, 1);
+        FakeWorld::set(game.root, 0x1E60, game_tag("RUS", 0));
+        FakeWorld::set(game.root, 0x1E68, game_tag("---", 0, 0, 0));
+        frame(game.app, 1);
+        CHECK(pending_heard.size() == 1);
+
+        // A save loaded from the game: the new list counts at once, and nothing is told.
+        const auto set_session = reinterpret_cast<void (*)(void*, void*)>(image.address(0x756A30));
+        fake.set_entry(2, 11, fake.event_a, fake.scopes[0], 0);
+        set_session(game.root, game.session);
+        g_in_frame_handler = [&] {
+            CHECK(world->pending_events(nullptr, ids, 8, &count) == ANVIL_OK && count == 3 && ids[2] == 11);
+        };
+        frame(game.app, 1);
+        CHECK(pending_heard.size() == 1 && g_in_frame_handler == nullptr);
+        frame(game.app, 1);
+        CHECK(pending_heard.size() == 1);
+
+        FakeWorld::set(game.root, 0x1EAC, int32_t{0});
+        frame(game.app, 1);
+        pending_heard.clear();
+
+        // Absent on a build: NOT_DECLARED.
+        anvil_game::WorldLayout l;
+        std::vector<anvil_game::PendingKey> keys;
+        std::vector<AnvilGameStatisticPoint> points;
+        AnvilGamePendingEvent none{};
+        std::string text;
+        CHECK(anvil_game::read_pending_keys(l, keys) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_pending(l, {}, none) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_pending_text(l, {}, true, text) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_statistics(l, "RUS", 0, points) == ANVIL_ERROR_NOT_DECLARED);
     });
 
     run("anvil-game: the campaign's events after outer frames", [&] {

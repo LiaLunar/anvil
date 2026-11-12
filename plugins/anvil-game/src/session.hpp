@@ -99,6 +99,47 @@ private:
     std::vector<WarSeen> wars_;
 };
 
+// One entry of the pending list, as the service tells entries apart: the id and
+// the objects, so an id given again to a later entry is a new one.
+struct PendingKey {
+    std::int32_t id = 0;
+    std::uintptr_t event = 0;
+    std::uintptr_t scope = 0;
+    friend bool operator==(const PendingKey&, const PendingKey&) = default;
+};
+
+// Which pending entries count, and what changed for the player. An entry counts
+// once it was in the list at two outer frames in a row: an AI's and a hidden
+// event leave in the frame after they came. A session's first list counts whole.
+// Main thread only.
+class PendingTracker {
+public:
+    struct Changes {
+        std::vector<PendingKey> added;
+        std::vector<PendingKey> removed;
+    };
+    // The list at this outer frame of `session`.
+    void see(std::uint64_t session, std::vector<PendingKey> now);
+    // Whether an entry counts: it is in the list now and was in the one before.
+    bool counts(const PendingKey& key) const;
+    // The counted entries of the player's country `tag` now, against the last
+    // call. The first call of a session, or one for another country, is a
+    // baseline and changes nothing.
+    Changes player(std::uint64_t session, const AnvilGameTag& tag, std::vector<PendingKey> entries);
+    // No session: everything is forgotten.
+    void forget();
+
+private:
+    bool known_ = false;
+    std::uint64_t session_ = 0;
+    std::vector<PendingKey> before_;
+    std::vector<PendingKey> now_;
+    bool player_known_ = false;
+    std::uint64_t player_session_ = 0;
+    AnvilGameTag player_{};
+    std::vector<PendingKey> mine_;
+};
+
 // The session events one view causes, in order: at most an ENDED and a STARTED.
 struct SessionChanges {
     AnvilGameSession items[2]{};

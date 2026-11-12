@@ -383,6 +383,66 @@ typedef struct AnvilGameFlag {
     AnvilGameDate date; /* when it was set; its `session` is the current one */
 } AnvilGameFlag;
 
+/* --- Since anvil-game 1.21.0: pending events ---------------------------------
+ *
+ * The events waiting for a country's choice, from the game's own list of pending
+ * events. The list holds every country's events with options; an AI's and a
+ * hidden event leave it in the frame after they came, so the service counts an
+ * entry only once it was there at two outer frames in a row (and every entry a
+ * session starts with, a loaded save's included). A real event shows up at most
+ * one frame late. A save keeps the AI's and the hidden entries that were waiting
+ * when it was written, and after its load they count as well while the game
+ * has not run them: ANVIL_GAME_PENDING_HIDDEN tells the hidden ones. */
+
+/* AnvilGamePendingEvent.flags */
+#define ANVIL_GAME_PENDING_HIDDEN 0x1u /* the event is hidden: the game shows no window for it */
+
+typedef struct AnvilGamePendingEvent {
+    uint32_t size;
+    int32_t pending_id;        /* what ANVIL_GAME_COMMAND_EVENT_OPTION takes; unique while it waits */
+    AnvilGameTag country;      /* the country it waits for, by the game's rule ("" for none) */
+    int32_t province;          /* the scope's province; 0 for a country event */
+    uint32_t options;          /* the event's options in its file; the window may disable some */
+    uint32_t flags;            /* ANVIL_GAME_PENDING_* */
+    AnvilGameDate auto_select; /* the game chooses for the player the day after; `session` is the current one */
+} AnvilGamePendingEvent;
+
+/* After an outer frame, a pending event of the player's own country (the one
+ * anvil-game.commands acts for) that came or left since the last outer frame:
+ * chosen by the player, by EVENT_OPTION, or by the game on its auto-select date.
+ * Not for the events a session starts with, and nothing when the player's
+ * country changes (a new baseline then: ask pending_events). Payload
+ * const AnvilGamePendingChange*, valid for the handler. */
+#define ANVIL_GAME_EVENT_PENDING "anvil-game.pending_event"
+
+typedef enum AnvilGamePendingChangeKind {
+    ANVIL_GAME_PENDING_ADDED = 1,
+    ANVIL_GAME_PENDING_REMOVED = 2
+} AnvilGamePendingChangeKind;
+
+typedef struct AnvilGamePendingChange {
+    uint32_t size;       /* sizeof(AnvilGamePendingChange) as known by anvil-game */
+    uint32_t change;     /* AnvilGamePendingChangeKind */
+    int32_t pending_id;  /* no longer valid for REMOVED */
+    AnvilGameTag country;
+    uint64_t session;    /* AnvilGameSession.number */
+} AnvilGamePendingChange;
+
+/* --- Since anvil-game 1.21.0: statistics ------------------------------------ */
+
+/* The `kind` of country_statistics: the four series of the game's graphs. */
+#define ANVIL_GAME_STATISTIC_INCOME 0u      /* the income graph, whole ducats (the game's value / 1000, truncated) */
+#define ANVIL_GAME_STATISTIC_SCORE 1u       /* the score, whole points (/ 1000, truncated) */
+#define ANVIL_GAME_STATISTIC_NATION_SIZE 2u /* the provinces it owns, a count */
+#define ANVIL_GAME_STATISTIC_INFLATION 3u   /* inflation, whole percent (/ 1000, truncated) */
+
+/* One year of a series. It comes in arrays and has no `size`, so it never grows
+ * within version 1. Unlike the rest of the service the value is not x 1000. */
+typedef struct AnvilGameStatisticPoint {
+    int32_t year;  /* the year whose 1 January wrote it: 1720 holds the value at the end of 1719 */
+    int32_t value;
+} AnvilGameStatisticPoint;
+
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
 
@@ -520,6 +580,35 @@ typedef struct AnvilGameWorldService {
      * they fit; *length gets the size of them all, their NULs included. */
     AnvilResult (*country_variable_names)(const char *tag, char *names, uint32_t capacity, uint32_t *length);
     AnvilResult (*province_variable_names)(int32_t province, char *names, uint32_t capacity, uint32_t *length);
+    /* Since anvil-game 1.21.0, for the four calls below. The ids of the events
+     * waiting for `tag`'s choice, in the game's order; NULL for the player's
+     * own country (ANVIL_ERROR_NOT_FOUND in observe mode). The same event can
+     * wait twice, so key on the id, never on the event's key. Any country's
+     * events can be read, also another human's in multiplayer, which is more
+     * than the player sees. ANVIL_ERROR_NOT_DECLARED for all four when a port
+     * declared the pending event symbols absent. */
+    AnvilResult (*pending_events)(const char *tag, int32_t *ids, uint32_t capacity, uint32_t *count);
+    /* ANVIL_ERROR_NOT_FOUND for an id that is not waiting (or not yet counted). */
+    AnvilResult (*pending_event)(int32_t pending_id, AnvilGamePendingEvent *out);
+    /* The event's key as the game's files name it ("flavor_tur.203", or "732"
+     * for an event with a number), in UTF-8 with a NUL. */
+    AnvilResult (*pending_event_key)(int32_t pending_id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* Its title's localisation key, not the translated text: the window's
+     * texts and whether an option's button is enabled stay the window's. */
+    AnvilResult (*pending_event_title)(int32_t pending_id, char *utf8, uint32_t capacity, uint32_t *length);
+    /* Since anvil-game 1.21.0. A country's yearly series of the game's graphs,
+     * by `kind` (ANVIL_GAME_STATISTIC_*), oldest first: one point per year end
+     * since the history began (the save's history included), written by the
+     * game's yearly update on 1 January only, so it changes at anvil-game.year.
+     * The game keeps 0 for the years before the country had a value, which its
+     * save leaves out. A tag that no longer exists keeps its series. For this
+     * year's value read the country itself. A read walks every country's
+     * series: about 15 us with 1380 countries. ANVIL_ERROR_NOT_FOUND for a tag
+     * without a series (none has one before its first year end);
+     * ANVIL_ERROR_INVALID_ARGUMENT for another kind; ANVIL_ERROR_NOT_DECLARED
+     * when a port declared the statistics symbols absent. */
+    AnvilResult (*country_statistics)(const char *tag, uint32_t kind, AnvilGameStatisticPoint *out, uint32_t capacity,
+                                      uint32_t *count);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

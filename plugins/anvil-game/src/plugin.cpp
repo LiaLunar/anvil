@@ -58,6 +58,8 @@ using anvil_game::DateTracker;
 using anvil_game::SessionChanges;
 using anvil_game::SessionTracker;
 using anvil_game::OosTracker;
+using anvil_game::PendingKey;
+using anvil_game::PendingTracker;
 using anvil_game::SessionView;
 using anvil_game::WarSeen;
 using anvil_game::WarTracker;
@@ -107,6 +109,7 @@ WorkQueue g_work;
 SessionTracker g_tracker;  // main thread only
 DateTracker g_dates;       // main thread only
 WarTracker g_wars;         // main thread only
+PendingTracker g_pending;  // main thread only
 OosTracker g_oos;          // main thread only
 // The flags as the service reports them to any thread.
 std::atomic<std::uint32_t> g_oos_flags{0};
@@ -259,6 +262,46 @@ void publish_wars(std::uint64_t session) {
     for (const WarSeen& w : changes.started) tell(w, ANVIL_GAME_WAR_STARTED);
 }
 
+// The pending list of this outer frame, before anything is published in it,
+// so every handler of the frame sees which entries count. A read that fails
+// skips the frame.
+void see_pending(bool running) {
+    if (!running || g_world.pending_list == 0) {
+        g_pending.forget();
+        return;
+    }
+    std::vector<PendingKey> keys;
+    if (anvil_game::read_pending_keys(g_world, keys) == ANVIL_OK) g_pending.see(g_tracker.current().number, std::move(keys));
+}
+
+// The counted entries of the player's own country, compared with the last frame.
+void publish_pending(std::uint64_t session) {
+    if (g_world.pending_list == 0) return;
+    AnvilGameTag own{};
+    const AnvilResult r = anvil_game::read_own_country(g_world, own);
+    if (r != ANVIL_OK && r != ANVIL_ERROR_NOT_FOUND) return;  // observe mode: no own country, no entries
+    std::vector<PendingKey> keys, mine;
+    if (anvil_game::read_pending_keys(g_world, keys) != ANVIL_OK) return;
+    for (const PendingKey& key : keys) {
+        AnvilGamePendingEvent e{};
+        if (!g_pending.counts(key)) continue;
+        if (anvil_game::read_pending(g_world, key, e) != ANVIL_OK) return;
+        if (own.text[0] != '\0' && same_tag(e.country, own)) mine.push_back(key);
+    }
+    const PendingTracker::Changes changes = g_pending.player(session, own, std::move(mine));
+    const auto tell = [&](const PendingKey& key, std::uint32_t change) {
+        AnvilGamePendingChange event{};
+        event.size = sizeof(event);
+        event.change = change;
+        event.pending_id = key.id;
+        event.country = own;
+        event.session = session;
+        publish(ANVIL_GAME_EVENT_PENDING, &event);
+    };
+    for (const PendingKey& key : changes.removed) tell(key, ANVIL_GAME_PENDING_REMOVED);
+    for (const PendingKey& key : changes.added) tell(key, ANVIL_GAME_PENDING_ADDED);
+}
+
 void after_frame_body(std::uint64_t number) {
     const anvil::Host host;
     if (!g_ready.load(std::memory_order_relaxed) && *g_layout.ready_flag == 1) {
@@ -268,6 +311,8 @@ void after_frame_body(std::uint64_t number) {
     }
     const SessionView view = read_session();
     const SessionChanges changes = g_tracker.update(view);
+    // A view that faulted says nothing, so the pending baseline stays.
+    if (g_world_available && view.readable) see_pending(view.running && g_tracker.active());
     // The date changes with the session it belongs to, under one lock; a view
     // that faulted keeps the last one, as it keeps the session.
     AnvilGameDate date{};
@@ -314,6 +359,7 @@ void after_frame_body(std::uint64_t number) {
         publish_player(g_tracker.current().number);
         // The first frame of a session has no day yet: that is the wars' baseline.
         if (dates.day || !g_wars.known(g_tracker.current().number)) publish_wars(g_tracker.current().number);
+        publish_pending(g_tracker.current().number);
     }
     // A view that faulted says nothing, so the flags stay.
     if (view.readable) {
@@ -904,6 +950,117 @@ AnvilResult world_province_variable_names(std::int32_t province, char* names, st
                                names, capacity, length);
 }
 
+// ---- pending events and statistics (1.21.0) ----
+
+// The counted entries now, in the game's order.
+AnvilResult counted_pending(std::vector<PendingKey>& out) {
+    std::vector<PendingKey> keys;
+    const AnvilResult r = anvil_game::read_pending_keys(g_world, keys);
+    if (r != ANVIL_OK) return r;
+    out.clear();
+    for (const PendingKey& key : keys) {
+        if (g_pending.counts(key)) out.push_back(key);
+    }
+    return ANVIL_OK;
+}
+
+// The counted entry with `id`: NOT_FOUND when none waits.
+AnvilResult counted_pending_key(std::int32_t id, PendingKey& out) {
+    std::vector<PendingKey> keys;
+    const AnvilResult r = counted_pending(keys);
+    if (r != ANVIL_OK) return r;
+    for (const PendingKey& key : keys) {
+        if (key.id == id) {
+            out = key;
+            return ANVIL_OK;
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+AnvilResult world_pending_events(const char* tag, std::int32_t* ids, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && ids == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    if (g_world.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    try {
+        AnvilGameTag wanted{};
+        if (tag == nullptr) {
+            if (const AnvilResult r = anvil_game::read_own_country(g_world, wanted); r != ANVIL_OK) return r;
+        } else {
+            AnvilGameCountry c{};
+            if (const AnvilResult r = anvil_game::read_country(g_world, tag, c); r != ANVIL_OK) return r;
+            wanted = c.tag;
+        }
+        std::vector<PendingKey> keys;
+        if (const AnvilResult r = counted_pending(keys); r != ANVIL_OK) return r;
+        std::vector<std::int32_t> list;
+        for (const PendingKey& key : keys) {
+            AnvilGamePendingEvent e{};
+            if (const AnvilResult r = anvil_game::read_pending(g_world, key, e); r != ANVIL_OK) return r;
+            if (same_tag(e.country, wanted)) list.push_back(key.id);
+        }
+        give_list(list, ids, capacity, count);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_pending_event(std::int32_t id, AnvilGamePendingEvent* out) {
+    if (out == nullptr || out->size < sizeof(out->size)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    if (g_world.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    try {
+        PendingKey key;
+        if (const AnvilResult r = counted_pending_key(id, key); r != ANVIL_OK) return r;
+        AnvilGamePendingEvent e{};
+        if (const AnvilResult r = anvil_game::read_pending(g_world, key, e); r != ANVIL_OK) return r;
+        e.auto_select.session = current_session_number();
+        return give(out, e);
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult pending_text(std::int32_t id, bool title, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && utf8 == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    if (g_world.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    try {
+        PendingKey key;
+        if (const AnvilResult r = counted_pending_key(id, key); r != ANVIL_OK) return r;
+        std::string text;
+        const AnvilResult r = anvil_game::read_pending_text(g_world, key, title, text);
+        return r == ANVIL_OK ? give_text(text, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_pending_event_key(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    return pending_text(id, false, utf8, capacity, length);
+}
+
+AnvilResult world_pending_event_title(std::int32_t id, char* utf8, std::uint32_t capacity, std::uint32_t* length) {
+    return pending_text(id, true, utf8, capacity, length);
+}
+
+AnvilResult world_country_statistics(const char* tag, std::uint32_t kind, AnvilGameStatisticPoint* out,
+                                     std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr || (capacity != 0 && out == nullptr) || kind > ANVIL_GAME_STATISTIC_INFLATION) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<AnvilGameStatisticPoint> points;
+        const AnvilResult r = anvil_game::read_statistics(g_world, tag, kind, points);
+        if (r == ANVIL_OK) give_list(points, out, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
@@ -914,6 +1071,8 @@ constexpr AnvilGameWorldService kWorldService = {
     world_flag_id,                 world_flag_name,        world_country_flags,  world_province_flags,
     world_monarch_flags,           world_global_flags,     world_country_variable, world_province_variable,
     world_country_variable_names,  world_province_variable_names,
+    world_pending_events,          world_pending_event,    world_pending_event_key, world_pending_event_title,
+    world_country_statistics,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -1100,12 +1259,63 @@ void load_world(anvil::Host& host) {
         l.variable_head = sym::variable_list.head;
         l.variable_value = sym::variable_list.fixed_point;
     }
+    if (host.present(sym::pending_events) && host.present(sym::pending_entry) && host.present(sym::pending_event) &&
+        host.present(sym::event_scope_country) && host.present(sym::event_options) &&
+        host.present(sym::event_hidden) && host.present(sym::event_title) && host.present(sym::event_key)) {
+        static_assert(sym::pending_events.entry_id == sym::pending_entry.entry_id &&
+                          sym::event_scope_country.province_array == sym::province_is_sea.province_array &&
+                          sym::event_scope_country.province_size == sym::province_is_sea.province_size &&
+                          sym::event_scope_country.owner == sym::province_base_tax.owner &&
+                          sym::event_options.options_end == sym::event_options.options + 8,
+                      "the pending event symbols disagree on the game's layout");
+        // The game tests the override's valid byte and, for the tag it takes,
+        // byte 7: the valid byte of every tag the service reads.
+        if (sym::event_scope_country.override_valid - sym::event_scope_country.override == l.tag_valid &&
+            l.tag_valid == 7) {
+            l.pending_list = sym::pending_events.entries;
+            l.pending_count = sym::pending_events.count;
+            l.pending_size = sym::pending_events.entry_size;
+            l.pending_id = sym::pending_entry.entry_id;
+            l.pending_event = sym::pending_event.event;
+            l.pending_scope = sym::pending_entry.scope;
+            l.auto_select = sym::pending_entry.auto_select;
+            l.scope_province = sym::event_scope_country.province;
+            l.scope_country = sym::event_scope_country.country;
+            l.scope_override = sym::event_scope_country.override;
+            l.scope_override_valid = sym::event_scope_country.override_valid;
+            l.event_key = sym::event_key.key;
+            l.event_title = sym::event_title.title;
+            l.event_options = sym::event_options.options;
+            l.event_options_end = sym::event_options.options_end;
+            l.event_hidden = sym::event_hidden.hidden;
+        } else {
+            host.warn("the pending event symbols disagree on the tags' valid byte: no pending event reads");
+        }
+    }
+    if (host.present(sym::statistics_series) && host.present(sym::statistics_item) &&
+        host.present(sym::statistics_income) && host.present(sym::statistics_score) &&
+        host.present(sym::statistics_nation_size) && host.present(sym::statistics_inflation)) {
+        // A node is the list's two links, then the pair: the key, a std::string, and the item.
+        static_assert(sym::statistics_item.item == 0x10 + 0x20 &&
+                          sym::statistics_series.values_end == sym::statistics_series.values + 8 &&
+                          sym::statistics_series.values > sym::statistics_item.item &&
+                          sym::statistics_series.years > sym::statistics_series.values,
+                      "the statistics symbols disagree on the game's layout");
+        l.statistics[ANVIL_GAME_STATISTIC_INCOME] = sym::statistics_income.series;
+        l.statistics[ANVIL_GAME_STATISTIC_SCORE] = sym::statistics_score.series;
+        l.statistics[ANVIL_GAME_STATISTIC_NATION_SIZE] = sym::statistics_nation_size.series;
+        l.statistics[ANVIL_GAME_STATISTIC_INFLATION] = sym::statistics_inflation.series;
+        l.statistics_head = sym::statistics_series.head;
+        l.statistics_key = sym::statistics_item.item - 0x20;
+        l.statistics_values = sym::statistics_series.values;
+        l.statistics_years = sym::statistics_series.years;
+    }
     g_world = l;
     g_world_available = true;
     host.register_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION, kWorldService);
-    host.info("service {} v{}; events {}, {}, {}, {}, {}", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
+    host.info("service {} v{}; events {}, {}, {}, {}, {}{}{}", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
               ANVIL_GAME_EVENT_DAY, ANVIL_GAME_EVENT_MONTH, ANVIL_GAME_EVENT_YEAR, ANVIL_GAME_EVENT_PLAYER,
-              ANVIL_GAME_EVENT_WAR);
+              ANVIL_GAME_EVENT_WAR, l.pending_list != 0 ? ", " : "", l.pending_list != 0 ? ANVIL_GAME_EVENT_PENDING : "");
 }
 
 // ---- the commands service ---------------------------------------------------

@@ -57,6 +57,12 @@ pub const ANVIL_GAME_MONARCH_HEIR: u32 = 1;
 pub const ANVIL_GAME_MONARCH_CONSORT: u32 = 2;
 pub const ANVIL_GAME_MONARCH_FEMALE: u32 = 1;
 pub const ANVIL_GAME_MONARCH_REGENCY: u32 = 2;
+pub const ANVIL_GAME_PENDING_HIDDEN: u32 = 1;
+pub const ANVIL_GAME_EVENT_PENDING: &[u8; 25] = b"anvil-game.pending_event\0";
+pub const ANVIL_GAME_STATISTIC_INCOME: u32 = 0;
+pub const ANVIL_GAME_STATISTIC_SCORE: u32 = 1;
+pub const ANVIL_GAME_STATISTIC_NATION_SIZE: u32 = 2;
+pub const ANVIL_GAME_STATISTIC_INFLATION: u32 = 3;
 pub const ANVIL_GAME_WORLD_SERVICE: &[u8; 17] = b"anvil-game.world\0";
 pub const ANVIL_GAME_WORLD_SERVICE_VERSION: u32 = 1;
 pub const ANVIL_GAME_COMMAND_DRILL: u32 = 1;
@@ -1172,6 +1178,104 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct AnvilGamePendingEvent {
+    pub size: u32,
+    pub pending_id: i32,
+    pub country: AnvilGameTag,
+    pub province: i32,
+    pub options: u32,
+    pub flags: u32,
+    pub auto_select: AnvilGameDate,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGamePendingEvent",
+    ][::core::mem::size_of::<AnvilGamePendingEvent>() - 48usize];
+    [
+        "Alignment of AnvilGamePendingEvent",
+    ][::core::mem::align_of::<AnvilGamePendingEvent>() - 8usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::size",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, size) - 0usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::pending_id",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, pending_id) - 4usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::country",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, country) - 8usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::province",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, province) - 12usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::options",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, options) - 16usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::flags",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, flags) - 20usize];
+    [
+        "Offset of field: AnvilGamePendingEvent::auto_select",
+    ][::core::mem::offset_of!(AnvilGamePendingEvent, auto_select) - 24usize];
+};
+pub const ANVIL_GAME_PENDING_ADDED: AnvilGamePendingChangeKind = 1;
+pub const ANVIL_GAME_PENDING_REMOVED: AnvilGamePendingChangeKind = 2;
+pub type AnvilGamePendingChangeKind = core::ffi::c_int;
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGamePendingChange {
+    pub size: u32,
+    pub change: u32,
+    pub pending_id: i32,
+    pub country: AnvilGameTag,
+    pub session: u64,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGamePendingChange",
+    ][::core::mem::size_of::<AnvilGamePendingChange>() - 24usize];
+    [
+        "Alignment of AnvilGamePendingChange",
+    ][::core::mem::align_of::<AnvilGamePendingChange>() - 8usize];
+    [
+        "Offset of field: AnvilGamePendingChange::size",
+    ][::core::mem::offset_of!(AnvilGamePendingChange, size) - 0usize];
+    [
+        "Offset of field: AnvilGamePendingChange::change",
+    ][::core::mem::offset_of!(AnvilGamePendingChange, change) - 4usize];
+    [
+        "Offset of field: AnvilGamePendingChange::pending_id",
+    ][::core::mem::offset_of!(AnvilGamePendingChange, pending_id) - 8usize];
+    [
+        "Offset of field: AnvilGamePendingChange::country",
+    ][::core::mem::offset_of!(AnvilGamePendingChange, country) - 12usize];
+    [
+        "Offset of field: AnvilGamePendingChange::session",
+    ][::core::mem::offset_of!(AnvilGamePendingChange, session) - 16usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameStatisticPoint {
+    pub year: i32,
+    pub value: i32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGameStatisticPoint",
+    ][::core::mem::size_of::<AnvilGameStatisticPoint>() - 8usize];
+    [
+        "Alignment of AnvilGameStatisticPoint",
+    ][::core::mem::align_of::<AnvilGameStatisticPoint>() - 4usize];
+    [
+        "Offset of field: AnvilGameStatisticPoint::year",
+    ][::core::mem::offset_of!(AnvilGameStatisticPoint, year) - 0usize];
+    [
+        "Offset of field: AnvilGameStatisticPoint::value",
+    ][::core::mem::offset_of!(AnvilGameStatisticPoint, value) - 4usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct AnvilGameWorldService {
     pub size: u32,
     pub player: ::core::option::Option<
@@ -1389,12 +1493,51 @@ pub struct AnvilGameWorldService {
             length: *mut u32,
         ) -> AnvilResult,
     >,
+    pub pending_events: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            ids: *mut i32,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub pending_event: ::core::option::Option<
+        unsafe extern "C" fn(
+            pending_id: i32,
+            out: *mut AnvilGamePendingEvent,
+        ) -> AnvilResult,
+    >,
+    pub pending_event_key: ::core::option::Option<
+        unsafe extern "C" fn(
+            pending_id: i32,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub pending_event_title: ::core::option::Option<
+        unsafe extern "C" fn(
+            pending_id: i32,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub country_statistics: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            out: *mut AnvilGameStatisticPoint,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
         "Size of AnvilGameWorldService",
-    ][::core::mem::size_of::<AnvilGameWorldService>() - 264usize];
+    ][::core::mem::size_of::<AnvilGameWorldService>() - 304usize];
     [
         "Alignment of AnvilGameWorldService",
     ][::core::mem::align_of::<AnvilGameWorldService>() - 8usize];
@@ -1498,6 +1641,21 @@ const _: () = {
         "Offset of field: AnvilGameWorldService::province_variable_names",
     ][::core::mem::offset_of!(AnvilGameWorldService, province_variable_names)
         - 256usize];
+    [
+        "Offset of field: AnvilGameWorldService::pending_events",
+    ][::core::mem::offset_of!(AnvilGameWorldService, pending_events) - 264usize];
+    [
+        "Offset of field: AnvilGameWorldService::pending_event",
+    ][::core::mem::offset_of!(AnvilGameWorldService, pending_event) - 272usize];
+    [
+        "Offset of field: AnvilGameWorldService::pending_event_key",
+    ][::core::mem::offset_of!(AnvilGameWorldService, pending_event_key) - 280usize];
+    [
+        "Offset of field: AnvilGameWorldService::pending_event_title",
+    ][::core::mem::offset_of!(AnvilGameWorldService, pending_event_title) - 288usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_statistics",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_statistics) - 296usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

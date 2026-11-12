@@ -1113,6 +1113,183 @@ build."eu4-1.37.5-steam-win64" = { rva = 0xD7C407 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD7ABB7 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0xD7ABB7 }
 
+# --- pending events (anvil-game.world) ----------------------------------------------
+# CGameState::_PendingEvents: a CPdxArray<CPendingEvent> in the root that holds
+# every country's events with options until they are chosen. Read and compared
+# after outer frames, never hooked (ADR 0004). Bytes and names from GOG 1.37.5.2
+# and its eu4.pdb, the same at the same RVA in 1.37.5.0, Steam by the bytes
+# (eu4-engine-lab docs/anvil-world-families-3-5.md). All of these may be declared
+# absent together.
+
+[symbol.pending_events]
+# movsxd rax,[rsi+1EACh]; test eax,eax; jle; mov r8,rax; mov rax,[rsi+1EA0h]; add rax,24h; nop;
+# cmp [rax],edi; je; inc edx; inc rcx; add rax,28h
+bytes = "48 63 86 AC 1E 00 00 85 C0 7E 2D 4C 8B C0 48 8B 86 A0 1E 00 00 48 83 C0 24 66 0F 1F 44 00 00 39 38 74 10 FF C2 48 FF C1 48 83 C0 28"
+memory = "code"
+values.count = { at = 3, size = 4 }
+values.entries = { at = 17, size = 4 }
+values.entry_id = { at = 24, size = 1 }
+values.entry_size = { at = 43, size = 1 }
+note = "CGameState::AddPendingEvent: the loop for a free id over the list (root+0x1EA0, its count at +0x1EAC), entries of 0x28 bytes with the id at +0x24"
+build."eu4-1.37.5-steam-win64" = { rva = 0x756FD1 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x756191 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x756191 }
+
+[symbol.pending_entry]
+# mov rbx,[rsi+18h]; mov edx,2999h; mov rcx,rdi; call; mov rax,[rbx]; mov rdx,rdi; mov rcx,rbx; call [rax+8];
+# lea r8,[rsi+20h]; mov edx,2E46h; mov rcx,rdi; call; mov ebx,[rsi+24h]
+bytes = "48 8B 5E 18 BA 99 29 00 00 48 8B CF E8 ?? ?? ?? ?? 48 8B 03 48 8B D7 48 8B CB FF 50 08 4C 8D 46 20 BA 46 2E 00 00 48 8B CF E8 ?? ?? ?? ?? 8B 5E 24"
+memory = "code"
+values.scope = { at = 3, size = 1 }
+values.auto_select = { at = 32, size = 1 }
+values.entry_id = { at = 48, size = 1 }
+note = "CPendingEvent::WriteMembers: the scope (+0x18, a CEventScope it owns), _AutoSelectDate (+0x20) and the id (+0x24)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x748CED }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x747EED }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x747EED }
+
+[symbol.pending_event]
+bytes = "48 8B 59 10 48 8B FA 48 8B F1 BA B8 01 00 00 48 8B CF"   # mov rbx,[rcx+10h]; mov rdi,rdx; mov rsi,rcx; mov edx,1B8h; mov rcx,rdi
+memory = "code"
+values.event = { at = 3, size = 1 }
+note = "CPendingEvent::WriteMembers: the event (+0x10, a CEvent)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x748CA2 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x747EA2 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x747EA2 }
+
+[symbol.event_scope_country]
+# lea rax,[r15+2Ch]; lea rbx,[r15+44h]; cmp [r15+4Bh],r13b; cmove rbx,rax; mov rbx,[rbx]; mov [rsp+78h],rbx;
+# mov rax,rbx; shr rax,38h; test al,al; jne; movsxd rax,[r15+28h]; imul rbx,rax,2E10h; add rbx,[rbp+1CA8h];
+# mov rbx,[rbx+468h]; mov [rsp+78h],rbx
+bytes = "49 8D 47 2C 49 8D 5F 44 45 38 6F 4B 48 0F 44 D8 48 8B 1B 48 89 5C 24 78 48 8B C3 48 C1 E8 38 84 C0 75 1E 49 63 47 28 48 69 D8 10 2E 00 00 48 03 9D A8 1C 00 00 48 8B 9B 68 04 00 00 48 89 5C 24 78"
+memory = "code"
+values.country = { at = 3, size = 1 }
+values.override = { at = 7, size = 1 }
+values.override_valid = { at = 11, size = 1 }
+values.province = { at = 38, size = 1 }
+values.province_size = { at = 42, size = 4 }
+values.province_array = { at = 49, size = 4 }
+values.owner = { at = 56, size = 4 }
+note = "CEventManager::TriggerEvent: the country an event is for, from its CEventScope: _OverrideTag (+0x44) when its valid byte (+0x4B) is set, else _Country (+0x2C); for a tag that is not valid, the owner of province _nProvince (+0x28)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6F5070 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6F4360 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6F4360 }
+
+[symbol.event_options]
+# mov rax,[rsi+798h]; sub rax,[rsi+790h]; sar rax,3; test eax,eax; je; mov r8,r15; mov rdx,rsi; mov rcx,rbp; call
+bytes = "48 8B 86 98 07 00 00 48 2B 86 90 07 00 00 48 C1 F8 03 85 C0 74 11 4D 8B C7 48 8B D6 48 8B CD E8 ?? ?? ?? ??"
+memory = "code"
+values.options_end = { at = 3, size = 4 }
+values.options = { at = 10, size = 4 }
+note = "CEventManager::TriggerEvent: the event's options (_Options, +0x790, pointers), counted"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6F5122 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6F4412 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6F4412 }
+
+[symbol.event_hidden]
+bytes = "80 BE 61 0A 00 00 00 74 73 49 8B 06 49 8B CE FF 90 80 00 00 00"   # cmp byte [rsi+0A61h],0; je; mov rax,[r14]; mov rcx,r14; call [rax+80h]
+memory = "code"
+values.hidden = { at = 2, size = 4 }
+note = "CEventManager::TriggerEvent: _IsHidden (+0xA61), whether the game shows a window"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6F517F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6F446F }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6F446F }
+
+[symbol.event_title]
+bytes = "4C 8D 8E E0 07 00 00 49 83 79 18 10 72 03"   # lea r9,[rsi+7E0h]; cmp qword [r9+18h],10h; jb
+memory = "code"
+values.title = { at = 3, size = 4 }
+note = "CEventManager::TriggerEvent: the event's _Title (+0x7E0), a std::string with its localisation key"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6F50CF }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6F43BF }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6F43BF }
+
+[symbol.event_key]
+# lea rdx,[string]; call; mov rdx,[rsi+48h]; add rdx,20h; cmp qword [rdx+18h],10h; jb; mov rdx,[rdx]; mov rcx,rax
+memory = "code"
+values.window_event = { at = 15, size = 1 }
+values.key = { at = 19, size = 1 }
+note = "CEventWindow::OptionSelected: the log line names the window's event (+0x48) by its _DebugKey (+0x20), a std::string"
+
+[symbol.event_key.build."eu4-1.37.5-steam-win64"]
+rva = 0x10BC440
+bytes = "48 8D 15 B1 CD C9 00 E8 34 36 FD FE 48 8B 56 48 48 83 C2 20 48 83 7A 18 10 72 03 48 8B 12 48 8B C8"
+
+[symbol.event_key.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10BAC40
+bytes = "48 8D 15 A1 71 C8 00 E8 64 4E FD FE 48 8B 56 48 48 83 C2 20 48 83 7A 18 10 72 03 48 8B 12 48 8B C8"
+
+[symbol.event_key.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10BAC40
+bytes = "48 8D 15 A1 71 C8 00 E8 64 4E FD FE 48 8B 56 48 48 83 C2 20 48 83 7A 18 10 72 03 48 8B 12 48 8B C8"
+
+# --- statistics (anvil-game.world) --------------------------------------------------
+# Four CGraphStatistics in the root, the series of the game's graphs, filled
+# only by CGameState::YearlyUpdate (AddDataByKey) and from a save. Each holds an
+# unordered_map from the tag's text to an SGraphStatisticsItem with a vector of
+# values and one of years, read as its list as the variables are. All of these
+# may be declared absent together.
+
+[symbol.statistics_series]
+# mov rbx,[rax+8]; test rbx,rbx; jne; mov rbx,[r15+18h]; cmp rbx,[r15+18h]; je; lea rcx,[rbx+60h];
+# mov rdx,[rbx+68h]; cmp rdx,[rbx+70h]; je; mov [rdx],r14d; add qword [rcx+8],4; jmp; lea r8,[rbp+60h];
+# call; lea rcx,[rbx+78h]
+bytes = "48 8B 58 08 48 85 DB 75 04 49 8B 5F 18 49 3B 5F 18 74 4F 48 8D 4B 60 48 8B 53 68 48 3B 53 70 74 0A 44 89 32 48 83 41 08 04 EB 09 4C 8D 45 60 E8 ?? ?? ?? ?? 48 8D 4B 78"
+memory = "code"
+values.head = { at = 12, size = 1 }
+values.values = { at = 22, size = 1 }
+values.values_end = { at = 26, size = 1 }
+values.years = { at = 55, size = 1 }
+note = "CGraphStatistics::AddDataByKey: the map's list head at +0x18 (the end of a lookup); a node's values (+0x60, int32) and years (+0x78, int32, from GetYear), appended together"
+build."eu4-1.37.5-steam-win64" = { rva = 0x7DE02D }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DD39D }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7DD39D }
+
+[symbol.statistics_item]
+bytes = "48 8B 08 48 83 C1 30 48 8B D3 E8 ?? ?? ?? ??"   # mov rcx,[rax]; add rcx,30h; mov rdx,rbx; call
+memory = "code"
+values.item = { at = 6, size = 1 }
+note = "CGraphStatistics::AddDataByKey: a new node's item at +0x30, after its key, the tag's text"
+build."eu4-1.37.5-steam-win64" = { rva = 0x7DE15F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7DD4CF }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7DD4CF }
+
+[symbol.statistics_income]
+bytes = "45 8B CE 44 8B C3 48 8D 54 24 20 49 8D 8D D8 1E 00 00 E8 ?? ?? ?? ??"   # mov r9d,r14d; mov r8d,ebx; lea rdx,[rsp+20h]; lea rcx,[r13+1ED8h]; call AddDataByKey
+memory = "code"
+values.series = { at = 14, size = 4 }
+note = "CGameState::YearlyUpdate: the income series (+0x1ED8), a value / 1000 a year"
+build."eu4-1.37.5-steam-win64" = { rva = 0x75E8A2 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x75DA62 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x75DA62 }
+
+[symbol.statistics_score]
+bytes = "45 8B CE 44 8B C3 48 8D 54 24 40 49 8D 8D 60 1F 00 00 E8 ?? ?? ?? ??"
+memory = "code"
+values.series = { at = 14, size = 4 }
+note = "CGameState::YearlyUpdate: the score series (+0x1F60), the score / 1000"
+build."eu4-1.37.5-steam-win64" = { rva = 0x75E60C }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x75D7CC }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x75D7CC }
+
+[symbol.statistics_nation_size]
+bytes = "45 8B CE 44 8B C7 48 8D 54 24 20 49 8D 8D E8 1F 00 00 E8 ?? ?? ?? ??"
+memory = "code"
+values.series = { at = 14, size = 4 }
+note = "CGameState::YearlyUpdate: the nation size series (+0x1FE8), the count of provinces owned"
+build."eu4-1.37.5-steam-win64" = { rva = 0x75E6BC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x75D87C }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x75D87C }
+
+[symbol.statistics_inflation]
+bytes = "45 8B CE 44 8B C3 48 8D 54 24 20 49 8D 8D 70 20 00 00 E8 ?? ?? ?? ??"
+memory = "code"
+values.series = { at = 14, size = 4 }
+note = "CGameState::YearlyUpdate: the inflation series (+0x2070), inflation / 1000"
+build."eu4-1.37.5-steam-win64" = { rva = 0x75E77C }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x75D93C }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x75D93C }
+
 # --- game commands (anvil-game.commands) ---
 # The unit panel's drill, split and merge buttons each build a game command and
 # hand it to the session's post function (CSession::Post); anvil-game.commands

@@ -757,25 +757,34 @@ bool flag_name_range(const WorldLayout& l, std::uintptr_t& begin, std::size_t& c
     return true;
 }
 
-// The variables of one CVariables: the map's list, from its sentinel node.
-bool read_variables(const WorldLayout& l, std::uintptr_t variables, std::vector<VariableEntry>& out) {
-    const std::uintptr_t list = variables + l.variable_head;
+// The nodes of an MSVC unordered_map, walked as its list: `list` holds the
+// sentinel node, the count follows it, and a node's next is its first field.
+bool read_map_nodes(std::uintptr_t list, std::uint64_t max, std::vector<std::uintptr_t>& out) {
     std::uintptr_t head = 0, node = 0;
     std::uint64_t count = 0;
-    if (!read(list, head) || head == 0 || !read(list + 8, count) || count > kMaxVariables || !read(head, node)) {
-        return false;
-    }
+    if (!read(list, head) || head == 0 || !read(list + 8, count) || count > max || !read(head, node)) return false;
     out.clear();
     while (node != head) {
         if (out.size() >= count || node == 0) return false;  // a loop, or a list cut short
+        out.push_back(node);
+        if (!read(node, node)) return false;
+    }
+    return out.size() == count;
+}
+
+// The variables of one CVariables: the map's list, from its sentinel node.
+bool read_variables(const WorldLayout& l, std::uintptr_t variables, std::vector<VariableEntry>& out) {
+    std::vector<std::uintptr_t> nodes;
+    if (!read_map_nodes(variables + l.variable_head, kMaxVariables, nodes)) return false;
+    out.clear();
+    for (const std::uintptr_t node : nodes) {
         VariableEntry e;
-        if (!read_string(node + l.variable_value - 0x20, e.name) || !read(node + l.variable_value, e.value) ||
-            !read(node, node)) {
+        if (!read_string(node + l.variable_value - 0x20, e.name) || !read(node + l.variable_value, e.value)) {
             return false;
         }
         out.push_back(std::move(e));
     }
-    return out.size() == count;
+    return true;
 }
 
 }  // namespace
@@ -903,6 +912,154 @@ AnvilResult read_province_variables(const WorldLayout& l, std::int32_t province,
     std::uintptr_t p = 0;
     if (const AnvilResult r = province_at(l, province, p); r != ANVIL_OK) return r;
     return read_variables(l, p + l.province_variables, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
+// ---- pending events -------------------------------------------------------------
+
+namespace {
+
+constexpr std::int32_t kMaxPending = 4096;   // a longer pending list is taken as garbage
+constexpr std::size_t kMaxOptions = 1024;    // likewise an event's options
+constexpr std::uint64_t kMaxSeries = 65536;  // likewise the countries of a series
+constexpr std::size_t kMaxYears = 100000;    // likewise the years of one
+
+// The pending list's entries and how many.
+bool pending_range(const WorldLayout& l, std::uintptr_t& data, std::int32_t& count) {
+    std::uintptr_t root = 0;
+    return read_root(l, root) && read(root + l.pending_list, data) && read(root + l.pending_count, count) &&
+           count >= 0 && count <= kMaxPending && (count == 0 || data != 0);
+}
+
+// The entry of `key` in the pending list: NOT_FOUND when it is gone.
+AnvilResult pending_at(const WorldLayout& l, const PendingKey& key, std::uintptr_t& entry) {
+    std::uintptr_t data = 0;
+    std::int32_t count = 0;
+    if (!pending_range(l, data, count)) return ANVIL_ERROR_INTERNAL;
+    for (std::int32_t i = 0; i < count; ++i) {
+        const std::uintptr_t at = data + static_cast<std::uintptr_t>(i) * l.pending_size;
+        PendingKey seen;
+        if (!read(at + l.pending_id, seen.id) || !read(at + l.pending_event, seen.event) ||
+            !read(at + l.pending_scope, seen.scope)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        if (seen == key) {
+            entry = at;
+            return ANVIL_OK;
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+bool tag_text_valid(std::string_view text) {
+    if (text.size() != 3) return false;
+    for (const char c : text) {
+        if (!((c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+AnvilResult read_pending_keys(const WorldLayout& l, std::vector<PendingKey>& out) {
+    if (l.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t data = 0;
+    std::int32_t count = 0;
+    if (!pending_range(l, data, count)) return ANVIL_ERROR_INTERNAL;
+    out.clear();
+    for (std::int32_t i = 0; i < count; ++i) {
+        const std::uintptr_t at = data + static_cast<std::uintptr_t>(i) * l.pending_size;
+        PendingKey key;
+        if (!read(at + l.pending_id, key.id) || !read(at + l.pending_event, key.event) ||
+            !read(at + l.pending_scope, key.scope)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        out.push_back(key);
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_pending(const WorldLayout& l, const PendingKey& key, AnvilGamePendingEvent& out) {
+    if (l.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t entry = 0;
+    if (const AnvilResult r = pending_at(l, key, entry); r != ANVIL_OK) return r;
+    std::int32_t auto_select = 0, province = 0;
+    std::uint64_t country = 0, override_tag = 0;
+    std::uint8_t override_valid = 0, hidden = 0;
+    std::uintptr_t options = 0, options_end = 0;
+    if (key.event == 0 || key.scope == 0 || !read(entry + l.auto_select, auto_select) ||
+        !read(key.scope + l.scope_province, province) || !read(key.scope + l.scope_country, country) ||
+        !read(key.scope + l.scope_override, override_tag) ||
+        !read(key.scope + l.scope_override_valid, override_valid) || !read(key.event + l.event_options, options) ||
+        !read(key.event + l.event_options_end, options_end) || !read(key.event + l.event_hidden, hidden) ||
+        options_end < options || (options_end - options) % 8 != 0 || (options_end - options) / 8 > kMaxOptions) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    // The game's rule: the override when it is set, else the scope's country,
+    // and for a tag that is not valid the scope province's owner.
+    std::uint64_t tag = override_valid != 0 ? override_tag : country;
+    std::uintptr_t p = 0;
+    const bool has_province = province_at(l, province, p) == ANVIL_OK;
+    if (byte_of(tag, l.tag_valid) == 0) {
+        tag = 0;
+        if (has_province && !read(p + l.owner, tag)) return ANVIL_ERROR_INTERNAL;
+    }
+    out.pending_id = key.id;
+    out.country = tag_text(tag, l);
+    out.province = has_province ? province : 0;
+    out.options = static_cast<std::uint32_t>((options_end - options) / 8);
+    out.flags = hidden != 0 ? ANVIL_GAME_PENDING_HIDDEN : 0u;
+    out.auto_select = decode_date(auto_select);
+    return ANVIL_OK;
+}
+
+AnvilResult read_pending_text(const WorldLayout& l, const PendingKey& key, bool title, std::string& utf8) {
+    if (l.pending_list == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t entry = 0;
+    if (const AnvilResult r = pending_at(l, key, entry); r != ANVIL_OK) return r;
+    std::string text;
+    if (key.event == 0 || !read_string(key.event + (title ? l.event_title : l.event_key), text)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    utf8 = game_text_to_utf8(text);
+    return ANVIL_OK;
+}
+
+// ---- statistics -------------------------------------------------------------------
+
+AnvilResult read_statistics(const WorldLayout& l, std::string_view tag, std::uint32_t kind,
+                            std::vector<AnvilGameStatisticPoint>& out) {
+    if (l.statistics_head == 0) return ANVIL_ERROR_NOT_DECLARED;
+    if (!tag_text_valid(tag)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    std::uintptr_t root = 0;
+    std::vector<std::uintptr_t> nodes;
+    if (!read_root(l, root) || !read_map_nodes(root + l.statistics[kind] + l.statistics_head, kMaxSeries, nodes)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    std::string key;
+    for (const std::uintptr_t node : nodes) {
+        if (!read_string(node + l.statistics_key, key)) return ANVIL_ERROR_INTERNAL;
+        if (key.size() != 3 || upper(key[0]) != upper(tag[0]) || upper(key[1]) != upper(tag[1]) ||
+            upper(key[2]) != upper(tag[2])) {
+            continue;
+        }
+        std::uintptr_t values = 0, values_end = 0, years = 0, years_end = 0;
+        if (!read(node + l.statistics_values, values) || !read(node + l.statistics_values + 8, values_end) ||
+            !read(node + l.statistics_years, years) || !read(node + l.statistics_years + 8, years_end) ||
+            values_end < values || years_end < years || (values_end - values) % 4 != 0 ||
+            values_end - values != years_end - years || (values_end - values) / 4 > kMaxYears) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        const std::size_t n = (values_end - values) / 4;
+        std::vector<std::int32_t> value(n), year(n);
+        if (n > 0 && (!read_raw(values, value.data(), n * 4) || !read_raw(years, year.data(), n * 4))) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        out.clear();
+        out.reserve(n);
+        for (std::size_t i = 0; i < n; ++i) out.push_back(AnvilGameStatisticPoint{year[i], value[i]});
+        return ANVIL_OK;
+    }
+    return ANVIL_ERROR_NOT_FOUND;
 }
 
 }  // namespace anvil_game
