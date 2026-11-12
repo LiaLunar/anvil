@@ -80,6 +80,11 @@ public:
     virtual void* make_move(const CommandUnit& unit, std::int32_t province, bool clear_previous) = 0;
     // The command's own IsValid, which the right-click asks before posting.
     virtual bool valid(void* command) = 0;
+    // The map area of a province: ANVIL_ERROR_NOT_FOUND without one.
+    virtual AnvilResult area_of(std::int32_t province, std::uintptr_t& area) = 0;
+    // A click on the area in the siege (SIEGE_AREA) or rebel-suppression map mode:
+    // the game checks it for the army and posts the command; true when it did.
+    virtual bool toggle_area(std::uint32_t type, const CommandUnit& unit, std::uintptr_t area) = 0;
 };
 
 // The regiments or ships the split button moves: half, rounded up.

@@ -270,6 +270,10 @@ struct VariableEntry {
 // Main thread only, after an outer frame, in a session: the service checks.
 std::int32_t read_province_limit(const WorldLayout& l);
 AnvilResult read_province(const WorldLayout& l, std::int32_t id, AnvilGameProvince& out);
+// The province's CMapArea (its map part at `map_part`, the area at `area` in it):
+// ANVIL_ERROR_NOT_FOUND for a province without one.
+AnvilResult read_province_area(const WorldLayout& l, std::int32_t id, std::uint32_t map_part, std::uint32_t area,
+                               std::uintptr_t& out);
 AnvilResult read_province_name(const WorldLayout& l, std::int32_t id, std::string& utf8);
 AnvilResult read_province_cores(const WorldLayout& l, std::int32_t id, std::vector<AnvilGameTag>& out);
 AnvilResult read_country(const WorldLayout& l, std::string_view tag, AnvilGameCountry& out);

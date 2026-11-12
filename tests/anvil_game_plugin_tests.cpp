@@ -963,6 +963,24 @@ struct FakeCommands final : anvil_game::CommandBackend {
         return make("move " + hex(u.object) + " " + std::to_string(province) + (clear_previous ? "" : " queue"));
     }
     std::vector<int32_t> illegal;  // provinces the fake's IsValid refuses
+    // Map areas by province (0: none), and the areas the game says no to.
+    std::map<int32_t, uintptr_t> areas;
+    std::vector<uintptr_t> refused_areas;
+    std::vector<std::string> toggled;  // "siege|suppress <unit> <area>"
+    AnvilResult area_of(int32_t province, uintptr_t& area) override {
+        const auto it = areas.find(province);
+        if (it == areas.end() || it->second == 0) return ANVIL_ERROR_NOT_FOUND;
+        area = it->second;
+        return ANVIL_OK;
+    }
+    bool toggle_area(uint32_t type, const anvil_game::CommandUnit& u, uintptr_t area) override {
+        toggled.push_back(std::string(type == ANVIL_GAME_COMMAND_SIEGE_AREA ? "siege " : "suppress ") + hex(u.object) +
+                          " " + hex(area));
+        for (const uintptr_t a : refused_areas) {
+            if (a == area) return false;
+        }
+        return true;
+    }
     bool valid(void* command) override {
         const std::string& what = made[reinterpret_cast<uintptr_t>(command) - 1];
         for (const int32_t p : illegal) {
@@ -1538,6 +1556,60 @@ int main(int argc, char** argv) {
         CHECK(refused(c, ANVIL_ERROR_NOT_FOUND));
     });
 
+    run("anvil-game.commands: siege and rebel suppression by area, with a fake game (version 3)", [] {
+        FakeCommands game;
+        anvil_game::CommandPoster poster;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(&game);
+        game.units[1] = {0x1001, 1, ANVIL_GAME_UNIT_ARMY, 33, false, 3};
+        game.units[2] = {0x1002, 2, ANVIL_GAME_UNIT_ARMY, 34, false, 3};
+        game.units[3] = {0x1003, 3, ANVIL_GAME_UNIT_NAVY, 1300, false, 4};
+        game.areas = {{33, 0xA33}, {34, 0xA34}, {1300, 0}};
+        std::vector<AnvilGameUnitRef> armies = {{1, {"RUS"}, ANVIL_GAME_UNIT_ARMY}, {2, {"RUS"}, ANVIL_GAME_UNIT_ARMY}};
+        AnvilGameCommand c{};
+        c.size = sizeof(c);
+        c.type = ANVIL_GAME_COMMAND_SIEGE_AREA;
+        c.count = 2;
+        c.units = armies.data();
+        c.province = 34;
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+        // Each army's click on the area of province 34; the game posts.
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 2 && out.refused == 0);
+        CHECK((game.toggled == std::vector<std::string>{"siege 1001 a34", "siege 1002 a34"}));
+        CHECK(game.made.empty() && game.submitted.empty());  // the game's function builds and posts them
+        // The game says no for an area: refused.
+        game.refused_areas = {0xA33};
+        c.type = ANVIL_GAME_COMMAND_SUPPRESS_AREA;
+        c.province = 33;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 2);
+        CHECK(game.toggled.back() == "suppress 1002 a33");
+        // No area, a navy, flags, a short struct, an absent type: nothing toggled.
+        const auto refused = [&](AnvilGameCommand bad, AnvilResult expected) {
+            const size_t before = game.toggled.size();
+            return poster.post(game, self, &bad, &out) == expected && game.toggled.size() == before;
+        };
+        AnvilGameCommand bad = c;
+        bad.province = 1300;
+        CHECK(refused(bad, ANVIL_ERROR_NOT_FOUND));
+        bad.province = 0;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        std::vector<AnvilGameUnitRef> navy = {{3, {"RUS"}, ANVIL_GAME_UNIT_NAVY}};
+        bad = c;
+        bad.count = 1;
+        bad.units = navy.data();
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        bad = c;
+        bad.flags = ANVIL_GAME_COMMAND_QUEUE;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        bad = c;
+        bad.size = offsetof(AnvilGameCommand, province);
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        game.absent = ANVIL_GAME_COMMAND_SIEGE_AREA;
+        bad = c;
+        bad.type = ANVIL_GAME_COMMAND_SIEGE_AREA;
+        CHECK(refused(bad, ANVIL_ERROR_NOT_DECLARED));
+    });
+
     run("anvil-game.commands: choosing an event option, with a fake game", [] {
         FakeCommands game;
         anvil_game::CommandPoster poster;
@@ -1675,7 +1747,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 160);
+        CHECK(reason.empty() && verified.symbols.size() == 163);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -2931,7 +3003,7 @@ int main(int argc, char** argv) {
             bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION));
         CHECK(commands != nullptr && ANVIL_GAME_COMMANDS_HAS(commands, post));
         CHECK(contains(log, "anvil-game: service anvil-game.commands v1 to v3: drill yes, merge yes, split yes, "
-                            "event option yes, speed yes, explore yes, move yes"));
+                            "event option yes, speed yes, explore yes, move yes, areas yes"));
         CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 1) == commands);
         CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 2) == commands);
         if (commands == nullptr) return;

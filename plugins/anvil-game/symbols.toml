@@ -1774,6 +1774,55 @@ build."eu4-1.37.5-steam-win64" = { rva = 0xD4439D }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0xD42B4D }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0xD42B4D }
 
+# --- siege and rebel suppression by area (anvil-game.commands version 3, 1.22.0) ---
+# The siege and rebel-suppression map modes add or remove one map area of an
+# army's mission with a click: CCarpetSiegeArmyMission::TryToggleArea and
+# ToggleSuppressedArea check the area for the army and, when it may, post the
+# CCarpetSiegeCommand or CHuntRebelCommand with the army's areas, the clicked
+# one added or removed (ToggleCarpetArea / the long ToggleSuppressedArea, with
+# no tooltip text and "do it"). A province's area is CProvince::GetMapArea.
+# Found in GOG 1.37.5.2 by its eu4.pdb, matched by bytes on Steam 1.37.5 and
+# GOG 1.37.5.0.
+
+[symbol.siege_toggle_area]
+# mov [rsp+8],rbx; mov [rsp+18h],rsi; mov [rsp+20h],rdi; mov [rsp+10h],rdx; push rbp; push r12..r15;
+# lea rbp,[rsp-37h]; sub rsp,0F0h; mov r12,rdx; mov r15,rcx; mov r8,[countries]; mov rax,[rcx+0D0h]; shr rax,...
+bytes = """
+48 89 5C 24 08 48 89 74 24 18 48 89 7C 24 20 48 89 54 24 10 55 41 54 41 55 41 56 41 57 48 8D 6C 24 C9
+48 81 EC F0 00 00 00 4C 8B E2 4C 8B F9 4C 8B 05 ?? ?? ?? ?? 48 8B 81 D0 00 00 00 48 C1 E8 20
+"""
+memory = "code"
+signature = "bool (const void* unit, const void* area)"
+note = "CCarpetSiegeArmyMission::TryToggleArea(unit, area): the army's country's enemies, then ToggleCarpetArea(unit, area, enemies, no text, post); true when it posted the command"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CC8B0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CC880 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1CC880 }
+
+[symbol.suppress_toggle_area]
+# mov [rsp+8],rbx; mov [rsp+10h],rbp; mov [rsp+18h],rsi; mov [rsp+20h],rdi; push r14; sub rsp,0F0h;
+# movzx ebx,r9b (post); mov rdi,r8 (text); mov rsi,rdx (area); mov rbp,rcx (unit); mov rax,[rcx+0D0h]; ...
+bytes = """
+48 89 5C 24 08 48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 81 EC F0 00 00 00 41 0F B6 D9
+49 8B F8 48 8B F2 48 8B E9 48 8B 81 D0 00 00 00 4C 8B 1D ?? ?? ?? ?? 48 C1 E8 20 4C 0F BF D0
+"""
+memory = "code"
+signature = "bool (const void* unit, const void* area, void* text, bool post)"
+note = "the short ToggleSuppressedArea(unit, area, text, post): the countries whose rebels the army may hunt, then the long one; with post, it posts the CHuntRebelCommand; true when the toggle is allowed"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1C7A60 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C7A30 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C7A30 }
+
+[symbol.province_map_area]
+# mov rax,[rcx+28h] (the province's map part); mov rax,[rax+40h] (its CMapArea); ret
+bytes = "48 8B 41 28 48 8B 40 40 C3"
+memory = "code"
+values.static_part = { at = 3, size = 1 }
+values.area = { at = 7, size = 1 }
+note = "CProvince::GetMapArea: the map part's area; null for a province without one"
+build."eu4-1.37.5-steam-win64" = { rva = 0x987C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x987F0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x987F0 }
+
 # --- timed modifiers and the province view (anvil-game.world, 1.21.0) ------------
 # Read only; names and layouts from the GOG 1.37.5.2 PDB, one site each, checked
 # unique in the .text of all three builds. The seven timed modifier symbols may be

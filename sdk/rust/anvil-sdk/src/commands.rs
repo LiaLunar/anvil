@@ -42,9 +42,10 @@ use crate::sys::{
     AnvilPlugin, ANVIL_GAME_COMMANDS_SERVICE_VERSION, ANVIL_GAME_COMMAND_DRILL,
     ANVIL_GAME_COMMAND_EVENT_OPTION, ANVIL_GAME_COMMAND_EXPLORE, ANVIL_GAME_COMMAND_MAX_PER_FRAME,
     ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_MOVE,
-    ANVIL_GAME_COMMAND_QUEUE, ANVIL_GAME_COMMAND_SPEED, ANVIL_GAME_COMMAND_SPLIT,
-    ANVIL_GAME_COMMAND_START, ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE, ANVIL_GAME_EXPLORE_LAND,
-    ANVIL_GAME_EXPLORE_STOP, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
+    ANVIL_GAME_COMMAND_QUEUE, ANVIL_GAME_COMMAND_SIEGE_AREA, ANVIL_GAME_COMMAND_SPEED,
+    ANVIL_GAME_COMMAND_SPLIT, ANVIL_GAME_COMMAND_START, ANVIL_GAME_COMMAND_SUPPRESS_AREA,
+    ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE, ANVIL_GAME_EXPLORE_LAND, ANVIL_GAME_EXPLORE_STOP,
+    ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
 };
 use crate::world::{UnitKind, UnitRef};
 
@@ -301,6 +302,37 @@ impl Commands {
         self.need_version_3("move")?;
         let flags = if queue { ANVIL_GAME_COMMAND_QUEUE } else { 0 };
         self.post_with(ANVIL_GAME_COMMAND_MOVE, flags, units, 0, province, "move")
+    }
+
+    /// Version 3: each army's click on the map area of `province` in the siege
+    /// map mode: the area joins the army's autonomous siege, or leaves it when
+    /// it is in it already. The game checks the area for each army and posts
+    /// the command itself; an army it says no for counts as `refused`.
+    /// `NotFound` for a province without a map area.
+    pub fn siege_area(&self, armies: &[UnitRef], province: i32) -> Result<Posted> {
+        self.need_version_3("siege area")?;
+        self.post_with(
+            ANVIL_GAME_COMMAND_SIEGE_AREA,
+            0,
+            armies,
+            0,
+            province,
+            "siege area",
+        )
+    }
+
+    /// Version 3: the same in the rebel-suppression map mode: the area joins
+    /// the army's rebel hunt, or leaves it.
+    pub fn suppress_area(&self, armies: &[UnitRef], province: i32) -> Result<Posted> {
+        self.need_version_3("suppress area")?;
+        self.post_with(
+            ANVIL_GAME_COMMAND_SUPPRESS_AREA,
+            0,
+            armies,
+            0,
+            province,
+            "suppress area",
+        )
     }
 
     fn need_version_3(&self, what: &str) -> Result<()> {

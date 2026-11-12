@@ -60,6 +60,10 @@ AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGa
             return ANVIL_ERROR_INVALID_ARGUMENT;
         }
         break;
+    case ANVIL_GAME_COMMAND_SIEGE_AREA:
+    case ANVIL_GAME_COMMAND_SUPPRESS_AREA:
+        if (c->flags != 0 || c->size < kMoveSize || c->province <= 0) return ANVIL_ERROR_INVALID_ARGUMENT;
+        break;
     case ANVIL_GAME_COMMAND_MOVE:
         if ((c->flags & ~ANVIL_GAME_COMMAND_QUEUE) != 0 || c->size < kMoveSize || c->province <= 0) {
             return ANVIL_ERROR_INVALID_ARGUMENT;
@@ -90,7 +94,11 @@ AnvilResult find_units(CommandBackend& b, const AnvilGameCommand& c, std::vector
         CommandUnit unit;
         if (const AnvilResult r = b.find(c.units[i], unit); r != ANVIL_OK) return r;
         if (unit.kind != c.units[i].kind) return ANVIL_ERROR_INVALID_ARGUMENT;
-        if (c.type == ANVIL_GAME_COMMAND_DRILL && unit.kind != ANVIL_GAME_UNIT_ARMY) return ANVIL_ERROR_INVALID_ARGUMENT;
+        if ((c.type == ANVIL_GAME_COMMAND_DRILL || c.type == ANVIL_GAME_COMMAND_SIEGE_AREA ||
+             c.type == ANVIL_GAME_COMMAND_SUPPRESS_AREA) &&
+            unit.kind != ANVIL_GAME_UNIT_ARMY) {
+            return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
         if (c.type == ANVIL_GAME_COMMAND_EXPLORE &&
             ((c.explore == ANVIL_GAME_EXPLORE_LAND && unit.kind != ANVIL_GAME_UNIT_ARMY) ||
              (c.explore == ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE && unit.kind != ANVIL_GAME_UNIT_NAVY))) {
@@ -221,11 +229,18 @@ AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, cons
         return ANVIL_ERROR_OUT_OF_MEMORY;
     }
 
+    std::uintptr_t area = 0;
+    if (c.type == ANVIL_GAME_COMMAND_SIEGE_AREA || c.type == ANVIL_GAME_COMMAND_SUPPRESS_AREA) {
+        if (const AnvilResult r = b.area_of(c.province, area); r != ANVIL_OK) return r;
+    }
+
     AnvilGameCommandResult result{};
     result.size = sizeof(result);
     const bool intent = c.type == ANVIL_GAME_COMMAND_DRILL || c.type == ANVIL_GAME_COMMAND_EXPLORE;
     const std::uint32_t planned = intent                              ? static_cast<std::uint32_t>(drills.size())
-                                  : c.type == ANVIL_GAME_COMMAND_MOVE ? c.count
+                                  : c.type == ANVIL_GAME_COMMAND_MOVE || c.type == ANVIL_GAME_COMMAND_SIEGE_AREA ||
+                                          c.type == ANVIL_GAME_COMMAND_SUPPRESS_AREA
+                                      ? c.count
                                                                       : 1;
     result.skipped = intent ? c.count - planned : 0;
 
@@ -279,6 +294,19 @@ AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, cons
                 continue;
             }
             send(made);
+        }
+        break;
+    }
+    case ANVIL_GAME_COMMAND_SIEGE_AREA:
+    case ANVIL_GAME_COMMAND_SUPPRESS_AREA: {
+        // The game builds and posts the command itself, from the click's function.
+        for (const CommandUnit& u : units) {
+            ++used_;
+            if (b.toggle_area(c.type, u, area)) {
+                ++result.posted;
+            } else {
+                ++result.refused;
+            }
         }
         break;
     }

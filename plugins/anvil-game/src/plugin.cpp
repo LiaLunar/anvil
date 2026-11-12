@@ -1645,6 +1645,11 @@ struct CommandsLayout {
     sym::Types::move_command::Pointer move = nullptr;
     std::uint32_t move_size = 0;
     std::uint32_t move_is_valid = 0;  // the command's vtable: byte offset of IsValid
+    // SIEGE_AREA and SUPPRESS_AREA (version 3): 0 when absent on this build.
+    sym::Types::siege_toggle_area::Pointer siege_area = nullptr;
+    sym::Types::suppress_toggle_area::Pointer suppress_area = nullptr;
+    std::uint32_t map_part = 0;  // province: its map part
+    std::uint32_t map_area = 0;  // map part: its CMapArea
 };
 
 CommandsLayout g_commands;
@@ -1830,6 +1835,8 @@ public:
         case ANVIL_GAME_COMMAND_SPEED: return g_commands.speed_up != nullptr;
         case ANVIL_GAME_COMMAND_EXPLORE: return g_commands.explore != nullptr;
         case ANVIL_GAME_COMMAND_MOVE: return g_commands.move != nullptr;
+        case ANVIL_GAME_COMMAND_SIEGE_AREA: return g_commands.siege_area != nullptr;
+        case ANVIL_GAME_COMMAND_SUPPRESS_AREA: return g_commands.suppress_area != nullptr;
         }
         return false;
     }
@@ -1917,6 +1924,15 @@ public:
         // A right-click's plain move: no safe move, the automatic transport cancelled.
         return g_commands.move(command, reinterpret_cast<const void*>(unit.object), province, clear_previous, false,
                                true, false);
+    }
+    AnvilResult area_of(std::int32_t province, std::uintptr_t& area) override {
+        return anvil_game::read_province_area(g_world, province, g_commands.map_part, g_commands.map_area, area);
+    }
+    bool toggle_area(std::uint32_t type, const anvil_game::CommandUnit& unit, std::uintptr_t area) override {
+        const auto* u = reinterpret_cast<const void*>(unit.object);
+        const auto* a = reinterpret_cast<const void*>(area);
+        return type == ANVIL_GAME_COMMAND_SIEGE_AREA ? g_commands.siege_area(u, a)
+                                                     : g_commands.suppress_area(u, a, nullptr, true);
     }
     bool valid(void* command) override {
         using IsValid = bool (*)(void*);
@@ -2024,6 +2040,13 @@ void load_commands(anvil::Host& host) {
             host.warn("the explore button reaches the session another way than the unit panel: no EXPLORE");
         }
     }
+    if (host.present(sym::siege_toggle_area) && host.present(sym::suppress_toggle_area) &&
+        host.present(sym::province_map_area)) {
+        c.siege_area = host.function(sym::siege_toggle_area);
+        c.suppress_area = host.function(sym::suppress_toggle_area);
+        c.map_part = static_cast<std::uint32_t>(host.value(sym::province_map_area, "static_part"));
+        c.map_area = static_cast<std::uint32_t>(host.value(sym::province_map_area, "area"));
+    }
     if (host.present(sym::move_command) && host.present(sym::move_site)) {
         c.move = host.function(sym::move_command);
         c.move_size = static_cast<std::uint32_t>(host.value(sym::move_site, "size"));
@@ -2034,11 +2057,12 @@ void load_commands(anvil::Host& host) {
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 1, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 2, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, kCommandsService);
-    host.info("service {} v1 to v{}: drill {}, merge {}, split {}, event option {}, speed {}, explore {}, move {}",
+    host.info("service {} v1 to v{}: drill {}, merge {}, split {}, event option {}, speed {}, explore {}, move {}, areas {}",
               ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
               c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent",
               c.option_selected != nullptr ? "yes" : "absent", c.speed_up != nullptr ? "yes" : "absent",
-              c.explore != nullptr ? "yes" : "absent", c.move != nullptr ? "yes" : "absent");
+              c.explore != nullptr ? "yes" : "absent", c.move != nullptr ? "yes" : "absent",
+              c.siege_area != nullptr ? "yes" : "absent");
 }
 
 struct AnvilGame : anvil::Plugin {

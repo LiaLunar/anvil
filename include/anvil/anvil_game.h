@@ -852,6 +852,16 @@ typedef struct AnvilGameWorldService {
  * freed and counted as `refused`. An attack, a siege or a transport that a
  * right-click would choose for some provinces is not part of this type.
  *
+ * Siege and rebel suppression by area (version 3, anvil-game 1.22.0).
+ * ANVIL_GAME_COMMAND_SIEGE_AREA and ANVIL_GAME_COMMAND_SUPPRESS_AREA do what a
+ * click on a map area does in the siege and rebel-suppression map modes, for
+ * each army given: the map area of `province` is added to the army's
+ * autonomous siege (or rebel hunt), or taken out of it when it is in it
+ * already, a toggle as the click is. The game checks the area for the army
+ * first, as for the click, and posts the command with the army's new areas itself; an army the game
+ * says no for counts as `refused`, the others as `posted`. Armies only;
+ * `flags` 0; ANVIL_ERROR_NOT_FOUND for a province without a map area.
+ *
  * Within a version types and fields are only appended; check `size`. */
 
 /* AnvilGameCommand.type */
@@ -862,6 +872,8 @@ typedef struct AnvilGameWorldService {
 #define ANVIL_GAME_COMMAND_SPEED 5u /* version 3: the game speed, 1 .. 5, as the speed bar's buttons set it */
 #define ANVIL_GAME_COMMAND_EXPLORE 6u /* version 3: armies or fleets start or stop exploring (`explore`) */
 #define ANVIL_GAME_COMMAND_MOVE 7u /* version 3: armies or fleets move to `province`, as a right-click */
+#define ANVIL_GAME_COMMAND_SIEGE_AREA 8u    /* version 3: armies besiege `province`'s map area, or stop it */
+#define ANVIL_GAME_COMMAND_SUPPRESS_AREA 9u /* version 3: armies hunt rebels in `province`'s map area, or stop it */
 
 /* AnvilGameCommand.flags */
 #define ANVIL_GAME_COMMAND_START 0x1u /* DRILL: start; without it, stop */
@@ -887,7 +899,7 @@ typedef struct AnvilGameCommand {
     /* Version 3, read only for SPEED, EXPLORE and MOVE. */
     int32_t speed;                 /* the speed to reach, 1 (slowest) .. 5 (fastest) */
     int32_t explore;               /* EXPLORE: ANVIL_GAME_EXPLORE_* */
-    int32_t province;              /* MOVE: the province to go to */
+    int32_t province;              /* MOVE: the province to go to; SIEGE_AREA, SUPPRESS_AREA: one in the area */
 } AnvilGameCommand;
 
 typedef struct AnvilGameCommandResult {

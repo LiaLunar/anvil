@@ -321,6 +321,15 @@ AnvilResult read_province(const WorldLayout& l, std::int32_t id, AnvilGameProvin
     return ANVIL_OK;
 }
 
+AnvilResult read_province_area(const WorldLayout& l, std::int32_t id, std::uint32_t map_part, std::uint32_t area,
+                               std::uintptr_t& out) {
+    std::uintptr_t p = 0;
+    if (const AnvilResult r = province_at(l, id, p); r != ANVIL_OK) return r;
+    std::uintptr_t part = 0;
+    if (!read(p + map_part, part) || part == 0 || !read(part + area, out)) return ANVIL_ERROR_INTERNAL;
+    return out != 0 ? ANVIL_OK : ANVIL_ERROR_NOT_FOUND;
+}
+
 AnvilResult read_province_name(const WorldLayout& l, std::int32_t id, std::string& utf8) {
     std::uintptr_t p = 0, map_part = 0;
     if (const AnvilResult r = province_at(l, id, p); r != ANVIL_OK) return r;
