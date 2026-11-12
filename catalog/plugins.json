@@ -184,7 +184,7 @@
           "note": "Zip zawiera wtyczkę. Fonty Mei przychodzą z jej przedmiotem z Warsztatu Steam; na GOG to mei-fonts.zip w jej wydaniu, jako lokalny mod. Bez nich zostają fonty samej gry."
         }
       },
-      "version": "0.7.0",
+      "version": "0.7.1",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -193,9 +193,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.7.0/mei-windows-x64.zip",
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.7.1/mei-windows-x64.zip",
         "size": 1067455,
-        "sha256": "e9fd88c877f80e1a76d8dd39f476ecf499d05caeb89eed452d9f239ba2292c38"
+        "sha256": "cc53c205a8efffbbba0c1772c2d8a0d878d7b5e249c944bbbb08f7e22b15f25e"
       }
     }
   ]
