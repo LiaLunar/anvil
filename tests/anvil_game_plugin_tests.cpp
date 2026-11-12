@@ -592,6 +592,93 @@ struct FakeWorld {
         set(root, 0x1ED8 + 0x20, uint64_t{2});
     }
 
+    // Diplomacy (1.22.0, 1.37.5 on Steam): RUS and TUR are allied since
+    // 1700.1.1, RUS guarantees TUR, has military access to it and holds it as a
+    // vassal; TUR warns RUS until 1720.1.1. One relation object sits in both
+    // countries' lists, keyed by the other's index. RUS's status for TUR and the
+    // opinion caches (RUS of TUR -108, TUR of RUS -200) as in the Russia 1719 save.
+    alignas(8) uint8_t relation[5][0x48] = {};  // alliance, guarantee, access, dependency, warning
+    alignas(8) uint8_t vassal[0x30] = {};
+    alignas(8) uint8_t rus_entries[5][0x10] = {};
+    alignas(8) uint8_t tur_entries[5][0x10] = {};
+    alignas(8) uint8_t rus_statuses[3][0x48] = {};
+    alignas(8) uint8_t tur_statuses[2][0x48] = {};
+    alignas(8) uint8_t rival_node[0x38] = {};
+    uint64_t rus_subjects[1] = {game_tag("TUR", 1)};
+    int16_t rus_opinions[4] = {0, -108, 0, 0};  // the cache holds three
+    int16_t tur_opinions[4] = {-200, 0, 0, 0};  // and two
+
+    static void set_relation_entry(uint8_t* entry, int32_t index, uint8_t* object) {
+        set(entry, 0, index);
+        set(entry, 8, reinterpret_cast<uintptr_t>(object));
+    }
+    static void set_relations(uint8_t* country, uint32_t data, uint8_t* entries, int32_t count) {
+        set(country, 0x14F8 + data, reinterpret_cast<uintptr_t>(entries));
+        set(country, 0x14F8 + data + 0xC, count);
+    }
+    void install_diplomacy() {
+        set(tur, 0x1338, reinterpret_cast<uintptr_t>(owned + 1));
+        set(tur, 0x1344, 1);  // TUR owns a province now
+        const uint64_t first[5] = {game_tag("RUS", 0), game_tag("RUS", 0), game_tag("RUS", 0), game_tag("RUS", 0),
+                                   game_tag("TUR", 1)};
+        const uint64_t second[5] = {game_tag("TUR", 1), game_tag("TUR", 1), game_tag("TUR", 1), game_tag("TUR", 1),
+                                    game_tag("RUS", 0)};
+        for (int i = 0; i < 5; ++i) {
+            set(relation[i], 0x10, first[i]);
+            set(relation[i], 0x18, second[i]);
+            set(relation[i], 0x20, kUnsetHours);
+            set(relation[i], 0x24, kUnsetHours);
+            set_relation_entry(rus_entries[i], 1, relation[i]);
+            set_relation_entry(tur_entries[i], 0, relation[i]);
+        }
+        set(relation[0], 0x20, hours_of(1700, 1, 1));
+        set(relation[4], 0x24, hours_of(1720, 1, 1));
+        set_key(vassal + 0x10, "vassal");
+        set(relation[3], 0x40, reinterpret_cast<uintptr_t>(vassal));
+        set_relations(rus, 0x80, rus_entries[0], 1);   // alliance
+        set_relations(rus, 0x1A0, rus_entries[1], 1);  // guarantee
+        set_relations(rus, 0xB0, rus_entries[2], 1);   // military access: RUS is first
+        set_relations(rus, 0x128, rus_entries[3], 1);  // dependency
+        set_relations(rus, 0x1B8, rus_entries[4], 1);  // warning
+        set_relations(tur, 0x80, tur_entries[0], 1);
+        set_relations(tur, 0x1A0, tur_entries[1], 1);
+        set_relations(tur, 0xC8, tur_entries[2], 1);   // giving military access: TUR is second
+        set_relations(tur, 0x128, tur_entries[3], 1);
+        set_relations(tur, 0x1B8, tur_entries[4], 1);
+
+        const uint64_t rus_targets[3] = {game_tag("RUS", 0), game_tag("TUR", 1), game_tag("O00", 2, 7)};
+        for (int i = 0; i < 3; ++i) {
+            set(rus_statuses[i], 0, reinterpret_cast<uintptr_t>(rus + 0x14F8));
+            set(rus_statuses[i], 0x10, rus_targets[i]);
+            rus_statuses[i][0x1E] = 50;
+        }
+        set(rus_statuses[1], 0x1A, int16_t{-399});
+        rus_statuses[1][0x1E] = 99;
+        set(rus_statuses[1], 0x20, int32_t{37590});
+        rus_statuses[1][0x45] = 0x3;  // the truce bit and another
+        for (int i = 0; i < 2; ++i) {
+            set(tur_statuses[i], 0, reinterpret_cast<uintptr_t>(tur + 0x14F8));
+            set(tur_statuses[i], 0x10, rus_targets[i]);
+            tur_statuses[i][0x1E] = 50;
+            tur_statuses[i][0x45] = 0x2;  // not the truce bit
+        }
+        set(rus, 0x1510, reinterpret_cast<uintptr_t>(rus_statuses));
+        set(rus, 0x1518, reinterpret_cast<uintptr_t>(rus_statuses + 3));
+        set(tur, 0x1510, reinterpret_cast<uintptr_t>(tur_statuses));
+        set(tur, 0x1518, reinterpret_cast<uintptr_t>(tur_statuses + 2));
+        set(rus, 0x2380, reinterpret_cast<uintptr_t>(rus_opinions));
+        set(rus, 0x2388, reinterpret_cast<uintptr_t>(rus_opinions + 3));
+        set(tur, 0x2380, reinterpret_cast<uintptr_t>(tur_opinions));
+        set(tur, 0x2388, reinterpret_cast<uintptr_t>(tur_opinions + 2));
+
+        set(rival_node, 0x10, game_tag("TUR", 1));
+        set(rus, 0x2248, reinterpret_cast<uintptr_t>(rival_node));
+        set(tur, 0x18F0, game_tag("RUS", 0));
+        set(rus, 0x18F0, game_tag("---", 0, 0, 0));
+        set(rus, 0x1A18, reinterpret_cast<uintptr_t>(rus_subjects));
+        set(rus, 0x1A20, reinterpret_cast<uintptr_t>(rus_subjects + 1));
+    }
+
     template <class T>
     static void set(void* at, size_t offset, T value) {
         std::memcpy(static_cast<uint8_t*>(at) + offset, &value, sizeof(value));
@@ -1398,7 +1485,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 128);
+        CHECK(reason.empty() && verified.symbols.size() == 149);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -2453,6 +2540,141 @@ int main(int argc, char** argv) {
         CHECK(anvil_game::read_country_timed(l, "RUS", none) == ANVIL_ERROR_NOT_DECLARED &&
               anvil_game::read_province_timed(l, 1, none) == ANVIL_ERROR_NOT_DECLARED &&
               anvil_game::read_province_view(l, id) == ANVIL_ERROR_NOT_DECLARED);
+    });
+
+    run("anvil-game.world: diplomacy", [&] {
+        const auto* world = static_cast<const AnvilGameWorldService*>(
+            bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
+        CHECK(world != nullptr && ANVIL_GAME_WORLD_HAS(world, country_subjects) &&
+              world->size == sizeof(AnvilGameWorldService));
+        if (world == nullptr) return;
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        fake.install_diplomacy();
+        game.set_session(game.session);
+        frame(game.app, 1);
+        AnvilGameSession session{};
+        CHECK(service->session(&session) == 1);
+
+        AnvilGameRelation relations[4] = {};
+        uint32_t count = 99;
+        AnvilGameDiplomacyStatus status{};
+        status.size = sizeof(status);
+        CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_ALLIANCE, relations, 4, &count) ==
+                  ANVIL_ERROR_WRONG_PHASE &&
+              world->diplomacy_status("RUS", "TUR", &status) == ANVIL_ERROR_WRONG_PHASE);  // between frames
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            // One alliance, the same object from either side.
+            CHECK(world->country_relations("rus", ANVIL_GAME_RELATION_ALLIANCE, relations, 4, &count) == ANVIL_OK &&
+                  count == 1 && std::strcmp(relations[0].first.text, "RUS") == 0 &&
+                  std::strcmp(relations[0].second.text, "TUR") == 0 && relations[0].start.year == 1700 &&
+                  relations[0].start.month == 1 && relations[0].start.day == 1 &&
+                  relations[0].start.session == session.number && relations[0].start.size == sizeof(AnvilGameDate) &&
+                  relations[0].end.size == 0 && relations[0].end.year == 0);
+            CHECK(world->country_relations("TUR", ANVIL_GAME_RELATION_ALLIANCE, relations, 4, &count) == ANVIL_OK &&
+                  count == 1 && std::strcmp(relations[0].first.text, "RUS") == 0);
+            // Military access has a list per side.
+            CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_MILITARY_ACCESS, relations, 4, &count) ==
+                      ANVIL_OK &&
+                  count == 1 && std::strcmp(relations[0].first.text, "RUS") == 0);
+            CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS, relations, 4, &count) ==
+                      ANVIL_OK &&
+                  count == 0);
+            CHECK(world->country_relations("TUR", ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS, relations, 4, &count) ==
+                      ANVIL_OK &&
+                  count == 1 && std::strcmp(relations[0].second.text, "TUR") == 0);
+            CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_WARNING, relations, 4, &count) == ANVIL_OK &&
+                  count == 1 && std::strcmp(relations[0].first.text, "TUR") == 0 && relations[0].start.size == 0 &&
+                  relations[0].end.year == 1720 && relations[0].end.session == session.number);
+            CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_ROYAL_MARRIAGE, relations, 4, &count) ==
+                      ANVIL_OK &&
+                  count == 0);
+            CHECK(world->country_relations("RUS", ANVIL_GAME_RELATION_GUARANTEE, nullptr, 0, &count) == ANVIL_OK &&
+                  count == 1);
+            CHECK(world->country_relations("RUS", 8, relations, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_relations(nullptr, 0, relations, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_relations("RUS", 0, nullptr, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_relations("XXX", 0, relations, 4, &count) == ANVIL_ERROR_NOT_FOUND);
+            // A relation that names neither country is not one of its own.
+            FakeWorld::set(fake.relation[0], 0x18, game_tag("O00", 2, 7));
+            CHECK(world->country_relations("TUR", ANVIL_GAME_RELATION_ALLIANCE, relations, 4, &count) ==
+                  ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.relation[0], 0x18, game_tag("TUR", 1));
+
+            char text[16] = {};
+            uint32_t length = 0;
+            CHECK(world->subject_type("RUS", "tur", text, sizeof text, &length) == ANVIL_OK &&
+                  std::strcmp(text, "vassal") == 0 && length == 6);
+            CHECK(world->subject_type("RUS", "TUR", text, 4, &length) == ANVIL_OK && std::strcmp(text, "vas") == 0 &&
+                  length == 6);
+            CHECK(world->subject_type("TUR", "RUS", text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND &&
+                  world->subject_type("RUS", "XXX", text, sizeof text, &length) == ANVIL_ERROR_NOT_FOUND &&
+                  world->subject_type("RUS", nullptr, text, sizeof text, &length) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+            CHECK(world->diplomacy_status("RUS", "tur", &status) == ANVIL_OK && status.size == sizeof(status) &&
+                  status.opinion == -108 && status.timed_sum == -399 && status.trust == 99 && status.favors == 37590 &&
+                  status.flags == ANVIL_GAME_DIPLOMACY_TRUCE);
+            CHECK(world->diplomacy_status("TUR", "RUS", &status) == ANVIL_OK && status.opinion == -200 &&
+                  status.timed_sum == 0 && status.trust == 50 && status.favors == 0 && status.flags == 0);
+            CHECK(world->diplomacy_status("RUS", "RUS", &status) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->diplomacy_status("RUS", "O00", &status) == ANVIL_ERROR_NOT_FOUND &&  // owns no province
+                  world->diplomacy_status("O00", "RUS", &status) == ANVIL_ERROR_NOT_FOUND &&
+                  world->diplomacy_status("RUS", "XXX", &status) == ANVIL_ERROR_NOT_FOUND &&
+                  world->diplomacy_status("RUS", "TUR", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            // A struct as an older header knows it: nothing behind its size is written.
+            struct Older {
+                uint32_t size;
+                int32_t opinion;
+                uint32_t guard;
+            } older{offsetof(AnvilGameDiplomacyStatus, timed_sum), 0, 0xA5A5A5A5u};
+            CHECK(world->diplomacy_status("RUS", "TUR", reinterpret_cast<AnvilGameDiplomacyStatus*>(&older)) ==
+                      ANVIL_OK &&
+                  older.opinion == -108 && older.guard == 0xA5A5A5A5u);
+            // The cache does not reach TUR yet: no fallback, no read past its end.
+            FakeWorld::set(fake.rus, 0x2388, reinterpret_cast<uintptr_t>(fake.rus_opinions + 1));
+            CHECK(world->diplomacy_status("RUS", "TUR", &status) == ANVIL_ERROR_NOT_FOUND);
+            FakeWorld::set(fake.rus, 0x2388, reinterpret_cast<uintptr_t>(fake.rus_opinions + 3));
+            // A status that is not this country's.
+            FakeWorld::set(fake.rus_statuses[1], 0, reinterpret_cast<uintptr_t>(fake.tur + 0x14F8));
+            CHECK(world->diplomacy_status("RUS", "TUR", &status) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.rus_statuses[1], 0, reinterpret_cast<uintptr_t>(fake.rus + 0x14F8));
+            FakeWorld::set(fake.rus_statuses[1], 0x10, game_tag("O00", 2, 7));
+            CHECK(world->diplomacy_status("RUS", "TUR", &status) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.rus_statuses[1], 0x10, game_tag("TUR", 1));
+
+            AnvilGameTag tags[4] = {};
+            CHECK(world->country_rivals("RUS", tags, 4, &count) == ANVIL_OK && count == 1 &&
+                  std::strcmp(tags[0].text, "TUR") == 0);
+            CHECK(world->country_rivals("TUR", nullptr, 0, &count) == ANVIL_OK && count == 0);
+            FakeWorld::set(fake.rival_node, 0x28, reinterpret_cast<uintptr_t>(fake.rival_node));  // a loop
+            CHECK(world->country_rivals("RUS", tags, 4, &count) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.rival_node, 0x28, uintptr_t{0});
+            AnvilGameTag overlord{};
+            CHECK(world->country_overlord("TUR", &overlord) == ANVIL_OK && std::strcmp(overlord.text, "RUS") == 0);
+            CHECK(world->country_overlord("RUS", &overlord) == ANVIL_ERROR_NOT_FOUND &&
+                  world->country_overlord("RUS", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            CHECK(world->country_subjects("RUS", tags, 4, &count) == ANVIL_OK && count == 1 &&
+                  std::strcmp(tags[0].text, "TUR") == 0);
+            CHECK(world->country_subjects("TUR", tags, 4, &count) == ANVIL_OK && count == 0);
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        g_in_frame_handler = nullptr;
+
+        anvil_game::WorldLayout l;
+        std::vector<anvil_game::RelationEntry> none;
+        std::vector<AnvilGameTag> no_tags;
+        AnvilGameTag tag{};
+        std::string text;
+        AnvilGameDiplomacyStatus nothing{};
+        CHECK(anvil_game::read_relations(l, "RUS", 0, none) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_subject_type(l, "RUS", "TUR", text) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_diplomacy_status(l, "RUS", "TUR", nothing) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_rivals(l, "RUS", no_tags) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_overlord(l, "RUS", tag) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_subjects(l, "RUS", no_tags) == ANVIL_ERROR_NOT_DECLARED);
     });
 
     run("anvil-game: the campaign's events after outer frames", [&] {

@@ -1730,3 +1730,247 @@ note = "a button's hide: a widget's visible byte at +0xC5"
 build."eu4-1.37.5-steam-win64" = { rva = 0x15AEAD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A55F0 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x15A55F0 }
+
+# --- diplomacy (anvil-game.world, 1.22.0) ----------------------------------------
+# lab#153: every site unique in .text of all three builds, the same bytes in GOG 1.37.5.0 (lab
+# docs/anvil-world-families-3-5.md, scripts/analysis/world-families/verify_sites.py).
+
+[symbol.opinion_cache]
+# mov rdx,[rcx+2380h]; mov rcx,[rcx+2388h]; movsx eax,word [rsp+4Ch]; sub rcx,rdx; sar rcx,1; cmp eax,ecx;
+# jge (calculate); movzx eax,word [rdx+rax*2]
+bytes = "48 8B 91 80 23 00 00 48 8B 89 88 23 00 00 0F BF 44 24 4C 48 2B CA 48 D1 F9 3B C1 7D 0B 0F B7 04 42"
+memory = "code"
+values.cache = { at = 3, size = 4 }
+values.cache_end = { at = 10, size = 4 }
+note = "CCountry::GetOpinionValue without a description: _OpinionCache (+0x2380, a vector of int16) at the target's index when it is below the size; above it the game calculates"
+build."eu4-1.37.5-steam-win64" = { rva = 0x383971 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x383841 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x383841 }
+
+[symbol.country_diplomacy]
+# mov rdx,[r12]; lea rcx,[r15+14F8h]; call (rel32 kept: without it five relations of CDeclareWarAction match)
+bytes = "49 8B 14 24 49 8D 8F F8 14 00 00 E8 81 30 FE FF"
+memory = "code"
+values.diplomacy = { at = 7, size = 4 }
+note = "CDeclareWarAction::ExecuteDerived: CCountry::_Diplomacy, a CCountryDiplomacy embedded at +0x14F8"
+build."eu4-1.37.5-steam-win64" = { rva = 0x501BAF }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x501A7F }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x501A7F }
+
+[symbol.diplomacy_statuses]
+# mov rax,[rdi+10h]; mov r9,[rdi+18h]; shr rax,20h; movsx rdx,ax; mov rax,[CCountryDataBase]; mov rcx,[rax+118h];
+# mov r8,[rcx+rdx*8]; shr r9,20h; movsx eax,r9w; lea rdx,[rax+rax*8]; mov rax,[r8+1510h]; lea rcx,[rax+rdx*8]
+bytes = "48 8B 47 10 4C 8B 4F 18 48 C1 E8 20 48 0F BF D0 48 8B 05 ?? ?? ?? ?? 48 8B 88 18 01 00 00 4C 8B 04 D1 49 C1 E9 20 41 0F BF C1 48 8D 14 C0 49 8B 80 10 15 00 00 48 8D 0C D0"
+memory = "code"
+values.first = { at = 3, size = 1 }
+values.second = { at = 7, size = 1 }
+values.countries = { at = 26, size = 4 }
+values.statuses = { at = 49, size = 4 }
+note = "CAlliance::Link: a relation's _First (+0x10) and _Second (+0x18); each country's _Statuses (+0x1510, 0x48 bytes per country, by the other's index) leads to the containers"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA5D206 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA5C1C6 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA5C1C6 }
+
+[symbol.relation_start]
+# cmp dword [rsi+20h],29C77F8h; lea rcx,[rsi+20h]; je; call
+bytes = "81 7E 20 F8 77 9C 02 48 8D 4E 20 74 22 E8 ?? ?? ?? ??"
+memory = "code"
+values.start = { at = 2, size = 1 }
+values.unset = { at = 3, size = 4 }
+note = "CRelation::WriteMembers: _StartDate (+0x20), written unless unset"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA5C141 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA5B101 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA5B101 }
+
+[symbol.relation_end]
+# cmp dword [rsi+24h],29C77F8h; lea rcx,[rsi+24h]
+bytes = "81 7E 24 F8 77 9C 02 48 8D 4E 24"
+memory = "code"
+values.end = { at = 2, size = 1 }
+values.unset = { at = 3, size = 4 }
+note = "CRelation::WriteMembers: _EndDate (+0x24); 43808760 (1.1.1) is the unset date"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA5C096 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA5B056 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA5B056 }
+
+[symbol.status_cached_sum]
+# movsx ebx,word [r14+1Ah]; test bx,bx; je; mov edx,2E59h
+bytes = "41 0F BF 5E 1A 66 85 DB 74 45 BA 59 2E 00 00"
+memory = "code"
+values.cached_sum = { at = 4, size = 1 }
+note = "CDiplomacyStatus::DoWriteMembers: _nCachedSum (+0x1A, int16), written when not 0"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA669EC }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA659AC }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA659AC }
+
+[symbol.status_trust]
+# movzx ebx,byte [r14+1Eh]; cmp bl,32h; je; mov edx,32D5h
+bytes = "41 0F B6 5E 1E 80 FB 32 74 45 BA D5 32 00 00"
+memory = "code"
+values.trust = { at = 4, size = 1 }
+values.default_trust = { at = 7, size = 1 }
+note = "CDiplomacyStatus::DoWriteMembers: _nTrust (+0x1E, a byte), written when not 50"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA66A3B }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA659FB }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA659FB }
+
+[symbol.status_favors]
+# mov ebx,[r14+20h]; test ebx,ebx; je; mov edx,32C9h
+bytes = "41 8B 5E 20 85 DB 74 2A BA C9 32 00 00"
+memory = "code"
+values.favors = { at = 3, size = 1 }
+note = "CDiplomacyStatus::DoWriteMembers: _vFavors (+0x20, fixed point x 1000), written when not 0"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA66A8A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA65A4A }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA65A4A }
+
+[symbol.status_truce]
+# movzx eax,byte [r14+45h]; test al,1; je; mov edx,328Ch
+bytes = "41 0F B6 46 45 A8 01 74 4C BA 8C 32 00 00"
+memory = "code"
+values.truce = { at = 4, size = 1 }
+values.bit = { at = 6, size = 1 }
+note = "CDiplomacyStatus::DoWriteMembers: _bTruce, bit 0 of +0x45"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA66D35 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA65CF5 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA65CF5 }
+
+[symbol.relations_alliance]
+# movsxd r8,[rcx+size]; shr rdx,20h; shl r8,4; movsx eax,dx; mov rdx,[rcx+data]; add r8,rdx
+bytes = "4C 63 81 8C 00 00 00 48 C1 EA 20 49 C1 E0 04 0F BF C2 48 8B 91 80 00 00 00 4C 03 C2"
+memory = "code"
+values.size = { at = 3, size = 4 }
+values.entry_shift = { at = 14, size = 1 }
+values.data = { at = 21, size = 4 }
+note = "CCountryDiplomacy::GetAlliance: _Alliances, a CPdxArray of pair<int, T*> (16 bytes): data, then the int32 count"
+build."eu4-1.37.5-steam-win64" = { rva = 0x4E4BC0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x4E4A90 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x4E4A90 }
+
+[symbol.relations_guarantee]
+# movsxd r8,[rcx+size]; shr rdx,20h; shl r8,4; movsx eax,dx; mov rdx,[rcx+data]; add r8,rdx
+bytes = "4C 63 81 AC 01 00 00 48 C1 EA 20 49 C1 E0 04 0F BF C2 48 8B 91 A0 01 00 00 4C 03 C2"
+memory = "code"
+values.size = { at = 3, size = 4 }
+values.entry_shift = { at = 14, size = 1 }
+values.data = { at = 21, size = 4 }
+note = "CCountryDiplomacy::GetGuarantee: _Guarantees, a CPdxArray of pair<int, T*> (16 bytes): data, then the int32 count"
+build."eu4-1.37.5-steam-win64" = { rva = 0x4E4C40 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x4E4B10 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x4E4B10 }
+
+[symbol.relations_subsidies]
+# movsxd r8,[rcx+size]; shr rdx,20h; shl r8,4; movsx eax,dx; mov rdx,[rcx+data]; add r8,rdx
+bytes = "4C 63 81 1C 01 00 00 48 C1 EA 20 49 C1 E0 04 0F BF C2 48 8B 91 10 01 00 00 4C 03 C2"
+memory = "code"
+values.size = { at = 3, size = 4 }
+values.entry_shift = { at = 14, size = 1 }
+values.data = { at = 21, size = 4 }
+note = "CCountryDiplomacy::GetSubsidies: _Subsidies, a CPdxArray of pair<int, T*> (16 bytes): data, then the int32 count"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2C5B40 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x2C5AF0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x2C5AF0 }
+
+[symbol.relations_dependency]
+# movsxd r8,[rcx+size]; shr rdx,20h; shl r8,4; movsx eax,dx; mov rdx,[rcx+data]; add r8,rdx
+bytes = "4C 63 81 34 01 00 00 48 C1 EA 20 49 C1 E0 04 0F BF C2 48 8B 91 28 01 00 00 4C 03 C2"
+memory = "code"
+values.size = { at = 3, size = 4 }
+values.entry_shift = { at = 14, size = 1 }
+values.data = { at = 21, size = 4 }
+note = "CCountryDiplomacy::GetDependency: _Dependencies, a CPdxArray of pair<int, T*> (16 bytes): data, then the int32 count"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2C5B80 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x2C5B30 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x2C5B30 }
+
+[symbol.relations_warning]
+# movsxd r8,[rcx+size]; shr rdx,20h; shl r8,4; movsx eax,dx; mov rdx,[rcx+data]; add r8,rdx
+bytes = "4C 63 81 C4 01 00 00 48 C1 EA 20 49 C1 E0 04 0F BF C2 48 8B 91 B8 01 00 00 4C 03 C2"
+memory = "code"
+values.size = { at = 3, size = 4 }
+values.entry_shift = { at = 14, size = 1 }
+values.data = { at = 21, size = 4 }
+note = "CCountryDiplomacy::GetWarning: _Warnings, a CPdxArray of pair<int, T*> (16 bytes): data, then the int32 count"
+build."eu4-1.37.5-steam-win64" = { rva = 0x4E4C80 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x4E4B50 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x4E4B50 }
+
+[symbol.relations_marriage]
+# mov r8,[rcx+68h]; movsxd rcx,[rcx+74h]; shl rcx,4; shr rdx,20h; add rcx,r8; movsx eax,dx
+bytes = "4C 8B 41 68 48 63 49 74 48 C1 E1 04 48 C1 EA 20 49 03 C8 0F BF C2"
+memory = "code"
+values.data = { at = 3, size = 1 }
+values.size = { at = 7, size = 1 }
+values.entry_shift = { at = 11, size = 1 }
+note = "CCountryDiplomacy::HasMarriage: _RoyalMarriages, a CPdxArray of 16-byte entries"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2C5A80 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x2C5A30 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x2C5A30 }
+
+[symbol.relations_military_access]
+# mov r8,[rcx+0B0h]; movsxd rcx,[rcx+0BCh]; shl rcx,4; shr rdx,20h; add rcx,r8; movsx eax,dx
+bytes = "4C 8B 81 B0 00 00 00 48 63 89 BC 00 00 00 48 C1 E1 04 48 C1 EA 20 49 03 C8 0F BF C2"
+memory = "code"
+values.data = { at = 3, size = 4 }
+values.size = { at = 10, size = 4 }
+values.entry_shift = { at = 17, size = 1 }
+note = "CCountryDiplomacy::HasMilitaryAccess: _MilitaryAccess, the relations in which the country is _First (it has access)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x289A50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x289A00 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x289A00 }
+
+[symbol.relations_giving_military_access]
+# mov rdx,[rcx]; mov rax,[rcx+10h]; shr rax,20h; cwde; mov rcx,[rdx+0C8h]; movsxd r8,[rdx+0D4h]
+bytes = "48 8B 11 48 8B 41 10 48 C1 E8 20 98 48 8B 8A C8 00 00 00 4C 63 82 D4 00 00 00"
+memory = "code"
+values.target = { at = 6, size = 1 }
+values.data = { at = 15, size = 4 }
+values.size = { at = 22, size = 4 }
+note = "CDiplomacyStatus::GetGivingMilitaryAccess: the status's parent (+0) and the other country (+0x10); _GivingMilitaryAccess, the relations in which the country is _Second"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA69160 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA68120 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA68120 }
+
+[symbol.subject_type]
+# mov rdi,[rbx+40h]; test rdi,rdi; je; add rdi,10h; mov edx,352Ah
+bytes = "48 8B 7B 40 48 85 FF 74 2C 48 83 C7 10 BA 2A 35 00 00"
+memory = "code"
+values.type = { at = 3, size = 1 }
+values.key = { at = 12, size = 1 }
+note = "CDependency::WriteMembers: _pSubjectType (+0x40), whose script key is at +0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0xA62B6C }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xA61B2C }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xA61B2C }
+
+[symbol.country_rivals]
+# mov rax,[rcx+2248h]; test rax,rax; je; shr rdx,20h; mov rcx,[rax+10h]; shr rcx,20h; cmp cx,dx; je;
+# mov rax,[rax+28h]; test rax,rax; jne; xor al,al; ret; mov al,1; ret
+bytes = "48 8B 81 48 22 00 00 48 85 C0 74 1A 48 C1 EA 20 48 8B 48 10 48 C1 E9 20 66 3B CA 74 0C 48 8B 40 28 48 85 C0 75 EA 32 C0 C3 B0 01 C3"
+memory = "code"
+values.rivals = { at = 3, size = 4 }
+values.tag = { at = 19, size = 1 }
+values.next = { at = 32, size = 1 }
+note = "CCountry::IsRival: _Rivals (+0x2248), a list: the rival's tag at +0x10, the next node at +0x28; no node is skipped"
+build."eu4-1.37.5-steam-win64" = { rva = 0x3D2D00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x3D2BD0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x3D2BD0 }
+
+[symbol.country_overlord]
+# mov rax,[rcx+18F0h]; mov [rdx],rax; mov rax,rdx; ret
+bytes = "48 8B 81 F0 18 00 00 48 89 02 48 8B C2 C3"
+memory = "code"
+values.overlord = { at = 3, size = 4 }
+note = "CCountry::GetOverlord: _OverLord (+0x18F0), a tag"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9A3B0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9A3E0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9A3E0 }
+
+[symbol.country_subjects]
+# lea rax,[rcx+1A18h]; ret
+bytes = "48 8D 81 18 1A 00 00 C3"
+memory = "code"
+values.subjects = { at = 3, size = 4 }
+note = "CCountry::GetSubjects: _Subjects (+0x1A18), a vector of tags (begin, end)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x363860 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x363730 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x363730 }

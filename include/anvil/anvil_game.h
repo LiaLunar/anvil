@@ -465,6 +465,48 @@ typedef struct AnvilGameTimedModifier {
     AnvilGameDate end;   /* when it ends: the date its save entry has */
 } AnvilGameTimedModifier;
 
+/* --- Since anvil-game 1.22.0: diplomacy ------------------------------------- */
+
+/* The `kind` of country_relations: the game's lists of relations. A relation of
+ * two countries is one object in both their lists, so a symmetric one (an
+ * alliance, a royal marriage) shows up from either side with the same `first`
+ * and `second`. Who did what comes from `first` and `second`, as the game's
+ * save writes them, never from whose list it is; military access alone has a
+ * list per side. */
+#define ANVIL_GAME_RELATION_ALLIANCE 0u
+#define ANVIL_GAME_RELATION_ROYAL_MARRIAGE 1u
+#define ANVIL_GAME_RELATION_GUARANTEE 2u              /* first guarantees second */
+#define ANVIL_GAME_RELATION_MILITARY_ACCESS 3u        /* the country is first: it has access to second's land */
+#define ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS 4u /* the country is second: it gives first access */
+#define ANVIL_GAME_RELATION_SUBSIDIES 5u              /* first pays second */
+#define ANVIL_GAME_RELATION_DEPENDENCY 6u             /* first is the overlord, second the subject */
+#define ANVIL_GAME_RELATION_WARNING 7u                /* first warns second */
+
+/* One relation. It comes in arrays and has no `size`, so it never grows within
+ * version 1. */
+typedef struct AnvilGameRelation {
+    AnvilGameTag first;
+    AnvilGameTag second;
+    AnvilGameDate start; /* when it began; its `session` is the current one; all 0 when the game keeps none */
+    AnvilGameDate end;   /* when it ends, as the game keeps it, even when past; all 0 when it has none, as most */
+} AnvilGameRelation;
+
+/* AnvilGameDiplomacyStatus.flags */
+#define ANVIL_GAME_DIPLOMACY_TRUCE 0x1u /* the two have a truce; the game works out its end, so no date */
+
+/* What one country keeps about another: the values its save writes under
+ * `active_relations`, and its opinion from the game's cache. */
+typedef struct AnvilGameDiplomacyStatus {
+    uint32_t size;
+    int32_t opinion;   /* from's opinion of to, whole points: the number of the diplomacy window, as the
+                        * game's cache holds it (see diplomacy_status) */
+    int32_t timed_sum; /* the sum of from's timed opinion modifiers toward to, whole points, kept by the game
+                        * and not clamped: it is not the opinion (-399 where the opinion is -200) */
+    uint32_t trust;    /* 0..100; 50 until something changes it */
+    int32_t favors;    /* x 1000 */
+    uint32_t flags;    /* ANVIL_GAME_DIPLOMACY_* */
+} AnvilGameDiplomacyStatus;
+
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
 
@@ -652,6 +694,36 @@ typedef struct AnvilGameWorldService {
      * reads the window's own state, so it follows every way the view opens: a
      * click on the map, the outliner, a link or a plugin. */
     AnvilResult (*province_view)(int32_t *province);
+    /* Since anvil-game 1.22.0, for the six calls below: diplomacy.
+     * ANVIL_ERROR_NOT_DECLARED for all six when a port declared the diplomacy
+     * symbols absent. Like the rest of the service they show every country's
+     * relations, also in multiplayer, where trust, favors and the opinions of
+     * others are more than the player sees.
+     *
+     * A country's relations of one `kind` (ANVIL_GAME_RELATION_*), in the
+     * game's order. ANVIL_ERROR_INVALID_ARGUMENT for another kind. */
+    AnvilResult (*country_relations)(const char *tag, uint32_t kind, AnvilGameRelation *out, uint32_t capacity,
+                                     uint32_t *count);
+    /* The subject type of `subject` under `overlord`, its key as the game's
+     * files write it ("vassal", "march", "crown_colony"), in UTF-8 with a NUL.
+     * ANVIL_ERROR_NOT_FOUND when `subject` is not `overlord`'s subject. */
+    AnvilResult (*subject_type)(const char *overlord, const char *subject, char *utf8, uint32_t capacity,
+                                uint32_t *length);
+    /* What `from` keeps about `to`. The opinion is the game's cache, not one
+     * worked out now: the game refreshes a human's row at least monthly and an
+     * AI's at least yearly, and its tooltip works the number out again, so the
+     * window can show another number for a moment after a change. The service
+     * calls no game code for it. ANVIL_ERROR_NOT_FOUND for a `from` or `to`
+     * that owns no province now (the game keeps stale rows for those), and when
+     * the cache has no entry for `to` yet (a country released since, before the
+     * next refresh); ANVIL_ERROR_INVALID_ARGUMENT for the same country twice. */
+    AnvilResult (*diplomacy_status)(const char *from, const char *to, AnvilGameDiplomacyStatus *out);
+    /* The countries `tag` has chosen as rivals, in the game's order. */
+    AnvilResult (*country_rivals)(const char *tag, AnvilGameTag *out, uint32_t capacity, uint32_t *count);
+    /* ANVIL_ERROR_NOT_FOUND also for a country without an overlord. */
+    AnvilResult (*country_overlord)(const char *tag, AnvilGameTag *out);
+    /* Its direct subjects, in the game's order; their subjects are their own. */
+    AnvilResult (*country_subjects)(const char *tag, AnvilGameTag *out, uint32_t capacity, uint32_t *count);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

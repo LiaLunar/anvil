@@ -1145,4 +1145,204 @@ AnvilResult read_province_view(const WorldLayout& l, std::int32_t& province) {
     return ANVIL_OK;
 }
 
+// ---- diplomacy (1.22.0) -------------------------------------------------------------
+
+namespace {
+
+constexpr std::int32_t kMaxRelations = 4096;  // a longer list of one kind is taken as garbage
+constexpr std::size_t kMaxRivals = 64;        // likewise the rivals (the game allows three)
+constexpr std::size_t kMaxSubjects = 4096;    // likewise the subjects
+constexpr std::size_t kMaxCountries = 65536;  // likewise a vector by country index
+
+// The country index a tag carries, which the game's diplomacy keys on.
+std::int16_t index_of(const WorldLayout& l, std::uint64_t tag) { return static_cast<std::int16_t>(tag >> l.country_index_shift); }
+
+// A country that owns a province now; NOT_FOUND for one without, whose
+// diplomacy the game no longer keeps up.
+AnvilResult living_country(const WorldLayout& l, std::string_view tag, std::uintptr_t& country, std::uint64_t& own) {
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    std::int32_t owned = 0;
+    if (!read(country + l.owned_count, owned) || owned < 0) return ANVIL_ERROR_INTERNAL;
+    return owned > 0 ? ANVIL_OK : ANVIL_ERROR_NOT_FOUND;
+}
+
+// The relation objects of one kind, each checked to name the country.
+AnvilResult relation_objects(const WorldLayout& l, std::uintptr_t country, std::uint64_t own, std::uint32_t kind,
+                             std::vector<std::uintptr_t>& out) {
+    const std::uintptr_t diplomacy = country + l.diplomacy;
+    std::uintptr_t data = 0;
+    std::int32_t count = 0;
+    if (!read(diplomacy + l.relations[kind], data) || !read(diplomacy + l.relation_counts[kind], count) || count < 0 ||
+        count > kMaxRelations || (count > 0 && data == 0)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.clear();
+    out.reserve(static_cast<std::size_t>(count));
+    const std::int16_t self = index_of(l, own);
+    for (std::int32_t i = 0; i < count; ++i) {
+        std::uintptr_t relation = 0;
+        std::uint64_t first = 0, second = 0;
+        if (!read(data + static_cast<std::uintptr_t>(i) * 16 + 8, relation) || relation == 0 ||
+            !read(relation + l.relation_first, first) || !read(relation + l.relation_second, second) ||
+            (index_of(l, first) != self && index_of(l, second) != self)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        out.push_back(relation);
+    }
+    return ANVIL_OK;
+}
+
+bool read_tag_vector(const WorldLayout& l, std::uintptr_t at, std::vector<AnvilGameTag>& out) {
+    std::uintptr_t begin = 0, end = 0;
+    if (!read(at, begin) || !read(at + 8, end) || end < begin || (end - begin) % 8 != 0 || (end - begin) / 8 > kMaxSubjects) {
+        return false;
+    }
+    out.clear();
+    for (std::uintptr_t p = begin; p < end; p += 8) {
+        std::uint64_t tag = 0;
+        if (!read(p, tag)) return false;
+        out.push_back(tag_text(tag, l));
+    }
+    return true;
+}
+
+}  // namespace
+
+AnvilResult read_relations(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::vector<RelationEntry>& out) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    std::vector<std::uintptr_t> objects;
+    if (const AnvilResult r = relation_objects(l, country, own, kind, objects); r != ANVIL_OK) return r;
+    out.clear();
+    out.reserve(objects.size());
+    for (const std::uintptr_t relation : objects) {
+        std::uint64_t first = 0, second = 0;
+        RelationEntry e;
+        if (!read(relation + l.relation_first, first) || !read(relation + l.relation_second, second) ||
+            !read(relation + l.relation_start, e.start) || !read(relation + l.relation_end, e.end)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        e.first = tag_text(first, l);
+        e.second = tag_text(second, l);
+        e.has_start = e.start != l.relation_unset;
+        e.has_end = e.end != l.relation_unset;
+        out.push_back(e);
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_subject_type(const WorldLayout& l, std::string_view overlord, std::string_view subject, std::string& utf8) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0, other = 0;
+    std::uint64_t own = 0, wanted = 0;
+    if (const AnvilResult r = country_at(l, overlord, country, own); r != ANVIL_OK) return r;
+    if (const AnvilResult r = country_at(l, subject, other, wanted); r != ANVIL_OK) return r;
+    std::vector<std::uintptr_t> objects;
+    if (const AnvilResult r = relation_objects(l, country, own, ANVIL_GAME_RELATION_DEPENDENCY, objects); r != ANVIL_OK) {
+        return r;
+    }
+    for (const std::uintptr_t relation : objects) {
+        std::uint64_t first = 0, second = 0;
+        if (!read(relation + l.relation_first, first) || !read(relation + l.relation_second, second)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        if (index_of(l, first) != index_of(l, own) || index_of(l, second) != index_of(l, wanted)) continue;
+        std::uintptr_t type = 0;
+        std::string key;
+        if (!read(relation + l.subject_type, type) || type == 0 || !read_string(type + l.subject_type_key, key)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        utf8 = game_text_to_utf8(key);
+        return ANVIL_OK;
+    }
+    return ANVIL_ERROR_NOT_FOUND;
+}
+
+AnvilResult read_diplomacy_status(const WorldLayout& l, std::string_view from, std::string_view to,
+                                  AnvilGameDiplomacyStatus& out) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0, other = 0;
+    std::uint64_t own = 0, target = 0;
+    if (const AnvilResult r = living_country(l, from, country, own); r != ANVIL_OK) return r;
+    if (const AnvilResult r = living_country(l, to, other, target); r != ANVIL_OK) return r;
+    const std::int16_t index = index_of(l, target);
+    if (index == index_of(l, own)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (index < 0) return ANVIL_ERROR_INTERNAL;
+    const auto at = static_cast<std::uintptr_t>(index);
+
+    // The opinion: GetOpinionValue reads the cache below its size and works the
+    // value out above it. The service never does the latter.
+    std::uintptr_t cache = 0, cache_end = 0;
+    if (!read(country + l.opinion_cache, cache) || !read(country + l.opinion_cache_end, cache_end) || cache_end < cache ||
+        (cache_end - cache) % 2 != 0 || (cache_end - cache) / 2 > kMaxCountries) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    if (at >= (cache_end - cache) / 2) return ANVIL_ERROR_NOT_FOUND;
+    std::int16_t opinion = 0;
+    if (!read(cache + at * 2, opinion)) return ANVIL_ERROR_INTERNAL;
+
+    std::uintptr_t statuses = 0, statuses_end = 0;
+    if (!read(country + l.statuses, statuses) || !read(country + l.statuses + 8, statuses_end) || statuses_end < statuses ||
+        (statuses_end - statuses) % l.status_size != 0 || (statuses_end - statuses) / l.status_size > kMaxCountries) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    if (at >= (statuses_end - statuses) / l.status_size) return ANVIL_ERROR_NOT_FOUND;
+    const std::uintptr_t status = statuses + at * l.status_size;
+    std::uintptr_t parent = 0;
+    std::uint64_t whom = 0;
+    std::int16_t cached_sum = 0;
+    std::uint8_t trust = 0, truce = 0;
+    std::int32_t favors = 0;
+    if (!read(status, parent) || parent != country + l.diplomacy || !read(status + l.status_target, whom) ||
+        index_of(l, whom) != index || !read(status + l.status_cached_sum, cached_sum) ||
+        !read(status + l.status_trust, trust) || !read(status + l.status_favors, favors) ||
+        !read(status + l.status_truce, truce)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.opinion = opinion;
+    out.timed_sum = cached_sum;
+    out.trust = trust;
+    out.favors = favors;
+    out.flags = (truce & l.truce_bit) != 0 ? ANVIL_GAME_DIPLOMACY_TRUCE : 0u;
+    return ANVIL_OK;
+}
+
+AnvilResult read_rivals(const WorldLayout& l, std::string_view tag, std::vector<AnvilGameTag>& out) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0, node = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    if (!read(country + l.rivals, node)) return ANVIL_ERROR_INTERNAL;
+    out.clear();
+    // Like IsRival, every node counts, whatever its deleted flag says.
+    while (node != 0) {
+        std::uint64_t rival = 0;
+        if (out.size() >= kMaxRivals || !read(node + l.rival_tag, rival) || !read(node + l.rival_next, node)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        out.push_back(tag_text(rival, l));
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_overlord(const WorldLayout& l, std::string_view tag, AnvilGameTag& out) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0, overlord = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    if (!read(country + l.overlord, overlord)) return ANVIL_ERROR_INTERNAL;
+    out = tag_text(overlord, l);
+    return out.text[0] != '\0' ? ANVIL_OK : ANVIL_ERROR_NOT_FOUND;
+}
+
+AnvilResult read_subjects(const WorldLayout& l, std::string_view tag, std::vector<AnvilGameTag>& out) {
+    if (l.diplomacy == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    return read_tag_vector(l, country + l.subjects, out) ? ANVIL_OK : ANVIL_ERROR_INTERNAL;
+}
+
 }  // namespace anvil_game

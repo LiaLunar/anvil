@@ -761,6 +761,81 @@ unsafe extern "C" fn world_province_view(province: *mut i32) -> AnvilResult {
     ANVIL_OK
 }
 
+// RUS's alliance with TUR since 1700.1.1, without an end date.
+unsafe extern "C" fn world_country_relations(
+    tag: *const c_char,
+    kind: u32,
+    out: *mut AnvilGameRelation,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    if text(tag) != "RUS" {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    unsafe {
+        *count = u32::from(kind == ANVIL_GAME_RELATION_ALLIANCE);
+        if kind == ANVIL_GAME_RELATION_ALLIANCE && capacity >= 1 {
+            let mut r: AnvilGameRelation = std::mem::zeroed();
+            r.first = Tag::new("RUS").unwrap().to_raw();
+            r.second = Tag::new("TUR").unwrap().to_raw();
+            r.start.size = std::mem::size_of::<AnvilGameDate>() as u32;
+            r.start.year = 1700;
+            r.start.month = 1;
+            r.start.day = 1;
+            *out = r;
+        }
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_diplomacy_status(
+    from: *const c_char,
+    to: *const c_char,
+    out: *mut AnvilGameDiplomacyStatus,
+) -> AnvilResult {
+    if text(from) == text(to) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    unsafe {
+        assert_eq!(
+            (*out).size,
+            std::mem::size_of::<AnvilGameDiplomacyStatus>() as u32
+        );
+        (*out).opinion = -108;
+        (*out).timed_sum = -399;
+        (*out).trust = 99;
+        (*out).favors = 37590;
+        (*out).flags = ANVIL_GAME_DIPLOMACY_TRUCE;
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_country_overlord(
+    tag: *const c_char,
+    out: *mut AnvilGameTag,
+) -> AnvilResult {
+    if text(tag) != "TUR" {
+        return ANVIL_ERROR_NOT_FOUND;
+    }
+    unsafe { *out = Tag::new("RUS").unwrap().to_raw() };
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_country_subjects(
+    _tag: *const c_char,
+    out: *mut AnvilGameTag,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    unsafe {
+        *count = 1;
+        if capacity >= 1 {
+            *out = Tag::new("TUR").unwrap().to_raw();
+        }
+    }
+    ANVIL_OK
+}
+
 static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
     let mut table: AnvilGameWorldService = unsafe { std::mem::zeroed() };
     table.size = std::mem::size_of::<AnvilGameWorldService>() as u32;
@@ -774,6 +849,10 @@ static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
     table.country_timed_modifiers = Some(world_country_timed_modifiers);
     table.country_timed_modifier_keys = Some(world_country_timed_modifier_keys);
     table.province_view = Some(world_province_view);
+    table.country_relations = Some(world_country_relations);
+    table.diplomacy_status = Some(world_diplomacy_status);
+    table.country_overlord = Some(world_country_overlord);
+    table.country_subjects = Some(world_country_subjects);
     table
 });
 
@@ -1105,6 +1184,68 @@ fn world_reads_rulers_flags_and_variable_names() {
     );
     // Set in the table's size but not filled in: Unsupported, like an older anvil-game.
     assert_eq!(w.flag_id("x").unwrap_err().code(), ErrorCode::Unsupported);
+    FULL_WORLD.store(false, Ordering::Relaxed);
+}
+
+#[test]
+fn world_reads_diplomacy() {
+    let (_guard, table) = fake_host();
+    FULL_WORLD.store(true, Ordering::Relaxed);
+    assert_eq!(load::<Quiet>(table), ANVIL_OK);
+    let host = Host::current().unwrap();
+    let w = world::World::get(&host).unwrap();
+    let rus = Tag::new("RUS").unwrap();
+    let tur = Tag::new("TUR").unwrap();
+    let alliances = w
+        .country_relations(rus, world::RelationKind::Alliance)
+        .unwrap();
+    assert_eq!(alliances.len(), 1);
+    assert_eq!(
+        (alliances[0].first, alliances[0].second),
+        (Some(rus), Some(tur))
+    );
+    assert_eq!(alliances[0].start.unwrap().to_string(), "1700.1.1");
+    assert!(alliances[0].end.is_none());
+    assert!(w
+        .country_relations(rus, world::RelationKind::Warning)
+        .unwrap()
+        .is_empty());
+    assert_eq!(
+        w.country_relations(tur, world::RelationKind::Alliance)
+            .unwrap_err()
+            .code(),
+        ErrorCode::NotFound
+    );
+    let status = w.diplomacy_status(rus, tur).unwrap();
+    assert_eq!(
+        status,
+        world::DiplomacyStatus {
+            opinion: -108,
+            timed_sum: -399,
+            trust: 99,
+            favors: world::Milli(37590),
+            truce: true
+        }
+    );
+    assert_eq!(
+        w.diplomacy_status(rus, rus).unwrap_err().code(),
+        ErrorCode::InvalidArgument
+    );
+    assert_eq!(w.country_overlord(tur).unwrap(), rus);
+    assert_eq!(
+        w.country_overlord(rus).unwrap_err().code(),
+        ErrorCode::NotFound
+    );
+    assert_eq!(w.country_subjects(rus).unwrap(), [tur]);
+    // In the table's size but not filled in: Unsupported.
+    assert_eq!(
+        w.subject_type(rus, tur).unwrap_err().code(),
+        ErrorCode::Unsupported
+    );
+    assert_eq!(
+        w.country_rivals(rus).unwrap_err().code(),
+        ErrorCode::Unsupported
+    );
     FULL_WORLD.store(false, Ordering::Relaxed);
 }
 

@@ -206,6 +206,45 @@ struct WorldLayout {
     std::uint32_t view_window = 0;          // view: its window's full object
     std::uint32_t window_part = 0;          // full window object: its widget
     std::uint32_t widget_shown = 0;         // widget: byte, nonzero while it is shown
+
+    // Diplomacy: `diplomacy` 0 when absent on this build. Each kind of relation
+    // is a CPdxArray in the country's CCountryDiplomacy of 16-byte entries: the
+    // other country's index (int32), then the CRelation*.
+    std::uint32_t diplomacy = 0;            // country: its CCountryDiplomacy, embedded
+    std::uint32_t relations[8] = {};        // diplomacy: by ANVIL_GAME_RELATION_*, the entries
+    std::uint32_t relation_counts[8] = {};  // diplomacy: int32
+    std::uint32_t relation_first = 0;       // relation: tag
+    std::uint32_t relation_second = 0;      // relation: tag
+    std::uint32_t relation_start = 0;       // relation: int32, hours
+    std::uint32_t relation_end = 0;
+    std::int32_t relation_unset = 0;        // the date the game writes for none
+    std::uint32_t subject_type = 0;         // dependency: CSubjectType*
+    std::uint32_t subject_type_key = 0;     // subject type: its key, a std::string
+    std::uint32_t statuses = 0;             // country: std::vector of CDiplomacyStatus by the other's index; end after it
+    std::uint32_t status_size = 0;
+    std::uint32_t status_target = 0;        // status: tag (its parent, the CCountryDiplomacy, at +0)
+    std::uint32_t status_cached_sum = 0;    // status: int16
+    std::uint32_t status_trust = 0;         // status: byte
+    std::uint32_t status_favors = 0;        // status: int32, x 1000
+    std::uint32_t status_truce = 0;         // status: byte, with the truce bit
+    std::uint32_t truce_bit = 0;
+    std::uint32_t opinion_cache = 0;        // country: std::vector of int16 by the other's index; end after it
+    std::uint32_t opinion_cache_end = 0;
+    std::uint32_t rivals = 0;               // country: the first node of its list, null when empty
+    std::uint32_t rival_tag = 0;            // node: tag
+    std::uint32_t rival_next = 0;           // node: the next node
+    std::uint32_t overlord = 0;             // country: tag
+    std::uint32_t subjects = 0;             // country: std::vector of tags, its begin; end after it
+};
+
+// A relation, its dates still the game's hours.
+struct RelationEntry {
+    AnvilGameTag first{};
+    AnvilGameTag second{};
+    std::int32_t start = 0;
+    std::int32_t end = 0;
+    bool has_start = false;
+    bool has_end = false;
 };
 
 // A timed modifier, its dates still the game's hours.
@@ -285,6 +324,18 @@ AnvilResult read_country_timed(const WorldLayout& l, std::string_view tag, std::
 AnvilResult read_province_timed(const WorldLayout& l, std::int32_t province, std::vector<TimedEntry>& out);
 // NOT_FOUND while no province view is shown.
 AnvilResult read_province_view(const WorldLayout& l, std::int32_t& province);
+
+// `kind` is ANVIL_GAME_RELATION_*; the caller checks it. Each relation must
+// name the country as `first` or `second`.
+AnvilResult read_relations(const WorldLayout& l, std::string_view tag, std::uint32_t kind, std::vector<RelationEntry>& out);
+AnvilResult read_subject_type(const WorldLayout& l, std::string_view overlord, std::string_view subject, std::string& utf8);
+// out.size is left as it is. NOT_FOUND for a country without provinces and
+// for an index the opinion cache does not reach: never the game's fallback.
+AnvilResult read_diplomacy_status(const WorldLayout& l, std::string_view from, std::string_view to,
+                                  AnvilGameDiplomacyStatus& out);
+AnvilResult read_rivals(const WorldLayout& l, std::string_view tag, std::vector<AnvilGameTag>& out);
+AnvilResult read_overlord(const WorldLayout& l, std::string_view tag, AnvilGameTag& out);
+AnvilResult read_subjects(const WorldLayout& l, std::string_view tag, std::vector<AnvilGameTag>& out);
 
 // A getter of 3 bytes that returns a constant bool: xor al,al; ret or mov al,1; ret.
 bool decode_bool_getter(const std::uint8_t* code, std::size_t size, bool& value);

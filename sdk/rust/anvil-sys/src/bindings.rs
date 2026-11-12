@@ -67,6 +67,15 @@ pub const ANVIL_GAME_TIMED_HIDDEN: u32 = 1;
 pub const ANVIL_GAME_TIMED_RULER: u32 = 2;
 pub const ANVIL_GAME_TIMED_NO_END: u32 = 4;
 pub const ANVIL_GAME_TIMED_NO_START: u32 = 8;
+pub const ANVIL_GAME_RELATION_ALLIANCE: u32 = 0;
+pub const ANVIL_GAME_RELATION_ROYAL_MARRIAGE: u32 = 1;
+pub const ANVIL_GAME_RELATION_GUARANTEE: u32 = 2;
+pub const ANVIL_GAME_RELATION_MILITARY_ACCESS: u32 = 3;
+pub const ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS: u32 = 4;
+pub const ANVIL_GAME_RELATION_SUBSIDIES: u32 = 5;
+pub const ANVIL_GAME_RELATION_DEPENDENCY: u32 = 6;
+pub const ANVIL_GAME_RELATION_WARNING: u32 = 7;
+pub const ANVIL_GAME_DIPLOMACY_TRUCE: u32 = 1;
 pub const ANVIL_GAME_WORLD_SERVICE: &[u8; 17] = b"anvil-game.world\0";
 pub const ANVIL_GAME_WORLD_SERVICE_VERSION: u32 = 1;
 pub const ANVIL_GAME_COMMAND_DRILL: u32 = 1;
@@ -1320,6 +1329,70 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct AnvilGameRelation {
+    pub first: AnvilGameTag,
+    pub second: AnvilGameTag,
+    pub start: AnvilGameDate,
+    pub end: AnvilGameDate,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    ["Size of AnvilGameRelation"][::core::mem::size_of::<AnvilGameRelation>() - 56usize];
+    [
+        "Alignment of AnvilGameRelation",
+    ][::core::mem::align_of::<AnvilGameRelation>() - 8usize];
+    [
+        "Offset of field: AnvilGameRelation::first",
+    ][::core::mem::offset_of!(AnvilGameRelation, first) - 0usize];
+    [
+        "Offset of field: AnvilGameRelation::second",
+    ][::core::mem::offset_of!(AnvilGameRelation, second) - 4usize];
+    [
+        "Offset of field: AnvilGameRelation::start",
+    ][::core::mem::offset_of!(AnvilGameRelation, start) - 8usize];
+    [
+        "Offset of field: AnvilGameRelation::end",
+    ][::core::mem::offset_of!(AnvilGameRelation, end) - 32usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
+pub struct AnvilGameDiplomacyStatus {
+    pub size: u32,
+    pub opinion: i32,
+    pub timed_sum: i32,
+    pub trust: u32,
+    pub favors: i32,
+    pub flags: u32,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGameDiplomacyStatus",
+    ][::core::mem::size_of::<AnvilGameDiplomacyStatus>() - 24usize];
+    [
+        "Alignment of AnvilGameDiplomacyStatus",
+    ][::core::mem::align_of::<AnvilGameDiplomacyStatus>() - 4usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::size",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, size) - 0usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::opinion",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, opinion) - 4usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::timed_sum",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, timed_sum) - 8usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::trust",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, trust) - 12usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::favors",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, favors) - 16usize];
+    [
+        "Offset of field: AnvilGameDiplomacyStatus::flags",
+    ][::core::mem::offset_of!(AnvilGameDiplomacyStatus, flags) - 20usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct AnvilGameWorldService {
     pub size: u32,
     pub player: ::core::option::Option<
@@ -1611,12 +1684,59 @@ pub struct AnvilGameWorldService {
     pub province_view: ::core::option::Option<
         unsafe extern "C" fn(province: *mut i32) -> AnvilResult,
     >,
+    pub country_relations: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            kind: u32,
+            out: *mut AnvilGameRelation,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub subject_type: ::core::option::Option<
+        unsafe extern "C" fn(
+            overlord: *const core::ffi::c_char,
+            subject: *const core::ffi::c_char,
+            utf8: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub diplomacy_status: ::core::option::Option<
+        unsafe extern "C" fn(
+            from: *const core::ffi::c_char,
+            to: *const core::ffi::c_char,
+            out: *mut AnvilGameDiplomacyStatus,
+        ) -> AnvilResult,
+    >,
+    pub country_rivals: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            out: *mut AnvilGameTag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub country_overlord: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            out: *mut AnvilGameTag,
+        ) -> AnvilResult,
+    >,
+    pub country_subjects: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            out: *mut AnvilGameTag,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
         "Size of AnvilGameWorldService",
-    ][::core::mem::size_of::<AnvilGameWorldService>() - 344usize];
+    ][::core::mem::size_of::<AnvilGameWorldService>() - 392usize];
     [
         "Alignment of AnvilGameWorldService",
     ][::core::mem::align_of::<AnvilGameWorldService>() - 8usize];
@@ -1754,6 +1874,24 @@ const _: () = {
     [
         "Offset of field: AnvilGameWorldService::province_view",
     ][::core::mem::offset_of!(AnvilGameWorldService, province_view) - 336usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_relations",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_relations) - 344usize];
+    [
+        "Offset of field: AnvilGameWorldService::subject_type",
+    ][::core::mem::offset_of!(AnvilGameWorldService, subject_type) - 352usize];
+    [
+        "Offset of field: AnvilGameWorldService::diplomacy_status",
+    ][::core::mem::offset_of!(AnvilGameWorldService, diplomacy_status) - 360usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_rivals",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_rivals) - 368usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_overlord",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_overlord) - 376usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_subjects",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_subjects) - 384usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

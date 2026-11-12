@@ -1,7 +1,7 @@
 //! `anvil-game.world`: the world of the running session, read straight from
 //! the game (anvil-game 1.11.0; modifiers, units and the selection 1.15.0;
-//! rulers, heirs, consorts, flags and variables 1.20.0; pending events and
-//! statistics 1.21.0).
+//! rulers, heirs, consorts, flags and variables 1.20.0; pending events,
+//! statistics and timed modifiers 1.21.0; diplomacy 1.22.0).
 //!
 //! **Thread.** Call it only on the game's main thread after an outer frame:
 //! from a handler of an anvil-game event ([`game`](crate::game)) or from
@@ -31,12 +31,16 @@ use crate::error::{check, Error, ErrorCode, Result};
 use crate::game::Date;
 use crate::host::Host;
 use crate::sys::{
-    AnvilGameCountry, AnvilGameDate, AnvilGameFlag, AnvilGameMonarch, AnvilGamePendingEvent,
-    AnvilGameProvince, AnvilGameStatisticPoint, AnvilGameTag, AnvilGameTimedModifier,
-    AnvilGameUnit, AnvilGameUnitRef, AnvilGameWar, AnvilGameWorldService,
-    ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_MONARCH_CONSORT, ANVIL_GAME_MONARCH_FEMALE,
-    ANVIL_GAME_MONARCH_HEIR, ANVIL_GAME_MONARCH_REGENCY, ANVIL_GAME_MONARCH_RULER,
-    ANVIL_GAME_PENDING_HIDDEN, ANVIL_GAME_PROVINCE_LAND, ANVIL_GAME_PROVINCE_WASTELAND,
+    AnvilGameCountry, AnvilGameDate, AnvilGameDiplomacyStatus, AnvilGameFlag, AnvilGameMonarch,
+    AnvilGamePendingEvent, AnvilGameProvince, AnvilGameRelation, AnvilGameStatisticPoint,
+    AnvilGameTag, AnvilGameTimedModifier, AnvilGameUnit, AnvilGameUnitRef, AnvilGameWar,
+    AnvilGameWorldService, ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_DIPLOMACY_TRUCE,
+    ANVIL_GAME_MONARCH_CONSORT, ANVIL_GAME_MONARCH_FEMALE, ANVIL_GAME_MONARCH_HEIR,
+    ANVIL_GAME_MONARCH_REGENCY, ANVIL_GAME_MONARCH_RULER, ANVIL_GAME_PENDING_HIDDEN,
+    ANVIL_GAME_PROVINCE_LAND, ANVIL_GAME_PROVINCE_WASTELAND, ANVIL_GAME_RELATION_ALLIANCE,
+    ANVIL_GAME_RELATION_DEPENDENCY, ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS,
+    ANVIL_GAME_RELATION_GUARANTEE, ANVIL_GAME_RELATION_MILITARY_ACCESS,
+    ANVIL_GAME_RELATION_ROYAL_MARRIAGE, ANVIL_GAME_RELATION_SUBSIDIES, ANVIL_GAME_RELATION_WARNING,
     ANVIL_GAME_STATISTIC_INCOME, ANVIL_GAME_STATISTIC_INFLATION, ANVIL_GAME_STATISTIC_NATION_SIZE,
     ANVIL_GAME_STATISTIC_SCORE, ANVIL_GAME_TIMED_HIDDEN, ANVIL_GAME_TIMED_NO_END,
     ANVIL_GAME_TIMED_NO_START, ANVIL_GAME_TIMED_RULER, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
@@ -348,6 +352,75 @@ pub struct TimedModifier {
     pub start: Option<Date>,
     /// When it ends; `None` when it lasts until an effect removes it.
     pub end: Option<Date>,
+}
+
+/// A kind of relation between two countries (anvil-game 1.22.0). A relation
+/// is one object in both countries' lists: who did what comes from
+/// [`Relation::first`] and [`Relation::second`], never from whose list it is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum RelationKind {
+    /// An alliance.
+    Alliance,
+    /// A royal marriage.
+    RoyalMarriage,
+    /// `first` guarantees `second`.
+    Guarantee,
+    /// The country asked is `first`: it has access to `second`'s land.
+    MilitaryAccess,
+    /// The country asked is `second`: it gives `first` access.
+    GivingMilitaryAccess,
+    /// `first` pays `second`.
+    Subsidies,
+    /// `first` is the overlord, `second` the subject ([`World::subject_type`]).
+    Dependency,
+    /// `first` warns `second`.
+    Warning,
+}
+
+impl RelationKind {
+    fn raw(self) -> u32 {
+        match self {
+            Self::Alliance => ANVIL_GAME_RELATION_ALLIANCE,
+            Self::RoyalMarriage => ANVIL_GAME_RELATION_ROYAL_MARRIAGE,
+            Self::Guarantee => ANVIL_GAME_RELATION_GUARANTEE,
+            Self::MilitaryAccess => ANVIL_GAME_RELATION_MILITARY_ACCESS,
+            Self::GivingMilitaryAccess => ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS,
+            Self::Subsidies => ANVIL_GAME_RELATION_SUBSIDIES,
+            Self::Dependency => ANVIL_GAME_RELATION_DEPENDENCY,
+            Self::Warning => ANVIL_GAME_RELATION_WARNING,
+        }
+    }
+}
+
+/// A relation, as the game's save writes it ([`World::country_relations`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Relation {
+    /// The guarantor, the one with access, the payer, the overlord, the one who warns.
+    pub first: Option<Tag>,
+    /// The other one.
+    pub second: Option<Tag>,
+    /// When it began; `None` when the game keeps no date.
+    pub start: Option<Date>,
+    /// When it ends; `None` for most, which have no end date.
+    pub end: Option<Date>,
+}
+
+/// What one country keeps about another ([`World::diplomacy_status`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiplomacyStatus {
+    /// Its opinion of the other, whole points: the number of the diplomacy
+    /// window as the game's cache holds it, refreshed at least monthly for a
+    /// human and yearly for an AI.
+    pub opinion: i32,
+    /// The sum of its timed opinion modifiers toward the other, whole points,
+    /// not clamped: not the opinion.
+    pub timed_sum: i32,
+    /// Trust, 0..100; 50 until something changes it.
+    pub trust: u32,
+    /// Favors, × 1000.
+    pub favors: Milli,
+    /// The two have a truce (its end date is the game's to work out).
+    pub truce: bool,
 }
 
 /// The `anvil-game.world` service.
@@ -948,6 +1021,102 @@ impl World {
             "world province_view".to_owned()
         })?;
         Ok(province)
+    }
+
+    /// A country's relations of one kind, in the game's order (anvil-game 1.22.0).
+    pub fn country_relations(&self, tag: Tag, kind: RelationKind) -> Result<Vec<Relation>> {
+        let f = function!(self.table, AnvilGameWorldService, country_relations)?;
+        let text = tag.c_text();
+        // SAFETY: plain data for which zero is valid.
+        let empty: AnvilGameRelation = unsafe { std::mem::zeroed() };
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` relations.
+        let raw = read_list(
+            empty,
+            || format!("world country_relations {tag} {kind:?}"),
+            |out, capacity, count| unsafe { f(text.as_ptr(), kind.raw(), out, capacity, count) },
+        )?;
+        Ok(raw
+            .iter()
+            .map(|r| Relation {
+                first: Tag::from_raw(&r.first),
+                second: Tag::from_raw(&r.second),
+                start: (r.start.size != 0).then(|| Date::from_raw(&r.start)),
+                end: (r.end.size != 0).then(|| Date::from_raw(&r.end)),
+            })
+            .collect())
+    }
+
+    /// The key of `subject`'s subject type under `overlord` (`vassal`,
+    /// `march`); `NotFound` when it is not `overlord`'s subject.
+    pub fn subject_type(&self, overlord: Tag, subject: Tag) -> Result<String> {
+        let f = function!(self.table, AnvilGameWorldService, subject_type)?;
+        let (a, b) = (overlord.c_text(), subject.c_text());
+        // SAFETY: NUL-terminated tags; the service fills at most `capacity` bytes.
+        read_text(
+            || format!("world subject_type {overlord} {subject}"),
+            |buffer, capacity, length| unsafe {
+                f(a.as_ptr(), b.as_ptr(), buffer, capacity, length)
+            },
+        )
+    }
+
+    /// What `from` keeps about `to`, with its opinion from the game's cache.
+    /// `NotFound` for a country that owns no province now and while the cache
+    /// has no entry for `to` yet; `InvalidArgument` for the same country twice.
+    pub fn diplomacy_status(&self, from: Tag, to: Tag) -> Result<DiplomacyStatus> {
+        let f = function!(self.table, AnvilGameWorldService, diplomacy_status)?;
+        let (a, b) = (from.c_text(), to.c_text());
+        let mut raw: AnvilGameDiplomacyStatus = sized();
+        // SAFETY: NUL-terminated tags; `size` says how much it may write.
+        check(unsafe { f(a.as_ptr(), b.as_ptr(), &mut raw) }, || {
+            format!("world diplomacy_status {from} {to}")
+        })?;
+        Ok(DiplomacyStatus {
+            opinion: raw.opinion,
+            timed_sum: raw.timed_sum,
+            trust: raw.trust,
+            favors: Milli(raw.favors),
+            truce: raw.flags & ANVIL_GAME_DIPLOMACY_TRUCE != 0,
+        })
+    }
+
+    /// The countries `tag` has chosen as rivals, in the game's order.
+    pub fn country_rivals(&self, tag: Tag) -> Result<Vec<Tag>> {
+        let f = function!(self.table, AnvilGameWorldService, country_rivals)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` tags.
+        let raw = read_list(
+            EMPTY_TAG,
+            || format!("world country_rivals {tag}"),
+            |out, capacity, count| unsafe { f(text.as_ptr(), out, capacity, count) },
+        )?;
+        Ok(raw.iter().filter_map(Tag::from_raw).collect())
+    }
+
+    /// Its overlord; `NotFound` also for a country without one.
+    pub fn country_overlord(&self, tag: Tag) -> Result<Tag> {
+        let f = function!(self.table, AnvilGameWorldService, country_overlord)?;
+        let text = tag.c_text();
+        let mut raw = EMPTY_TAG;
+        // SAFETY: a NUL-terminated tag and an out pointer.
+        check(unsafe { f(text.as_ptr(), &mut raw) }, || {
+            format!("world country_overlord {tag}")
+        })?;
+        Tag::from_raw(&raw)
+            .ok_or_else(|| Error::new(ErrorCode::Internal, format!("world country_overlord {tag}")))
+    }
+
+    /// Its direct subjects, in the game's order.
+    pub fn country_subjects(&self, tag: Tag) -> Result<Vec<Tag>> {
+        let f = function!(self.table, AnvilGameWorldService, country_subjects)?;
+        let text = tag.c_text();
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` tags.
+        let raw = read_list(
+            EMPTY_TAG,
+            || format!("world country_subjects {tag}"),
+            |out, capacity, count| unsafe { f(text.as_ptr(), out, capacity, count) },
+        )?;
+        Ok(raw.iter().filter_map(Tag::from_raw).collect())
     }
 }
 

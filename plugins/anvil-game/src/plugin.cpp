@@ -1153,6 +1153,95 @@ AnvilResult world_province_view(std::int32_t* province) {
     return anvil_game::read_province_view(g_world, *province);
 }
 
+// ---- diplomacy (1.22.0) ----
+
+AnvilResult world_country_relations(const char* tag, std::uint32_t kind, AnvilGameRelation* out, std::uint32_t capacity,
+                                    std::uint32_t* count) {
+    if (tag == nullptr || (capacity != 0 && out == nullptr) || kind > ANVIL_GAME_RELATION_WARNING) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::RelationEntry> entries;
+        const AnvilResult r = anvil_game::read_relations(g_world, tag, kind, entries);
+        if (r != ANVIL_OK) return r;
+        const std::uint64_t session = current_session_number();
+        std::vector<AnvilGameRelation> list;
+        list.reserve(entries.size());
+        for (const auto& e : entries) {
+            AnvilGameRelation relation{};
+            relation.first = e.first;
+            relation.second = e.second;
+            if (e.has_start) {
+                relation.start = anvil_game::decode_date(e.start);
+                relation.start.session = session;
+            }
+            if (e.has_end) {
+                relation.end = anvil_game::decode_date(e.end);
+                relation.end.session = session;
+            }
+            list.push_back(relation);
+        }
+        give_list(list, out, capacity, count);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_subject_type(const char* overlord, const char* subject, char* utf8, std::uint32_t capacity,
+                               std::uint32_t* length) {
+    if (overlord == nullptr || subject == nullptr || (capacity != 0 && utf8 == nullptr)) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::string key;
+        const AnvilResult r = anvil_game::read_subject_type(g_world, overlord, subject, key);
+        return r == ANVIL_OK ? give_text(key, utf8, capacity, length) : r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_diplomacy_status(const char* from, const char* to, AnvilGameDiplomacyStatus* out) {
+    if (from == nullptr || to == nullptr || out == nullptr || out->size < sizeof(out->size)) {
+        return ANVIL_ERROR_INVALID_ARGUMENT;
+    }
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    AnvilGameDiplomacyStatus status{};
+    const AnvilResult r = anvil_game::read_diplomacy_status(g_world, from, to, status);
+    return r == ANVIL_OK ? give(out, status) : r;
+}
+
+template <class Read>
+AnvilResult give_tags(Read read, AnvilGameTag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<AnvilGameTag> tags;
+        const AnvilResult r = read(tags);
+        if (r == ANVIL_OK) give_list(tags, out, capacity, count);
+        return r;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_country_rivals(const char* tag, AnvilGameTag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_tags([&](auto& t) { return anvil_game::read_rivals(g_world, tag, t); }, out, capacity, count);
+}
+
+AnvilResult world_country_overlord(const char* tag, AnvilGameTag* out) {
+    if (tag == nullptr || out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    return anvil_game::read_overlord(g_world, tag, *out);
+}
+
+AnvilResult world_country_subjects(const char* tag, AnvilGameTag* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_tags([&](auto& t) { return anvil_game::read_subjects(g_world, tag, t); }, out, capacity, count);
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
@@ -1168,6 +1257,8 @@ constexpr AnvilGameWorldService kWorldService = {
     world_country_timed_modifiers, world_country_timed_modifier_keys,
     world_province_timed_modifiers, world_province_timed_modifier_keys,
     world_province_view,
+    world_country_relations,       world_subject_type,     world_diplomacy_status,
+    world_country_rivals,          world_country_overlord, world_country_subjects,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -1438,6 +1529,65 @@ void load_world(anvil::Host& host) {
         l.statistics_key = sym::statistics_item.item - 0x20;
         l.statistics_values = sym::statistics_series.values;
         l.statistics_years = sym::statistics_series.years;
+    }
+    if (host.present(sym::opinion_cache) && host.present(sym::country_diplomacy) &&
+        host.present(sym::diplomacy_statuses) && host.present(sym::relation_start) && host.present(sym::relation_end) &&
+        host.present(sym::status_cached_sum) && host.present(sym::status_trust) && host.present(sym::status_favors) &&
+        host.present(sym::status_truce) && host.present(sym::relations_alliance) &&
+        host.present(sym::relations_guarantee) && host.present(sym::relations_subsidies) &&
+        host.present(sym::relations_dependency) && host.present(sym::relations_warning) &&
+        host.present(sym::relations_marriage) && host.present(sym::relations_military_access) &&
+        host.present(sym::relations_giving_military_access) && host.present(sym::subject_type) &&
+        host.present(sym::country_rivals) && host.present(sym::country_overlord) && host.present(sym::country_subjects)) {
+        // Every getter reads a 16-byte entry (shl by 4) of a CPdxArray: its data, then its int32 count.
+        static_assert(sym::relations_alliance.entry_shift == 4 && sym::relations_guarantee.entry_shift == 4 &&
+                          sym::relations_subsidies.entry_shift == 4 && sym::relations_dependency.entry_shift == 4 &&
+                          sym::relations_warning.entry_shift == 4 && sym::relations_marriage.entry_shift == 4 &&
+                          sym::relations_military_access.entry_shift == 4 &&
+                          sym::diplomacy_statuses.countries == sym::province_base_tax.countries &&
+                          sym::relation_start.start + 4 == sym::relation_end.end &&
+                          sym::opinion_cache.cache_end == sym::opinion_cache.cache + 8 &&
+                          sym::relation_end.unset == sym::timed_modifier_dates.unset,
+                      "the diplomacy symbols disagree on the game's layout");
+        l.diplomacy = sym::country_diplomacy.diplomacy;
+        l.relations[ANVIL_GAME_RELATION_ALLIANCE] = sym::relations_alliance.data;
+        l.relation_counts[ANVIL_GAME_RELATION_ALLIANCE] = sym::relations_alliance.size;
+        l.relations[ANVIL_GAME_RELATION_ROYAL_MARRIAGE] = sym::relations_marriage.data;
+        l.relation_counts[ANVIL_GAME_RELATION_ROYAL_MARRIAGE] = sym::relations_marriage.size;
+        l.relations[ANVIL_GAME_RELATION_GUARANTEE] = sym::relations_guarantee.data;
+        l.relation_counts[ANVIL_GAME_RELATION_GUARANTEE] = sym::relations_guarantee.size;
+        l.relations[ANVIL_GAME_RELATION_MILITARY_ACCESS] = sym::relations_military_access.data;
+        l.relation_counts[ANVIL_GAME_RELATION_MILITARY_ACCESS] = sym::relations_military_access.size;
+        l.relations[ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS] = sym::relations_giving_military_access.data;
+        l.relation_counts[ANVIL_GAME_RELATION_GIVING_MILITARY_ACCESS] = sym::relations_giving_military_access.size;
+        l.relations[ANVIL_GAME_RELATION_SUBSIDIES] = sym::relations_subsidies.data;
+        l.relation_counts[ANVIL_GAME_RELATION_SUBSIDIES] = sym::relations_subsidies.size;
+        l.relations[ANVIL_GAME_RELATION_DEPENDENCY] = sym::relations_dependency.data;
+        l.relation_counts[ANVIL_GAME_RELATION_DEPENDENCY] = sym::relations_dependency.size;
+        l.relations[ANVIL_GAME_RELATION_WARNING] = sym::relations_warning.data;
+        l.relation_counts[ANVIL_GAME_RELATION_WARNING] = sym::relations_warning.size;
+        l.relation_first = sym::diplomacy_statuses.first;
+        l.relation_second = sym::diplomacy_statuses.second;
+        l.relation_start = sym::relation_start.start;
+        l.relation_end = sym::relation_end.end;
+        l.relation_unset = static_cast<std::int32_t>(sym::relation_end.unset);
+        l.subject_type = sym::subject_type.type;
+        l.subject_type_key = sym::subject_type.key;
+        l.statuses = sym::diplomacy_statuses.statuses;
+        l.status_size = 0x48;  // the lea pair of diplomacy_statuses: lea rdx,[rax+rax*8]; lea rcx,[rax+rdx*8]
+        l.status_target = sym::relations_giving_military_access.target;
+        l.status_cached_sum = sym::status_cached_sum.cached_sum;
+        l.status_trust = sym::status_trust.trust;
+        l.status_favors = sym::status_favors.favors;
+        l.status_truce = sym::status_truce.truce;
+        l.truce_bit = sym::status_truce.bit;
+        l.opinion_cache = sym::opinion_cache.cache;
+        l.opinion_cache_end = sym::opinion_cache.cache_end;
+        l.rivals = sym::country_rivals.rivals;
+        l.rival_tag = sym::country_rivals.tag;
+        l.rival_next = sym::country_rivals.next;
+        l.overlord = sym::country_overlord.overlord;
+        l.subjects = sym::country_subjects.subjects;
     }
     g_world = l;
     g_world_available = true;
