@@ -13,6 +13,11 @@ bool valid(const AnvilPlugin* self) { return self != nullptr && self->context !=
 
 ChangeRegistry& changes_of(AnvilPlugin* self) { return *self->context->changes; }
 
+// A module's handle uses its plugin's symbols, settings, folders and names
+// (ADR 0011); a plugin's own handle is its own root.
+AnvilPlugin& root_of(AnvilPlugin* self) { return self->parent != nullptr ? *self->parent : *self; }
+const AnvilPlugin& root_of(const AnvilPlugin* self) { return self->parent != nullptr ? *self->parent : *self; }
+
 void write_log(const AnvilPlugin& self, AnvilLogLevel level, std::string_view message) {
     if (self.context->log) {
         self.context->log(self, level, message);
@@ -33,7 +38,7 @@ bool process_exiting() {
 }
 
 std::string symbol_label(const AnvilPlugin* self, AnvilSymbol symbol) {
-    if (const PluginSymbol* s = self->symbols.get(symbol)) {
+    if (const PluginSymbol* s = root_of(self).symbols.get(symbol)) {
         return s->absent ? s->declaration.name + " (absent on this game build)" : s->declaration.name;
     }
     return "symbol " + std::to_string(symbol) + " (not declared)";
@@ -69,13 +74,13 @@ void host_log(AnvilPlugin* self, AnvilLogLevel level, const char* message) {
     write_log(*self, level, message);
 }
 
-const wchar_t* host_plugin_dir(AnvilPlugin* self) { return valid(self) ? self->plugin_dir.c_str() : nullptr; }
+const wchar_t* host_plugin_dir(AnvilPlugin* self) { return valid(self) ? root_of(self).plugin_dir.c_str() : nullptr; }
 
 const wchar_t* host_data_dir(AnvilPlugin* self) {
     if (!valid(self)) return nullptr;
     std::error_code ignored;
-    std::filesystem::create_directories(self->data_dir, ignored);
-    return self->data_dir.c_str();
+    std::filesystem::create_directories(root_of(self).data_dir, ignored);
+    return root_of(self).data_dir.c_str();
 }
 
 // ---- changes on symbols ---------------------------------------------------------
@@ -83,7 +88,7 @@ const wchar_t* host_data_dir(AnvilPlugin* self) {
 AnvilResult host_hook_function(AnvilPlugin* self, AnvilSymbol fn, void* detour, void** next, AnvilChange** out) {
     if (!valid(self) || detour == nullptr || next == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = hook_function(changes_of(self), self->owner, self->symbols, fn, detour, next, &id);
+    const ChangeStatus s = hook_function(changes_of(self), self->owner, root_of(self).symbols, fn, detour, next, &id);
     return finish(self, "hook_function", symbol_label(self, fn), s, id, out);
 }
 
@@ -91,7 +96,7 @@ AnvilResult host_mid_hook(AnvilPlugin* self, AnvilSymbol site, AnvilCpuCallback 
                           AnvilChange** out) {
     if (!valid(self) || callback == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = mid_hook(changes_of(self), self->owner, self->symbols, site, callback, user, &id);
+    const ChangeStatus s = mid_hook(changes_of(self), self->owner, root_of(self).symbols, site, callback, user, &id);
     return finish(self, "mid_hook", symbol_label(self, site), s, id, out);
 }
 
@@ -99,7 +104,7 @@ AnvilResult host_replace_block(AnvilPlugin* self, AnvilSymbol block, AnvilCpuCal
                                AnvilChange** out) {
     if (!valid(self) || callback == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = replace_block(changes_of(self), self->owner, self->symbols, block, callback, user, &id);
+    const ChangeStatus s = replace_block(changes_of(self), self->owner, root_of(self).symbols, block, callback, user, &id);
     return finish(self, "replace_block", symbol_label(self, block), s, id, out);
 }
 
@@ -107,21 +112,21 @@ AnvilResult host_redirect_call(AnvilPlugin* self, AnvilSymbol call_site, void* t
                                AnvilChange** out) {
     if (!valid(self) || target == nullptr || next == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = redirect_call(changes_of(self), self->owner, self->symbols, call_site, target, next, &id);
+    const ChangeStatus s = redirect_call(changes_of(self), self->owner, root_of(self).symbols, call_site, target, next, &id);
     return finish(self, "redirect_call", symbol_label(self, call_site), s, id, out);
 }
 
 AnvilResult host_patch_bytes(AnvilPlugin* self, AnvilSymbol site, const void* bytes, size_t size, AnvilChange** out) {
     if (!valid(self) || bytes == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = patch_bytes(changes_of(self), self->owner, self->symbols, site, bytes, size, &id);
+    const ChangeStatus s = patch_bytes(changes_of(self), self->owner, root_of(self).symbols, site, bytes, size, &id);
     return finish(self, "patch_bytes", symbol_label(self, site), s, id, out);
 }
 
 AnvilResult host_swap_pointer(AnvilPlugin* self, AnvilSymbol slot, void* value, void** previous, AnvilChange** out) {
     if (!valid(self)) return ANVIL_ERROR_INVALID_ARGUMENT;
     ChangeId id = 0;
-    const ChangeStatus s = swap_pointer(changes_of(self), self->owner, self->symbols, slot, value, previous, &id);
+    const ChangeStatus s = swap_pointer(changes_of(self), self->owner, root_of(self).symbols, slot, value, previous, &id);
     return finish(self, "swap_pointer", symbol_label(self, slot), s, id, out);
 }
 
@@ -166,33 +171,51 @@ AnvilResult host_mid_hook_at(AnvilPlugin* self, void* address, const void* expec
 AnvilResult host_remove(AnvilPlugin* self, AnvilChange* change) {
     if (process_exiting()) return ANVIL_OK;
     if (!valid(self) || change == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
-    return to_result(changes_of(self).remove(self->owner, change_id(change)));
+    ChangeRegistry& changes = changes_of(self);
+    const ChangeStatus status = changes.remove(self->owner, change_id(change));
+    if (status != ChangeStatus::NotFound) return to_result(status);
+    // Any handle of the same plugin may remove a change of its plugin or of
+    // one of its modules (ADR 0011): the C++ and Rust wrappers remove with the
+    // handle the plugin was loaded with.
+    AnvilPlugin& root = root_of(self);
+    if (&root != self) {
+        if (const ChangeStatus s = changes.remove(root.owner, change_id(change)); s != ChangeStatus::NotFound) {
+            return to_result(s);
+        }
+    }
+    for (const auto& m : root.modules) {
+        if (m.get() == self) continue;
+        if (const ChangeStatus s = changes.remove(m->owner, change_id(change)); s != ChangeStatus::NotFound) {
+            return to_result(s);
+        }
+    }
+    return ANVIL_ERROR_NOT_FOUND;
 }
 
 AnvilResult host_begin_group(AnvilPlugin* self) {
     if (!valid(self)) return ANVIL_ERROR_INVALID_ARGUMENT;
-    if (self->loading) return ANVIL_ERROR_WRONG_PHASE;
+    if (root_of(self).loading) return ANVIL_ERROR_WRONG_PHASE;
     return to_result(changes_of(self).begin_group(self->owner));
 }
 
 AnvilResult host_commit_group(AnvilPlugin* self) {
     if (!valid(self)) return ANVIL_ERROR_INVALID_ARGUMENT;
-    if (self->loading) return ANVIL_ERROR_WRONG_PHASE;
+    if (root_of(self).loading) return ANVIL_ERROR_WRONG_PHASE;
     return to_result(changes_of(self).commit_group(self->owner));
 }
 
 void host_abort_group(AnvilPlugin* self) {
-    if (!valid(self) || self->loading) return;
+    if (!valid(self) || root_of(self).loading) return;
     changes_of(self).abort_group(self->owner);
 }
 
 void* host_address_of(AnvilPlugin* self, AnvilSymbol symbol) {
-    return valid(self) ? self->symbols.address_of(symbol) : nullptr;
+    return valid(self) ? root_of(self).symbols.address_of(symbol) : nullptr;
 }
 
 AnvilResult host_symbol_value(AnvilPlugin* self, AnvilSymbol symbol, const char* name, uint64_t* out) {
     if (!valid(self) || name == nullptr || out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
-    const auto value = self->symbols.value(symbol, name);
+    const auto value = root_of(self).symbols.value(symbol, name);
     if (!value) return ANVIL_ERROR_NOT_DECLARED;
     *out = *value;
     return ANVIL_OK;
@@ -201,27 +224,28 @@ AnvilResult host_symbol_value(AnvilPlugin* self, AnvilSymbol symbol, const char*
 // ---- settings (design §11) ------------------------------------------------------------
 
 int host_setting_bool(AnvilPlugin* self, AnvilSetting setting) {
-    return valid(self) ? self->settings.get_bool(setting) : 0;
+    return valid(self) ? root_of(self).settings.get_bool(setting) : 0;
 }
 
 int64_t host_setting_int(AnvilPlugin* self, AnvilSetting setting) {
-    return valid(self) ? self->settings.get_int(setting) : 0;
+    return valid(self) ? root_of(self).settings.get_int(setting) : 0;
 }
 
 double host_setting_float(AnvilPlugin* self, AnvilSetting setting) {
-    return valid(self) ? self->settings.get_float(setting) : 0.0;
+    return valid(self) ? root_of(self).settings.get_float(setting) : 0.0;
 }
 
 const char* host_setting_string(AnvilPlugin* self, AnvilSetting setting) {
-    return valid(self) ? self->settings.get_string(setting) : "";
+    return valid(self) ? root_of(self).settings.get_string(setting) : "";
 }
 
 AnvilResult host_subscribe_setting(AnvilPlugin* self, AnvilSetting setting, AnvilSettingCallback callback,
                                    void* context) {
     if (!valid(self)) return ANVIL_ERROR_INVALID_ARGUMENT;
-    const AnvilResult r = self->settings.subscribe(setting, callback, context);
+    PluginSettings& settings = root_of(self).settings;
+    const AnvilResult r = settings.subscribe(setting, callback, context);
     if (r != ANVIL_OK) {
-        const Setting* s = self->settings.schema().get(setting);
+        const Setting* s = settings.schema().get(setting);
         const std::string what = s != nullptr ? s->name : "setting " + std::to_string(setting) + " (not declared)";
         write_log(*self, ANVIL_LOG_WARNING,
                   "subscribe_setting " + what + " refused: " +
@@ -234,7 +258,7 @@ AnvilResult host_subscribe_setting(AnvilPlugin* self, AnvilSetting setting, Anvi
 
 AnvilResult host_register_service(AnvilPlugin* self, const char* name, uint32_t version, const void* service) {
     if (!valid(self) || name == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
-    const AnvilResult r = self->context->bus->register_service(self->manifest.id, name, version, service);
+    const AnvilResult r = self->context->bus->register_service(root_of(self).manifest.id, name, version, service);
     if (r != ANVIL_OK) {
         write_log(*self, ANVIL_LOG_WARNING, std::string("register_service ") + name + " refused: " + result_name(r));
     }
@@ -248,6 +272,8 @@ const void* host_get_service(AnvilPlugin* self, const char* name, uint32_t versi
 
 AnvilResult host_subscribe(AnvilPlugin* self, const char* event, AnvilEventCallback callback, void* context) {
     if (!valid(self) || event == nullptr || callback == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    // A module subscribes as "<plugin>.<module>", so anvil.suspended for the
+    // module reaches only what it subscribed (ADR 0011).
     return self->context->bus->subscribe(self->manifest.id, event, callback, context);
 }
 
@@ -256,14 +282,30 @@ AnvilResult host_publish(AnvilPlugin* self, const char* event, const void* paylo
     // "anvil." names are Anvil's; a plugin publishes "<its id>.<name>" only,
     // as for services, so no plugin can forge another's events (Anvil acts on
     // anvil-game's session event, design §13).
-    if (std::string_view(event).starts_with("anvil.") || !is_valid_service_name(self->manifest.id, event)) {
+    const std::string& id = root_of(self).manifest.id;
+    if (std::string_view(event).starts_with("anvil.") || !is_valid_service_name(id, event)) {
         write_log(*self, ANVIL_LOG_WARNING,
-                  std::string("publish ") + event + " refused: plugins publish only events named " + self->manifest.id +
-                      ".<name>");
+                  std::string("publish ") + event + " refused: plugins publish only events named " + id + ".<name>");
         return ANVIL_ERROR_INVALID_ARGUMENT;
     }
     self->context->bus->publish(event, payload);
     return ANVIL_OK;
+}
+
+// ---- modules (ADR 0011) ------------------------------------------------------------------
+
+AnvilResult host_module(AnvilPlugin* self, const char* module, AnvilPlugin** out) {
+    if (out != nullptr) *out = nullptr;
+    if (!valid(self) || module == nullptr || out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (self->parent != nullptr) return ANVIL_ERROR_NOT_DECLARED;  // modules have no modules
+    for (const auto& m : self->modules) {
+        if (m->module_id != module) continue;
+        if (!m->enabled) return ANVIL_ERROR_DISABLED;
+        *out = m.get();
+        return ANVIL_OK;
+    }
+    write_log(*self, ANVIL_LOG_WARNING, std::string("module ") + module + " refused: not declared in plugin.toml");
+    return ANVIL_ERROR_NOT_DECLARED;
 }
 
 }  // namespace
@@ -302,6 +344,7 @@ const char* result_name(AnvilResult result) {
     case ANVIL_ERROR_ALREADY_EXISTS: return "already exists";
     case ANVIL_ERROR_SUSPENDED: return "suspended in this session";
     case ANVIL_ERROR_LIMIT: return "over the limit";
+    case ANVIL_ERROR_DISABLED: return "turned off by the player";
     }
     return "unknown";
 }
@@ -339,25 +382,58 @@ AnvilHost make_host(const AnvilGameInfo* game) {
     h.get_service = host_get_service;
     h.subscribe = host_subscribe;
     h.publish = host_publish;
+    h.module = host_module;
     return h;
+}
+
+void add_modules(AnvilPlugin& plugin, ChangeRegistry& changes, const ModuleEnabled& enabled) {
+    plugin.modules.reserve(plugin.manifest.modules.size());
+    for (const Module& m : plugin.manifest.modules) {
+        auto handle = std::make_unique<AnvilPlugin>();
+        handle->context = plugin.context;
+        handle->parent = &plugin;
+        handle->module_id = m.id;
+        handle->manifest = module_manifest(plugin.manifest, m);
+        handle->owner = changes.add_owner(handle->manifest.id);
+        handle->enabled = enabled ? enabled(handle->manifest.id, m.enabled_by_default) : m.enabled_by_default;
+        handle->state = handle->enabled ? "pending" : "disabled";
+        plugin.modules.push_back(std::move(handle));
+    }
 }
 
 LoadOutcome run_plugin_load(AnvilPlugin& plugin, const AnvilHost& host, PluginLoadFn fn) {
     ChangeRegistry& changes = *plugin.context->changes;
     LoadOutcome out;
+    // The load is one group for the plugin and one for each module: changes
+    // requested through any handle are enabled when the load returns ANVIL_OK,
+    // and none are when it fails (ADR 0011).
     changes.begin_group(plugin.owner);
+    for (const auto& m : plugin.modules) changes.begin_group(m->owner);
     plugin.loading = true;
     out.result = call_plugin_load(fn, &host, &plugin, &out.exception);
     plugin.loading = false;
     out.staged = changes.staged_count(plugin.owner);
-    if (out.result == ANVIL_OK && changes.commit_group(plugin.owner) != ChangeStatus::Ok) {
-        out.result = ANVIL_ERROR_INTERNAL;
-        out.commit_failed = true;
+    for (const auto& m : plugin.modules) out.staged += changes.staged_count(m->owner);
+    if (out.result == ANVIL_OK) {
+        bool committed = changes.commit_group(plugin.owner) == ChangeStatus::Ok;
+        for (const auto& m : plugin.modules) committed = changes.commit_group(m->owner) == ChangeStatus::Ok && committed;
+        if (!committed) {
+            out.result = ANVIL_ERROR_INTERNAL;
+            out.commit_failed = true;
+        }
     }
     if (out.result != ANVIL_OK) {
         changes.rollback(plugin.owner);
         plugin.context->bus->remove_owner(plugin.manifest.id);
+        for (const auto& m : plugin.modules) {
+            changes.rollback(m->owner);
+            plugin.context->bus->remove_owner(m->manifest.id);
+        }
         plugin.settings.drop_subscriptions();
+    }
+    const char* state = out.result == ANVIL_OK ? "loaded" : "failed";
+    for (const auto& m : plugin.modules) {
+        if (m->enabled) m->state = state;
     }
     return out;
 }

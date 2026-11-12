@@ -381,9 +381,17 @@ void Control::status(AnvilControlStatus& out) const {
     for (const auto& p : *sources_.plugins) {
         if (p->state == "loaded") ++out.loaded;
         else if (p->state == "failed") ++out.failed;
-        if (p->state != "loaded" || !p->manifest.affects_gameplay) continue;
-        if (sources_.policy != nullptr && sources_.policy->suspended(p->owner)) continue;
-        active.push_back(p->manifest.id + " " + p->manifest.version.to_string());
+        if (p->state != "loaded") continue;
+        // One line for the plugin's own handle and one per module that
+        // affects gameplay and acts now (ADR 0011): "<plugin>.<module> <version>".
+        const auto acting = [&](const AnvilPlugin& h) {
+            return h.manifest.affects_gameplay && h.enabled &&
+                   (sources_.policy == nullptr || !sources_.policy->suspended(h.owner));
+        };
+        if (acting(*p)) active.push_back(p->manifest.id + " " + p->manifest.version.to_string());
+        for (const auto& m : p->modules) {
+            if (acting(*m)) active.push_back(m->manifest.id + " " + m->manifest.version.to_string());
+        }
     }
     out.gameplay_active = static_cast<uint32_t>(active.size());
     const std::string hash = plugin_set_hash(std::move(active));
@@ -447,6 +455,19 @@ bool Control::plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin& out) cons
     const auto& plugins = *sources_.plugins;
     for (size_t i = 0; i < plugins.size(); ++i) {
         if (plugins[i].get() == plugin) return this->plugin(static_cast<uint32_t>(i), out);
+        // A module's handle (ADR 0011): its plugin's entry with the module's
+        // key, flags and state, so a service that checks its caller
+        // (anvil-game.commands, anvil-script) gates the module, not the plugin.
+        for (const auto& m : plugins[i]->modules) {
+            if (m.get() != plugin) continue;
+            if (!this->plugin(static_cast<uint32_t>(i), out)) return false;
+            out.id = m->manifest.id.c_str();
+            out.name = m->manifest.name.c_str();
+            out.affects_gameplay = m->manifest.affects_gameplay ? 1 : 0;
+            out.suspended = sources_.policy != nullptr && sources_.policy->suspended(m->owner) ? 1 : 0;
+            if (loading_done_.load(std::memory_order_acquire)) out.state = m->state.c_str();
+            return true;
+        }
     }
     return false;
 }

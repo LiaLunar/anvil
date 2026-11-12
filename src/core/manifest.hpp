@@ -34,6 +34,20 @@ struct Conflict {
     VersionRange range;
 };
 
+// [[modules]] (ADR 0011): a part of the plugin with its own gameplay flags.
+struct Module {
+    std::string id;  // [a-z][a-z0-9_]*, max 32, unique in the plugin
+    std::string name;
+    std::string description;
+    bool affects_gameplay = false;
+    Allow allow_ironman = Allow::No;
+    Allow allow_multiplayer = Allow::No;
+    bool enabled_by_default = true;  // `default`
+};
+
+// The most modules one plugin.toml declares.
+inline constexpr size_t kMaxModules = 32;
+
 struct Manifest {
     std::string id;
     std::string name;
@@ -54,9 +68,22 @@ struct Manifest {
     std::string repository;  // URL, optional
     std::vector<Dependency> dependencies;
     std::vector<Conflict> conflicts;
+    std::vector<Module> modules;  // in file order
 
     std::filesystem::path folder;  // plugin folder
 };
+
+// True when the plugin's own handle or any of its modules affects gameplay:
+// then it needs anvil-game (design §13).
+bool affects_gameplay_anywhere(const Manifest& manifest);
+
+// "<plugin>.<module>": how anvil.toml, the log, the event bus and the
+// multiplayer hash name a module.
+std::string module_key(const Manifest& manifest, const Module& module);
+
+// The manifest the gameplay policy and anvil.control see for a module: the
+// plugin's, with the module's key as id, the module's flags and no modules.
+Manifest module_manifest(const Manifest& manifest, const Module& module);
 
 struct ManifestResult {
     std::optional<Manifest> manifest;

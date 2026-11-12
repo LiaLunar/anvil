@@ -272,6 +272,36 @@ impl Host {
         self.plugin
     }
 
+    /// The host of module `name`, which `plugin.toml` declares in
+    /// `[[modules]]` (Anvil 1.21.0, working number; ADR 0011). Every call on
+    /// the returned `Host` acts for the module: Anvil suspends its changes by
+    /// the module's own `affects_gameplay`, `allow_ironman` and
+    /// `allow_multiplayer`, `anvil.suspended` reaches what it subscribes, and a
+    /// service that checks its caller sees the module. Settings, symbols,
+    /// folders and the names of services and events stay the plugin's.
+    ///
+    /// [`ErrorCode::Disabled`](crate::ErrorCode::Disabled) when the player
+    /// turned the module off (its code should not run then),
+    /// [`ErrorCode::NotDeclared`](crate::ErrorCode::NotDeclared) for a name
+    /// `plugin.toml` does not declare or when `self` is a module already, and
+    /// [`ErrorCode::Unsupported`](crate::ErrorCode::Unsupported) from an Anvil
+    /// without modules.
+    pub fn module(&self, name: &str) -> Result<Host> {
+        let provided = self.table.size as usize
+            >= offset_of!(AnvilHost, module) + size_of::<Option<unsafe extern "C" fn()>>();
+        let module = need(if provided { self.table.module } else { None }, "module")?;
+        let text = c_string(name);
+        let mut out: *mut AnvilPlugin = ptr::null_mut();
+        // SAFETY: the host's function with this plugin, a NUL-terminated name
+        // and a place for the handle; the table is long enough (checked above).
+        let result = unsafe { module(self.plugin, text.as_ptr(), &mut out) };
+        check(result, || format!("module {name}"))?;
+        Ok(Self {
+            table: self.table,
+            plugin: out,
+        })
+    }
+
     /// Anvil's version (SemVer).
     pub fn anvil_version(&self) -> &'static str {
         // SAFETY: the host fills it for the process.

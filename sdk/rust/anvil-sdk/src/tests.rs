@@ -1723,3 +1723,51 @@ fn log_messages_keep_totals_and_what_changed() {
     assert_eq!(changed[0].index, 2400);
     assert!(m.read(0, 0, 0).unwrap().0.is_empty());
 }
+
+unsafe extern "C" fn fake_module(
+    plugin: *mut AnvilPlugin,
+    name: *const c_char,
+    out: *mut *mut AnvilPlugin,
+) -> AnvilResult {
+    assert_eq!(plugin, SELF);
+    unsafe { *out = ptr::null_mut() };
+    match text(name).as_str() {
+        "drill_all" => {
+            unsafe { *out = 0x40D as *mut AnvilPlugin };
+            ANVIL_OK
+        }
+        "chase" => ANVIL_ERROR_DISABLED,
+        _ => ANVIL_ERROR_NOT_DECLARED,
+    }
+}
+
+#[test]
+fn a_module_is_a_host_of_its_own_handle() {
+    let (_guard, table) = fake_host();
+    let mut with_modules = *table;
+    with_modules.module = Some(fake_module);
+    let host = Host::from_parts(Box::leak(Box::new(with_modules)), SELF);
+    let drill = host.module("drill_all").unwrap();
+    assert_eq!(drill.raw_plugin(), 0x40D as *mut AnvilPlugin);
+    assert_eq!(
+        host.module("chase").unwrap_err().code(),
+        ErrorCode::Disabled
+    );
+    assert_eq!(
+        host.module("nope").unwrap_err().code(),
+        ErrorCode::NotDeclared
+    );
+    assert_eq!(ErrorCode::Disabled.result(), ANVIL_ERROR_DISABLED);
+    assert_eq!(
+        ErrorCode::from_result(ANVIL_ERROR_DISABLED),
+        Some(ErrorCode::Disabled)
+    );
+    // A host table that ends before the field: the call is not there.
+    let mut short = with_modules;
+    short.size = std::mem::offset_of!(AnvilHost, module) as u32;
+    let old = Host::from_parts(Box::leak(Box::new(short)), SELF);
+    assert_eq!(
+        old.module("drill_all").unwrap_err().code(),
+        ErrorCode::Unsupported
+    );
+}
