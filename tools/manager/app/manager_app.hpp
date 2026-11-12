@@ -107,6 +107,8 @@ private:
     void downloaded(ZipDownload download);
     void install_zip();
     void edit_list(const std::string& key, const std::string& id, bool listed);
+    void draw_modules(const Manifest& manifest);
+    void set_module(const std::string& key, bool on_by_default, bool on);
     void open_settings(const cli::GamePlugin& plugin);
     void save_settings();
     void show_message(std::string title, std::string text);

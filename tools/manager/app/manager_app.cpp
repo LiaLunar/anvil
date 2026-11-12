@@ -100,6 +100,18 @@ bool is_standard(const Package& package, const std::string& id) {
     return std::find(package.standard_plugins.begin(), package.standard_plugins.end(), id) != package.standard_plugins.end();
 }
 
+// What a module (ADR 0011) does to the game and which opt-ins it offers; the
+// overlay's Mods tab says the same.
+std::string module_summary(const Manifest& plugin, const Module& m, const std::string& name) {
+    const std::string label = name.empty() ? module_key(plugin, m) : name + " (" + module_key(plugin, m) + ")";
+    if (!m.affects_gameplay) return trf("{0}: does not change the game.", {label});
+    const bool ironman = m.allow_ironman == Allow::OptIn, multiplayer = m.allow_multiplayer == Allow::OptIn;
+    if (ironman && multiplayer) return trf("{0}: changes the game; you can allow it in ironman and multiplayer.", {label});
+    if (ironman) return trf("{0}: changes the game; you can allow it in ironman, not in multiplayer.", {label});
+    if (multiplayer) return trf("{0}: changes the game; you can allow it in multiplayer, not in ironman.", {label});
+    return trf("{0}: changes the game; suspended in ironman and multiplayer.", {label});
+}
+
 bool listed(const std::vector<std::string>& list, const std::string& id) {
     return std::find(list.begin(), list.end(), id) != list.end();
 }
@@ -818,6 +830,7 @@ void ManagerApp::draw_plugins_tab() {
                 }
                 ImGui::EndDisabled();
             }
+            if (manifest) draw_modules(*manifest);
 
             ImGui::TableNextColumn();
             if (manifest && !manifest->settings.empty() && ImGui::SmallButton(tr("Settings"))) open_settings(plugin);
@@ -875,18 +888,6 @@ std::string mod_state_text(const cli::GameModPlugin& p) {
     if (p.state == "conflict") return tr("conflict: does not load");
     if (p.state == "shadowed") return tr("a plugin in anvil/plugins has this id and loads instead");
     return tr("cannot be approved: does not load");
-}
-
-// What a module (ADR 0011) does to the game and which opt-ins it offers; the
-// overlay's Mods tab says the same.
-std::string module_summary(const Manifest& plugin, const Module& m, const std::string& name) {
-    const std::string label = name.empty() ? module_key(plugin, m) : name + " (" + module_key(plugin, m) + ")";
-    if (!m.affects_gameplay) return trf("{0}: does not change the game.", {label});
-    const bool ironman = m.allow_ironman == Allow::OptIn, multiplayer = m.allow_multiplayer == Allow::OptIn;
-    if (ironman && multiplayer) return trf("{0}: changes the game; you can allow it in ironman and multiplayer.", {label});
-    if (ironman) return trf("{0}: changes the game; you can allow it in ironman, not in multiplayer.", {label});
-    if (multiplayer) return trf("{0}: changes the game; you can allow it in multiplayer, not in ironman.", {label});
-    return trf("{0}: changes the game; suspended in ironman and multiplayer.", {label});
 }
 
 }  // namespace
@@ -1508,6 +1509,52 @@ void ManagerApp::dropped(const fs::path& file) {
         return;
     }
     open_zip(file);
+}
+
+// A plugin's modules (ADR 0011): a switch each, written to enabled_modules /
+// disabled_modules, and the opt-ins of an enabled gameplay module. Choices apply
+// at the next start, as for plugins.
+void ManagerApp::draw_modules(const Manifest& manifest) {
+    if (manifest.modules.empty()) return;
+    const AnvilSettings& toml = snapshot_->anvil_toml;
+    ImGui::BeginDisabled(read_only());
+    for (const Module& mod : manifest.modules) {
+        const std::string key = module_key(manifest, mod);
+        ImGui::PushID(key.c_str());
+        bool on = !listed(toml.disabled_modules, key) && (mod.enabled_by_default || listed(toml.enabled_modules, key));
+        if (ImGui::Checkbox("##module", &on)) set_module(key, mod.enabled_by_default, on);
+        ImGui::SameLine();
+        wrapped(module_summary(manifest, mod, plugin_text(manifest.folder, mod.name)));
+        if (on && mod.affects_gameplay && (mod.allow_ironman == Allow::OptIn || mod.allow_multiplayer == Allow::OptIn)) {
+            ImGui::Indent();
+            if (mod.allow_ironman == Allow::OptIn) {
+                bool allow = listed(toml.allow_ironman, key);
+                if (ImGui::Checkbox(tr("Allow in ironman"), &allow)) edit_list("allow_ironman", key, allow);
+                ImGui::SameLine();
+            }
+            if (mod.allow_multiplayer == Allow::OptIn) {
+                bool allow = listed(toml.allow_multiplayer, key);
+                if (ImGui::Checkbox(tr("Allow in multiplayer"), &allow)) edit_list("allow_multiplayer", key, allow);
+            }
+            ImGui::Unindent();
+        }
+        ImGui::PopID();
+    }
+    ImGui::EndDisabled();
+}
+
+// On: out of disabled_modules, and into enabled_modules when it is off by
+// default. Off: into disabled_modules when it is on by default, else out of
+// enabled_modules.
+void ManagerApp::set_module(const std::string& key, bool on_by_default, bool on) {
+    if (on) {
+        edit_list("disabled_modules", key, false);
+        if (!on_by_default) edit_list("enabled_modules", key, true);
+    } else if (on_by_default) {
+        edit_list("disabled_modules", key, true);
+    } else {
+        edit_list("enabled_modules", key, false);
+    }
 }
 
 void ManagerApp::edit_list(const std::string& key, const std::string& id, bool listed_now) {

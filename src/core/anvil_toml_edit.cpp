@@ -18,6 +18,17 @@ bool valid_id(std::string_view id) {
     return std::all_of(id.begin(), id.end(), [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'; });
 }
 
+// "<plugin>.<module>" (ADR 0011): a plugin id, a dot and a module id
+// ([a-z][a-z0-9_]*, at most 32 characters).
+bool valid_module_key(std::string_view key) {
+    const size_t dot = key.find('.');
+    if (dot == std::string_view::npos || !valid_id(key.substr(0, dot))) return false;
+    const std::string_view module = key.substr(dot + 1);
+    if (module.empty() || module.size() > 32 || module.front() < 'a' || module.front() > 'z') return false;
+    return std::all_of(module.begin(), module.end(),
+                       [](char c) { return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'; });
+}
+
 // Byte offset of the start of 1-based `line`; npos past the end.
 size_t line_start(std::string_view text, uint32_t line) {
     size_t at = 0;
@@ -207,7 +218,15 @@ std::optional<std::string_view> plain_string(std::string_view value) {
 }
 
 bool is_plugin_list(std::string_view key) {
-    return key == "disabled_plugins" || key == "allow_ironman" || key == "allow_multiplayer";
+    return key == "disabled_plugins" || key == "allow_ironman" || key == "allow_multiplayer" ||
+           key == "enabled_modules" || key == "disabled_modules";
+}
+
+// What a list holds: plugin ids, module keys, or (the opt-ins) either.
+bool fits_list(std::string_view key, std::string_view id) {
+    if (key == "disabled_plugins") return valid_id(id);
+    if (key == "enabled_modules" || key == "disabled_modules") return valid_module_key(id);
+    return valid_id(id) || valid_module_key(id);
 }
 
 }  // namespace
@@ -218,8 +237,9 @@ std::optional<std::string> with_plugin_listed(std::string_view input, std::strin
         error = "'" + std::string(key) + "' is not a list of plugin ids in anvil.toml";
         return std::nullopt;
     }
-    if (!valid_id(id)) {
-        error = "'" + std::string(id) + "' is not a plugin id";
+    if (!fits_list(key, id)) {
+        error = "'" + std::string(id) + "' is not a " +
+                (key == "enabled_modules" || key == "disabled_modules" ? "module (<plugin>.<module>)" : "plugin id");
         return std::nullopt;
     }
     const bool bom = input.substr(0, kBom.size()) == kBom;

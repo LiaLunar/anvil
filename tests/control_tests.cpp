@@ -210,6 +210,20 @@ void control_tests() {
               std::optional<std::string>("allow_ironman = [\"x\"]\n"));
         CHECK(unlisted("allow_multiplayer = [\"x\"]\n", "x", "allow_multiplayer") == "allow_multiplayer = []\n");
         CHECK(!with_plugin_listed("", "log_level", "x", true, error) && error.find("not a list of plugin ids") != std::string::npos);
+        // Modules (ADR 0011): enabled_modules and disabled_modules take "<plugin>.<module>", the
+        // opt-in lists take both, disabled_plugins only plugin ids.
+        CHECK(with_plugin_listed("enabled = true\n", "disabled_modules", "smithy.drill_all", true, error) ==
+              std::optional<std::string>("enabled = true\ndisabled_modules = [\"smithy.drill_all\"]\n"));
+        CHECK(unlisted("enabled_modules = [\"smithy.sharp_text\", \"a.b\"]\n", "smithy.sharp_text", "enabled_modules") ==
+              "enabled_modules = [\"a.b\"]\n");
+        CHECK(with_plugin_listed("allow_ironman = [\"tongs\"]\n", "allow_ironman", "smithy.drill_all", true, error) ==
+              std::optional<std::string>("allow_ironman = [\"tongs\", \"smithy.drill_all\"]\n"));
+        CHECK(!with_plugin_listed("", "enabled_modules", "smithy", true, error) && error.find("is not a module") != std::string::npos);
+        CHECK(!with_plugin_listed("", "disabled_plugins", "smithy.drill_all", true, error) &&
+              error.find("is not a plugin id") != std::string::npos);
+        for (const char* bad : {"smithy.", ".drill", "smithy.Drill", "smithy.1x", "smithy.a-b", "smithy.a.b"}) {
+            CHECK(!with_plugin_listed("", "disabled_modules", bad, true, error));
+        }
         // An id written with escapes is not found textually: refused, not mangled.
         CHECK(!with_plugin_listed("disabled_plugins = [\"\\u0078\"]\n", "disabled_plugins", "x", false, error));
 
