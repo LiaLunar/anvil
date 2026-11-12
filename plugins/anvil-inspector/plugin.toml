@@ -1,0 +1,23 @@
+id = "anvil-inspector"
+name = "Anvil inspector"
+version = "1.20.0"
+authors = ["Happy Dwarf Team"]
+description = "Standard plugin for modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, with their rulers, heirs and consorts. It only reads, and it is off until you turn it on."
+api = 2
+entry = "anvil_inspector.dll"
+settings = "settings.toml"
+# It reads the world through anvil-game.world and draws through
+# anvil-overlay.panel; it changes nothing in the game.
+affects_gameplay = false
+issues = "https://github.com/happy-dwarf-team/anvil/issues"
+repository = "https://github.com/happy-dwarf-team/anvil"
+
+# The world's reads, on the game's main thread.
+[[dependencies]]
+id = "anvil-game"
+version = "^1"
+
+# The window.
+[[dependencies]]
+id = "anvil-overlay"
+version = "^1"

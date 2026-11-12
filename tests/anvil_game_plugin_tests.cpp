@@ -475,6 +475,53 @@ struct FakeWorld {
         set(province(1), 0x238 + 0x18, reinterpret_cast<uintptr_t>(moskva_head));
     }
 
+    // Timed modifiers (1.21.0): RUS has a hidden one with both dates and a ruler
+    // modifier without dates, in that order; Moskva the hidden one too. The
+    // province view shows Moskva in a shown window.
+    static constexpr int32_t kUnsetHours = 43'808'760;
+    static constexpr uint32_t kNever = 0x1FD149C;  // the global date of a modifier given for good
+    static constexpr int32_t kNeverHours = 43'791'240;  // -1.1.1, as the save writes it
+    std::string timed_texts[2] = {"obstacle_shipbuilding_industry", "tsars_reforms"};
+    alignas(8) uint8_t static_modifiers[2][0x180] = {};
+    alignas(8) uint8_t timed[3][0x50] = {};
+    alignas(8) uint8_t timed_nodes[3][0x20] = {};
+    uintptr_t moskva_timed[1] = {};
+    alignas(8) uint8_t selection_object[0x20] = {};
+    alignas(8) uint8_t province_view[0x1000] = {};
+    alignas(8) uint8_t view_window[0x200] = {};
+
+    void install_timed(uint8_t* session, FakeEu4& image) {
+        image.commit(kNever & ~0xFFFu, PAGE_READWRITE);
+        std::memcpy(image.base + kNever, &kNeverHours, sizeof kNeverHours);
+        for (int i = 0; i < 3; ++i) {
+            set_key(static_modifiers[i] + 0x158, timed_texts[i]);
+            set(timed[i], 0x30, reinterpret_cast<uintptr_t>(static_modifiers[i]));
+            set(timed_nodes[i], 0, reinterpret_cast<uintptr_t>(timed[i]));
+        }
+        set(timed[0], 0x40, hours_of(1715, 1, 1));
+        set(timed[0], 0x44, hours_of(1725, 1, 1));
+        timed[0][0x4B] = 1;
+        set(timed[1], 0x40, kUnsetHours);
+        set(timed[1], 0x44, kUnsetHours);
+        timed[1][0x48] = 1;
+        // A third, given for good: the same key as the first, ended at the date for never.
+        set(timed[2], 0x30, reinterpret_cast<uintptr_t>(static_modifiers[0]));
+        set(timed[2], 0x40, hours_of(1719, 3, 17));
+        set(timed[2], 0x44, kNeverHours);
+        set(timed_nodes[0], 0x10, reinterpret_cast<uintptr_t>(timed_nodes[1]));
+        set(timed_nodes[1], 0x10, reinterpret_cast<uintptr_t>(timed_nodes[2]));
+        set(rus, 0x1F0, reinterpret_cast<uintptr_t>(timed_nodes[0]));
+        moskva_timed[0] = reinterpret_cast<uintptr_t>(timed[0]);
+        set(province(1), 0x2F0, reinterpret_cast<uintptr_t>(moskva_timed));
+        set(province(1), 0x2F8, reinterpret_cast<uintptr_t>(moskva_timed + 1));
+
+        set(session, 0x1220, reinterpret_cast<uintptr_t>(selection_object));
+        set(selection_object, 0x10, reinterpret_cast<uintptr_t>(province_view));
+        set(province_view, 0x958, reinterpret_cast<uintptr_t>(province(1)));
+        set(province_view, 0xA0, reinterpret_cast<uintptr_t>(view_window));
+        view_window[0x30 + 0xC5] = 1;
+    }
+
     // Pending events (1.37.5 on Steam): four entries in the root's list. 5 and 8
     // wait for RUS (its own scope, then TUR's scope with RUS as the override), 6
     // for Moskva's owner (a province scope without a country), 7 for TUR,
@@ -1351,7 +1398,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 115);
+        CHECK(reason.empty() && verified.symbols.size() == 128);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -2327,6 +2374,85 @@ int main(int argc, char** argv) {
               anvil_game::read_pending(l, {}, none) == ANVIL_ERROR_NOT_DECLARED &&
               anvil_game::read_pending_text(l, {}, true, text) == ANVIL_ERROR_NOT_DECLARED &&
               anvil_game::read_statistics(l, "RUS", 0, points) == ANVIL_ERROR_NOT_DECLARED);
+    });
+
+    run("anvil-game.world: timed modifiers and the province view", [&] {
+        const auto* world = static_cast<const AnvilGameWorldService*>(
+            bus.get_service(ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION));
+        CHECK(world != nullptr && ANVIL_GAME_WORLD_HAS(world, province_view));
+        if (world == nullptr) return;
+        FakeWorld& fake = *new FakeWorld;
+        fake.install(game.root, image);
+        fake.install_timed(game.session, image);
+        game.set_session(game.session);
+        frame(game.app, 1);
+        AnvilGameSession session{};
+        CHECK(service->session(&session) == 1);
+
+        AnvilGameTimedModifier list[4] = {};
+        uint32_t count = 0;
+        std::int32_t province = 0;
+        CHECK(world->country_timed_modifiers("RUS", list, 4, &count) == ANVIL_ERROR_WRONG_PHASE &&
+              world->province_view(&province) == ANVIL_ERROR_WRONG_PHASE);  // between frames
+        bool ran = false;
+        g_in_frame_handler = [&] {
+            ran = true;
+            CHECK(world->country_timed_modifiers("rus", list, 4, &count) == ANVIL_OK && count == 3);
+            CHECK(list[0].flags == ANVIL_GAME_TIMED_HIDDEN && list[0].start.year == 1715 && list[0].start.month == 1 &&
+                  list[0].start.day == 1 && list[0].end.year == 1725 && list[0].end.session == session.number &&
+                  list[0].end.size == sizeof(AnvilGameDate));
+            CHECK(list[1].flags == (ANVIL_GAME_TIMED_RULER | ANVIL_GAME_TIMED_NO_END | ANVIL_GAME_TIMED_NO_START) &&
+                  list[1].start.year == 0 && list[1].end.year == 0 && list[1].end.size == 0);
+            CHECK(list[2].flags == ANVIL_GAME_TIMED_NO_END && list[2].start.year == 1719 && list[2].end.year == 0);
+            CHECK(world->country_timed_modifiers("RUS", list, 1, &count) == ANVIL_OK && count == 3);
+            CHECK(world->country_timed_modifiers("TUR", nullptr, 0, &count) == ANVIL_OK && count == 0);
+            CHECK(world->country_timed_modifiers("XXX", list, 4, &count) == ANVIL_ERROR_NOT_FOUND &&
+                  world->country_timed_modifiers(nullptr, list, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT &&
+                  world->country_timed_modifiers("RUS", nullptr, 4, &count) == ANVIL_ERROR_INVALID_ARGUMENT);
+            char keys[96] = {};
+            uint32_t length = 0;
+            const std::string all = fake.timed_texts[0] + '\0' + fake.timed_texts[1] + '\0' + fake.timed_texts[0] + '\0';
+            CHECK(world->country_timed_modifier_keys("RUS", keys, sizeof keys, &length) == ANVIL_OK &&
+                  length == all.size() && std::memcmp(keys, all.data(), all.size()) == 0);
+            std::memset(keys, 0x7F, sizeof keys);
+            CHECK(world->country_timed_modifier_keys("RUS", keys, 35, &length) == ANVIL_OK && length == all.size() &&
+                  std::strcmp(keys, fake.timed_texts[0].c_str()) == 0 && keys[31] == 0x7F);  // whole keys only
+            CHECK(world->country_timed_modifier_keys("RUS", nullptr, 0, &length) == ANVIL_OK && length == all.size());
+            CHECK(world->province_timed_modifiers(1, list, 4, &count) == ANVIL_OK && count == 1 &&
+                  list[0].flags == ANVIL_GAME_TIMED_HIDDEN && list[0].end.year == 1725);
+            CHECK(world->province_timed_modifier_keys(1, keys, sizeof keys, &length) == ANVIL_OK &&
+                  length == fake.timed_texts[0].size() + 1 && keys == fake.timed_texts[0]);
+            CHECK(world->province_timed_modifiers(2, list, 4, &count) == ANVIL_OK && count == 0);
+            CHECK(world->province_timed_modifiers(4, list, 4, &count) == ANVIL_ERROR_NOT_FOUND);
+            // A broken list costs that answer.
+            FakeWorld::set(fake.timed[1], 0x30, uintptr_t{0});
+            CHECK(world->country_timed_modifiers("RUS", list, 4, &count) == ANVIL_ERROR_INTERNAL);
+            FakeWorld::set(fake.timed[1], 0x30, reinterpret_cast<uintptr_t>(fake.static_modifiers[1]));
+
+            CHECK(world->province_view(&province) == ANVIL_OK && province == 1);
+            CHECK(world->province_view(nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+            fake.view_window[0x30 + 0xC5] = 0;  // the player closed it
+            CHECK(world->province_view(&province) == ANVIL_ERROR_NOT_FOUND);
+            fake.view_window[0x30 + 0xC5] = 1;
+            FakeWorld::set(fake.province_view, 0x958, reinterpret_cast<uintptr_t>(fake.province(1) + 8));
+            CHECK(world->province_view(&province) == ANVIL_ERROR_INTERNAL);  // not a province of the array
+            FakeWorld::set(fake.province_view, 0x958, reinterpret_cast<uintptr_t>(fake.province(3)));
+            CHECK(world->province_view(&province) == ANVIL_OK && province == 3);
+            FakeWorld::set(fake.selection_object, 0x10, uintptr_t{0});
+            CHECK(world->province_view(&province) == ANVIL_ERROR_NOT_FOUND);
+            FakeWorld::set(game.session, 0x1220, uintptr_t{0});
+            CHECK(world->province_view(&province) == ANVIL_ERROR_NOT_FOUND);
+        };
+        frame(game.app, 1);
+        CHECK(ran);
+        g_in_frame_handler = nullptr;
+
+        anvil_game::WorldLayout l;
+        std::vector<anvil_game::TimedEntry> none;
+        std::int32_t id = 0;
+        CHECK(anvil_game::read_country_timed(l, "RUS", none) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_province_timed(l, 1, none) == ANVIL_ERROR_NOT_DECLARED &&
+              anvil_game::read_province_view(l, id) == ANVIL_ERROR_NOT_DECLARED);
     });
 
     run("anvil-game: the campaign's events after outer frames", [&] {

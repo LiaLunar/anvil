@@ -1061,6 +1061,98 @@ AnvilResult world_country_statistics(const char* tag, std::uint32_t kind, AnvilG
     }
 }
 
+// ---- timed modifiers and the province view (1.21.0) ----
+
+template <class Read>
+AnvilResult give_timed(Read read, AnvilGameTimedModifier* out, std::uint32_t capacity, std::uint32_t* count) {
+    if (capacity != 0 && out == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::TimedEntry> entries;
+        const AnvilResult r = read(entries);
+        if (r != ANVIL_OK) return r;
+        const std::uint64_t session = current_session_number();
+        std::vector<AnvilGameTimedModifier> list;
+        list.reserve(entries.size());
+        for (const auto& e : entries) {
+            AnvilGameTimedModifier m{};
+            m.flags = e.flags;
+            if ((e.flags & ANVIL_GAME_TIMED_NO_START) == 0) {
+                m.start = anvil_game::decode_date(e.start);
+                m.start.session = session;
+            }
+            if ((e.flags & ANVIL_GAME_TIMED_NO_END) == 0) {
+                m.end = anvil_game::decode_date(e.end);
+                m.end.session = session;
+            }
+            list.push_back(m);
+        }
+        give_list(list, out, capacity, count);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+// The keys, each with its NUL, whole keys as far as they fit.
+template <class Read>
+AnvilResult give_timed_keys(Read read, char* keys, std::uint32_t capacity, std::uint32_t* length) {
+    if (capacity != 0 && keys == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    try {
+        std::vector<anvil_game::TimedEntry> entries;
+        const AnvilResult r = read(entries);
+        if (r != ANVIL_OK) return r;
+        std::size_t whole = 0, written = 0;
+        bool fits = true;
+        for (const auto& e : entries) {
+            const std::string key = anvil_game::game_text_to_utf8(e.key);
+            whole += key.size() + 1;
+            if (fits && written + key.size() + 1 <= capacity) {
+                std::memcpy(keys + written, key.c_str(), key.size() + 1);
+                written += key.size() + 1;
+            } else {
+                fits = false;
+            }
+        }
+        if (length != nullptr) *length = static_cast<std::uint32_t>(whole);
+        return ANVIL_OK;
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+}
+
+AnvilResult world_country_timed_modifiers(const char* tag, AnvilGameTimedModifier* out, std::uint32_t capacity,
+                                          std::uint32_t* count) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_timed([&](auto& e) { return anvil_game::read_country_timed(g_world, tag, e); }, out, capacity, count);
+}
+
+AnvilResult world_country_timed_modifier_keys(const char* tag, char* keys, std::uint32_t capacity,
+                                              std::uint32_t* length) {
+    if (tag == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    return give_timed_keys([&](auto& e) { return anvil_game::read_country_timed(g_world, tag, e); }, keys, capacity,
+                           length);
+}
+
+AnvilResult world_province_timed_modifiers(std::int32_t province, AnvilGameTimedModifier* out, std::uint32_t capacity,
+                                           std::uint32_t* count) {
+    return give_timed([&](auto& e) { return anvil_game::read_province_timed(g_world, province, e); }, out, capacity,
+                      count);
+}
+
+AnvilResult world_province_timed_modifier_keys(std::int32_t province, char* keys, std::uint32_t capacity,
+                                               std::uint32_t* length) {
+    return give_timed_keys([&](auto& e) { return anvil_game::read_province_timed(g_world, province, e); }, keys,
+                           capacity, length);
+}
+
+AnvilResult world_province_view(std::int32_t* province) {
+    if (province == nullptr) return ANVIL_ERROR_INVALID_ARGUMENT;
+    if (!world_open()) return ANVIL_ERROR_WRONG_PHASE;
+    return anvil_game::read_province_view(g_world, *province);
+}
+
 constexpr AnvilGameWorldService kWorldService = {
     sizeof(AnvilGameWorldService), world_player,         world_province_limit, world_province,
     world_province_name,           world_province_cores, world_country,        world_country_provinces,
@@ -1073,6 +1165,9 @@ constexpr AnvilGameWorldService kWorldService = {
     world_country_variable_names,  world_province_variable_names,
     world_pending_events,          world_pending_event,    world_pending_event_key, world_pending_event_title,
     world_country_statistics,
+    world_country_timed_modifiers, world_country_timed_modifier_keys,
+    world_province_timed_modifiers, world_province_timed_modifier_keys,
+    world_province_view,
 };
 
 // A port may declare these symbols absent on a new build (ADR 0004): the game
@@ -1258,6 +1353,40 @@ void load_world(anvil::Host& host) {
         l.province_variables = sym::province_variables.variables;
         l.variable_head = sym::variable_list.head;
         l.variable_value = sym::variable_list.fixed_point;
+    }
+    if (host.present(sym::country_timed_modifiers) && host.present(sym::province_timed_modifiers) &&
+        host.present(sym::timed_modifier_key) && host.present(sym::timed_modifier_dates) &&
+        host.present(sym::timed_modifier_ruler) && host.present(sym::timed_modifier_hidden) &&
+        host.present(sym::timed_modifier_never)) {
+        static_assert(sym::country_timed_modifiers.modifier == sym::province_timed_modifiers.modifier &&
+                          sym::country_timed_modifiers.modifier == sym::timed_modifier_key.modifier &&
+                          sym::province_timed_modifiers.end == sym::province_timed_modifiers.begin + 8 &&
+                          sym::province_timed_modifiers.pointer_shift == 3,
+                      "the timed modifier symbols disagree on the game's layout");
+        l.country_timed = sym::country_timed_modifiers.list;
+        l.timed_node_next = sym::country_timed_modifiers.next;
+        l.province_timed = sym::province_timed_modifiers.begin;
+        l.province_timed_end = sym::province_timed_modifiers.end;
+        l.timed_modifier = sym::timed_modifier_key.modifier;
+        l.timed_key = sym::timed_modifier_key.key;
+        l.timed_start = sym::timed_modifier_dates.start;
+        l.timed_end = sym::timed_modifier_dates.end;
+        l.timed_ruler = sym::timed_modifier_ruler.ruler;
+        l.timed_hidden = sym::timed_modifier_hidden.hidden;
+        l.unset_hours = static_cast<std::int32_t>(sym::timed_modifier_dates.unset);
+        l.timed_never = base + host.value(sym::timed_modifier_never, "never");
+    }
+    if (host.present(sym::selection_holder) && host.present(sym::selection_view) && host.present(sym::view_window) &&
+        host.present(sym::province_view_province) && host.present(sym::dialog_window_part) &&
+        host.present(sym::widget_shown)) {
+        static_assert(sym::selection_view.view == sym::view_window.view, "the province view symbols disagree");
+        l.session = sym::session_of_root.session;
+        l.view_holder = static_cast<std::uint32_t>(host.value(sym::selection_holder, "holder"));
+        l.view = sym::selection_view.view;
+        l.view_province = sym::province_view_province.shown;
+        l.view_window = sym::view_window.window;
+        l.window_part = static_cast<std::uint32_t>(host.value(sym::dialog_window_part, "window_part"));
+        l.widget_shown = sym::widget_shown.shown;
     }
     if (host.present(sym::pending_events) && host.present(sym::pending_entry) && host.present(sym::pending_event) &&
         host.present(sym::event_scope_country) && host.present(sym::event_options) &&

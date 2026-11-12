@@ -63,6 +63,10 @@ pub const ANVIL_GAME_STATISTIC_INCOME: u32 = 0;
 pub const ANVIL_GAME_STATISTIC_SCORE: u32 = 1;
 pub const ANVIL_GAME_STATISTIC_NATION_SIZE: u32 = 2;
 pub const ANVIL_GAME_STATISTIC_INFLATION: u32 = 3;
+pub const ANVIL_GAME_TIMED_HIDDEN: u32 = 1;
+pub const ANVIL_GAME_TIMED_RULER: u32 = 2;
+pub const ANVIL_GAME_TIMED_NO_END: u32 = 4;
+pub const ANVIL_GAME_TIMED_NO_START: u32 = 8;
 pub const ANVIL_GAME_WORLD_SERVICE: &[u8; 17] = b"anvil-game.world\0";
 pub const ANVIL_GAME_WORLD_SERVICE_VERSION: u32 = 1;
 pub const ANVIL_GAME_COMMAND_DRILL: u32 = 1;
@@ -1276,6 +1280,35 @@ const _: () = {
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
+pub struct AnvilGameTimedModifier {
+    pub flags: u32,
+    pub reserved: u32,
+    pub start: AnvilGameDate,
+    pub end: AnvilGameDate,
+}
+#[allow(clippy::unnecessary_operation, clippy::identity_op)]
+const _: () = {
+    [
+        "Size of AnvilGameTimedModifier",
+    ][::core::mem::size_of::<AnvilGameTimedModifier>() - 56usize];
+    [
+        "Alignment of AnvilGameTimedModifier",
+    ][::core::mem::align_of::<AnvilGameTimedModifier>() - 8usize];
+    [
+        "Offset of field: AnvilGameTimedModifier::flags",
+    ][::core::mem::offset_of!(AnvilGameTimedModifier, flags) - 0usize];
+    [
+        "Offset of field: AnvilGameTimedModifier::reserved",
+    ][::core::mem::offset_of!(AnvilGameTimedModifier, reserved) - 4usize];
+    [
+        "Offset of field: AnvilGameTimedModifier::start",
+    ][::core::mem::offset_of!(AnvilGameTimedModifier, start) - 8usize];
+    [
+        "Offset of field: AnvilGameTimedModifier::end",
+    ][::core::mem::offset_of!(AnvilGameTimedModifier, end) - 32usize];
+};
+#[repr(C)]
+#[derive(Debug, Copy, Clone)]
 pub struct AnvilGameWorldService {
     pub size: u32,
     pub player: ::core::option::Option<
@@ -1532,12 +1565,47 @@ pub struct AnvilGameWorldService {
             count: *mut u32,
         ) -> AnvilResult,
     >,
+    pub country_timed_modifiers: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            out: *mut AnvilGameTimedModifier,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub country_timed_modifier_keys: ::core::option::Option<
+        unsafe extern "C" fn(
+            tag: *const core::ffi::c_char,
+            keys: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub province_timed_modifiers: ::core::option::Option<
+        unsafe extern "C" fn(
+            province: i32,
+            out: *mut AnvilGameTimedModifier,
+            capacity: u32,
+            count: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub province_timed_modifier_keys: ::core::option::Option<
+        unsafe extern "C" fn(
+            province: i32,
+            keys: *mut core::ffi::c_char,
+            capacity: u32,
+            length: *mut u32,
+        ) -> AnvilResult,
+    >,
+    pub province_view: ::core::option::Option<
+        unsafe extern "C" fn(province: *mut i32) -> AnvilResult,
+    >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
     [
         "Size of AnvilGameWorldService",
-    ][::core::mem::size_of::<AnvilGameWorldService>() - 304usize];
+    ][::core::mem::size_of::<AnvilGameWorldService>() - 344usize];
     [
         "Alignment of AnvilGameWorldService",
     ][::core::mem::align_of::<AnvilGameWorldService>() - 8usize];
@@ -1656,6 +1724,25 @@ const _: () = {
     [
         "Offset of field: AnvilGameWorldService::country_statistics",
     ][::core::mem::offset_of!(AnvilGameWorldService, country_statistics) - 296usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_timed_modifiers",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_timed_modifiers)
+        - 304usize];
+    [
+        "Offset of field: AnvilGameWorldService::country_timed_modifier_keys",
+    ][::core::mem::offset_of!(AnvilGameWorldService, country_timed_modifier_keys)
+        - 312usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_timed_modifiers",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_timed_modifiers)
+        - 320usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_timed_modifier_keys",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_timed_modifier_keys)
+        - 328usize];
+    [
+        "Offset of field: AnvilGameWorldService::province_view",
+    ][::core::mem::offset_of!(AnvilGameWorldService, province_view) - 336usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

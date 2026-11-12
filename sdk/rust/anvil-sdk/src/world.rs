@@ -27,20 +27,22 @@
 use std::fmt;
 use std::mem::size_of;
 
-use crate::error::{check, Result};
+use crate::error::{check, Error, ErrorCode, Result};
 use crate::game::Date;
 use crate::host::Host;
 use crate::sys::{
     AnvilGameCountry, AnvilGameDate, AnvilGameFlag, AnvilGameMonarch, AnvilGamePendingEvent,
-    AnvilGameProvince, AnvilGameStatisticPoint, AnvilGameTag, AnvilGameUnit, AnvilGameUnitRef,
-    AnvilGameWar, AnvilGameWorldService, ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_MONARCH_CONSORT,
-    ANVIL_GAME_MONARCH_FEMALE, ANVIL_GAME_MONARCH_HEIR, ANVIL_GAME_MONARCH_REGENCY,
-    ANVIL_GAME_MONARCH_RULER, ANVIL_GAME_PENDING_HIDDEN, ANVIL_GAME_PROVINCE_LAND,
-    ANVIL_GAME_PROVINCE_WASTELAND, ANVIL_GAME_STATISTIC_INCOME, ANVIL_GAME_STATISTIC_INFLATION,
-    ANVIL_GAME_STATISTIC_NATION_SIZE, ANVIL_GAME_STATISTIC_SCORE, ANVIL_GAME_UNIT_ARMY,
-    ANVIL_GAME_UNIT_NAVY, ANVIL_GAME_VALUE_MANPOWER, ANVIL_GAME_VALUE_MONTHLY_INCOME,
-    ANVIL_GAME_VALUE_PRESTIGE, ANVIL_GAME_VALUE_STABILITY, ANVIL_GAME_VALUE_TREASURY,
-    ANVIL_GAME_WAR_ATTACKERS, ANVIL_GAME_WAR_DEFENDERS, ANVIL_GAME_WORLD_SERVICE_VERSION,
+    AnvilGameProvince, AnvilGameStatisticPoint, AnvilGameTag, AnvilGameTimedModifier,
+    AnvilGameUnit, AnvilGameUnitRef, AnvilGameWar, AnvilGameWorldService,
+    ANVIL_GAME_COUNTRY_OBSERVER, ANVIL_GAME_MONARCH_CONSORT, ANVIL_GAME_MONARCH_FEMALE,
+    ANVIL_GAME_MONARCH_HEIR, ANVIL_GAME_MONARCH_REGENCY, ANVIL_GAME_MONARCH_RULER,
+    ANVIL_GAME_PENDING_HIDDEN, ANVIL_GAME_PROVINCE_LAND, ANVIL_GAME_PROVINCE_WASTELAND,
+    ANVIL_GAME_STATISTIC_INCOME, ANVIL_GAME_STATISTIC_INFLATION, ANVIL_GAME_STATISTIC_NATION_SIZE,
+    ANVIL_GAME_STATISTIC_SCORE, ANVIL_GAME_TIMED_HIDDEN, ANVIL_GAME_TIMED_NO_END,
+    ANVIL_GAME_TIMED_NO_START, ANVIL_GAME_TIMED_RULER, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
+    ANVIL_GAME_VALUE_MANPOWER, ANVIL_GAME_VALUE_MONTHLY_INCOME, ANVIL_GAME_VALUE_PRESTIGE,
+    ANVIL_GAME_VALUE_STABILITY, ANVIL_GAME_VALUE_TREASURY, ANVIL_GAME_WAR_ATTACKERS,
+    ANVIL_GAME_WAR_DEFENDERS, ANVIL_GAME_WORLD_SERVICE_VERSION,
 };
 use crate::text::{read_list, read_text, Tag};
 
@@ -330,6 +332,22 @@ pub struct StatisticPoint {
     pub year: i32,
     /// The value then (0 for a year before the country had one).
     pub value: i32,
+}
+
+/// A named modifier a country or a province has for a time, as an effect such
+/// as `add_country_modifier` gave it ([`World::country_timed_modifiers`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TimedModifier {
+    /// Its key, as the game's files write it.
+    pub key: String,
+    /// `hidden = yes`: the game's windows do not list it.
+    pub hidden: bool,
+    /// A ruler modifier: it goes with the ruler.
+    pub ruler: bool,
+    /// When it was given; `None` when the game keeps no start date.
+    pub start: Option<Date>,
+    /// When it ends; `None` when it lasts until an effect removes it.
+    pub end: Option<Date>,
 }
 
 /// The `anvil-game.world` service.
@@ -876,6 +894,94 @@ impl World {
             })
             .collect())
     }
+
+    /// A country's timed modifiers, in the game's order, each with its key.
+    /// Call it on the main thread, as every read: the list and the keys come
+    /// from two calls of the service in the same frame.
+    pub fn country_timed_modifiers(&self, tag: Tag) -> Result<Vec<TimedModifier>> {
+        let list = function!(self.table, AnvilGameWorldService, country_timed_modifiers)?;
+        let keys = function!(
+            self.table,
+            AnvilGameWorldService,
+            country_timed_modifier_keys
+        )?;
+        let text = tag.c_text();
+        let context = || format!("world country_timed_modifiers {tag}");
+        // SAFETY: a NUL-terminated tag; the service fills at most `capacity` entries or bytes.
+        let raw = timed_list(context, |out, capacity, count| unsafe {
+            list(text.as_ptr(), out, capacity, count)
+        })?;
+        // SAFETY: as above.
+        let all = read_text(context, |buffer, capacity, length| unsafe {
+            keys(text.as_ptr(), buffer, capacity, length)
+        })?;
+        timed_modifiers(&raw, &all, context)
+    }
+
+    /// A province's timed modifiers, in the game's order, each with its key.
+    pub fn province_timed_modifiers(&self, province: i32) -> Result<Vec<TimedModifier>> {
+        let list = function!(self.table, AnvilGameWorldService, province_timed_modifiers)?;
+        let keys = function!(
+            self.table,
+            AnvilGameWorldService,
+            province_timed_modifier_keys
+        )?;
+        let context = || format!("world province_timed_modifiers {province}");
+        // SAFETY: the service fills at most `capacity` entries or bytes.
+        let raw = timed_list(context, |out, capacity, count| unsafe {
+            list(province, out, capacity, count)
+        })?;
+        // SAFETY: as above.
+        let all = read_text(context, |buffer, capacity, length| unsafe {
+            keys(province, buffer, capacity, length)
+        })?;
+        timed_modifiers(&raw, &all, context)
+    }
+
+    /// The province the game's province view shows while that window is
+    /// open; `NotFound` while none is open.
+    pub fn province_view(&self) -> Result<i32> {
+        let f = function!(self.table, AnvilGameWorldService, province_view)?;
+        let mut province = 0i32;
+        // SAFETY: an out pointer.
+        check(unsafe { f(&mut province) }, || {
+            "world province_view".to_owned()
+        })?;
+        Ok(province)
+    }
+}
+
+fn timed_list(
+    context: impl Fn() -> String,
+    call: impl FnMut(*mut AnvilGameTimedModifier, u32, *mut u32) -> crate::sys::AnvilResult,
+) -> Result<Vec<AnvilGameTimedModifier>> {
+    // SAFETY: plain data for which zero is valid.
+    let empty: AnvilGameTimedModifier = unsafe { std::mem::zeroed() };
+    read_list(empty, context, call)
+}
+
+// The entries with their keys; a count that differs means the list changed
+// between the two calls, which happens only off the main thread.
+fn timed_modifiers(
+    raw: &[AnvilGameTimedModifier],
+    keys: &str,
+    context: impl Fn() -> String,
+) -> Result<Vec<TimedModifier>> {
+    let keys = split_names(keys);
+    if keys.len() != raw.len() {
+        return Err(Error::new(ErrorCode::Internal, context()));
+    }
+    Ok(raw
+        .iter()
+        .zip(keys)
+        .map(|(m, key)| TimedModifier {
+            key,
+            hidden: m.flags & ANVIL_GAME_TIMED_HIDDEN != 0,
+            ruler: m.flags & ANVIL_GAME_TIMED_RULER != 0,
+            start: (m.flags & ANVIL_GAME_TIMED_NO_START == 0).then(|| Date::from_raw(&m.start)),
+            end: (m.flags & ANVIL_GAME_TIMED_NO_END == 0).then(|| Date::from_raw(&m.end)),
+        })
+        .collect())
 }
 
 /// Names that each end with a NUL, one after the other.

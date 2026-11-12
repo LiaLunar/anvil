@@ -1562,3 +1562,171 @@ bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00
 [symbol.popup_list_append.build."eu4-1.37.5.0-gog-win64"]
 rva = 0x6EC4FD
 bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
+
+# --- timed modifiers and the province view (anvil-game.world, 1.21.0) ------------
+# Read only; names and layouts from the GOG 1.37.5.2 PDB, one site each, checked
+# unique in the .text of all three builds. The seven timed modifier symbols may be
+# declared absent together, and so may the six of the province view.
+
+[symbol.country_timed_modifiers]
+bytes = "48 8B 89 F0 01 00 00 48 85 C9 74 16 0F 1F 40 00 4C 8B 01 49 39 50 30 74 0C 48 8B 49 10 48 85 C9 75 EE"
+memory = "code"
+values.list = { at = 3, size = 4 }
+values.modifier = { at = 22, size = 1 }
+values.next = { at = 28, size = 1 }
+note = "CCountry::HasModifier: the country's temporary modifiers, a list of CTimedModifier* at +0x1F0 (head; node: the object at +0, next at +0x10); each one's static modifier at +0x30"
+build."eu4-1.37.5-steam-win64" = { rva = 0x2EC170 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x2EC120 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x2EC120 }
+
+[symbol.province_timed_modifiers]
+bytes = """
+4C 8B 89 F0 02 00 00 33 C0 4C 8B 81 F8 02 00 00 4C 8B D2 4D 2B C1 49 C1 F8 03 45 85 C0 7E 12 90
+49 8B 14 C1 4C 39 52 30 74 0A FF C0 41 3B C0 7C EF 32 C0 C3 B0 01
+"""
+memory = "code"
+values.begin = { at = 3, size = 4 }
+values.end = { at = 12, size = 4 }
+values.pointer_shift = { at = 25, size = 1 }
+values.modifier = { at = 39, size = 1 }
+note = "CProvince::HasModifier: the province's temporary modifiers, a vector of CTimedModifier* at +0x2F0 (end +0x2F8); each one's static modifier at +0x30"
+build."eu4-1.37.5-steam-win64" = { rva = 0x9F9B20 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x9F8B00 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x9F8B00 }
+
+[symbol.timed_modifier_key]
+bytes = """
+48 8B 5E 30 48 85 DB 74 2C BA 68 29 00 00 48 8B CF E8 ?? ?? ?? ?? 48 8D 93 58 01 00 00 48 83 7A 18 10
+72 03 48 8B 12 45 33 C9 45 33 C0 48 8B CF E8 ?? ?? ?? ??
+"""
+memory = "code"
+values.modifier = { at = 3, size = 1 }
+values.key = { at = 25, size = 4 }
+note = "CTimedModifier::WriteMembers: modifier = the static modifier's key, a std::string at +0x158 of CStaticModifier (the one at +0x30)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB35BC3 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB343A3 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB343A3 }
+
+[symbol.timed_modifier_dates]
+bytes = """
+81 7E 44 F8 77 9C 02 48 8D 4E 44 74 22 E8 ?? ?? ?? ?? BA 4D 28 00 00 48 8B CF 48 8B D8 E8 ?? ?? ?? ??
+4C 8B 03 48 8B D7 48 8B CB 41 FF 50 08 81 7E 40 F8 77 9C 02 48 8D 4E 40 74 22
+"""
+memory = "code"
+values.end = { at = 2, size = 1 }
+values.unset = { at = 3, size = 4 }
+values.start = { at = 49, size = 1 }
+note = "CTimedModifier::WriteMembers: date = the end at +0x44, then the start at +0x40, each written unless it is the unset date (hours)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB35C6A }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB3444A }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB3444A }
+
+[symbol.timed_modifier_ruler]
+bytes = "0F B6 5E 48 84 DB 74 20 BA E3 2D 00 00"
+memory = "code"
+values.ruler = { at = 3, size = 1 }
+note = "CTimedModifier::WriteMembers: the ruler modifier's bool at +0x48"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB35CC8 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB344A8 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB344A8 }
+
+[symbol.timed_modifier_hidden]
+bytes = "0F B6 5E 4B 84 DB 74 20 BA 90 2D 00 00"
+memory = "code"
+values.hidden = { at = 3, size = 1 }
+note = "CTimedModifier::WriteMembers: hidden = the bool at +0x4B"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB35D40 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB34520 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB34520 }
+
+[symbol.timed_modifier_never]
+memory = "code"
+values.never = { at = 9, rip_relative = 13 }
+note = "CCountry::AddTemporaryModifier: a negative duration ends at the game's date for never (a global int32, hours), else at today + 24 h a day"
+
+[symbol.timed_modifier_never.build."eu4-1.37.5-steam-win64"]
+rva = 0x328D78
+bytes = "48 8B 35 ?? ?? ?? ?? 8B 1D 17 87 CA 01 45 85 FF 78 0D 43 8D 1C 7F C1 E3 03 03 9E D0 1D 00 00"
+
+[symbol.timed_modifier_never.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x328D08
+bytes = "48 8B 35 ?? ?? ?? ?? 8B 1D 87 C7 C8 01 45 85 FF 78 0D 43 8D 1C 7F C1 E3 03 03 9E D0 1D 00 00"
+
+[symbol.timed_modifier_never.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x328D08
+bytes = "48 8B 35 ?? ?? ?? ?? 8B 1D 87 C7 C8 01 45 85 FF 78 0D 43 8D 1C 7F C1 E3 03 03 9E D0 1D 00 00"
+
+# The province view: the session's selection object, its province view, the
+# province the view shows and the view's window, whose widget says whether it is
+# shown. The same sites as Tongs' (its symbols.toml), there checked live.
+
+[symbol.selection_holder]
+memory = "code"
+values.holder = { at = 17, size = 4 }
+note = "province view: select(*(session+0x1220 Steam, +0x1210 GOG), province); the session's selection object"
+
+[symbol.selection_holder.build."eu4-1.37.5-steam-win64"]
+rva = 0xE31D05
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 20 12 00 00 E8 11 AB 56 00"
+
+[symbol.selection_holder.build."eu4-1.37.5.2-gog-win64"]
+rva = 0xE30455
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 10 12 00 00 E8 21 65 56 00"
+
+[symbol.selection_holder.build."eu4-1.37.5.0-gog-win64"]
+rva = 0xE30455
+bytes = "48 8B 86 50 05 00 00 48 8B 96 60 05 00 00 48 8B 88 10 12 00 00 E8 21 65 56 00"
+
+[symbol.selection_view]
+bytes = "48 8B 4B 10 41 B0 01 48 8B D6 E8 DA AF FA FF"
+memory = "code"
+values.view = { at = 3, size = 1 }
+note = "province selection: shows the province in the province view at selection+0x10"
+build."eu4-1.37.5-steam-win64" = { rva = 0x139CA67 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1396BC7 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1396BC7 }
+
+[symbol.view_window]
+bytes = "48 8B 4B 10 48 8B 01 FF 50 40 84 C0 74 0B 48 8B 43 10 48 8B A8 A0 00 00 00"
+memory = "code"
+values.view = { at = 3, size = 1 }
+values.window = { at = 21, size = 4 }
+note = "province selection: the province view is a controller; its window (the provinceview widget's full object) at +0xA0"
+build."eu4-1.37.5-steam-win64" = { rva = 0x139CA7F }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1396BDF }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1396BDF }
+
+[symbol.province_view_province]
+bytes = "48 39 91 58 09 00 00 0F 84 3E 01 00 00"
+memory = "code"
+values.shown = { at = 3, size = 4 }
+note = "province view: the displayed province, a CProvince*, at +0x958"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1347A89 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1341BE9 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1341BE9 }
+
+[symbol.dialog_window_part]
+memory = "code"
+values.window_part = { at = 10, size = 1 }
+note = "eu3dialogtype's constructor: its widget part at +0x30 of the full window object"
+
+[symbol.dialog_window_part.build."eu4-1.37.5-steam-win64"]
+rva = 0x10A1879
+bytes = "48 8D 05 90 5C CB 00 48 89 46 30"
+
+[symbol.dialog_window_part.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x10A0079
+bytes = "48 8D 05 78 FF C9 00 48 89 46 30"
+
+[symbol.dialog_window_part.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x10A0079
+bytes = "48 8D 05 78 FF C9 00 48 89 46 30"
+
+[symbol.widget_shown]
+bytes = "40 53 48 83 EC 20 C6 81 C5 00 00 00 00"
+memory = "code"
+values.shown = { at = 8, size = 4 }
+note = "a button's hide: a widget's visible byte at +0xC5"
+build."eu4-1.37.5-steam-win64" = { rva = 0x15AEAD0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x15A55F0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x15A55F0 }

@@ -1,0 +1,8 @@
+# anvil-inspector's texts in Japanese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, with their rulers, heirs and consorts. It only reads, and it is off until you turn it on." = "MOD制作者向けの標準プラグイン：オーバーレイのウィンドウに、ビューを開いている州、その所有国、あなたの国のフラグ、変数、期間付き修正と、君主・後継者・配偶者を表示します。読み取りのみを行い、オンにするまでは何もしません。"
+"Inspector window" = "インスペクターウィンドウ"
+"For modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, read from the running game. On: the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel. Off: the plugin does nothing." = "MOD制作者向け：オーバーレイのウィンドウに、ビューを開いている州、その所有国、あなたの国のフラグ、変数、期間付き修正を、実行中のゲームから読み取って表示します。オン：ウィンドウが開き、起動するたびにも開きます。閉じた後は Anvil パネルの「ステータス」タブにあります。オフ：プラグインは何もしません。"

@@ -443,6 +443,28 @@ typedef struct AnvilGameStatisticPoint {
     int32_t value;
 } AnvilGameStatisticPoint;
 
+/* --- Since anvil-game 1.21.0: timed modifiers ------------------------------ */
+
+/* AnvilGameTimedModifier.flags */
+#define ANVIL_GAME_TIMED_HIDDEN 0x1u   /* hidden = yes: the game's windows do not list it */
+#define ANVIL_GAME_TIMED_RULER 0x2u    /* a ruler modifier (add_ruler_modifier): it goes with the ruler */
+#define ANVIL_GAME_TIMED_NO_END 0x4u   /* given for good (duration = -1): no end date; `end` is all 0 */
+#define ANVIL_GAME_TIMED_NO_START 0x8u /* the game keeps no start date; `start` is all 0 */
+
+/* One named modifier a country or a province has for a time, as an effect such
+ * as add_country_modifier or add_province_modifier gave it: what
+ * has_country_modifier and has_province_modifier look for. It comes in arrays
+ * and has no `size`, so it never grows within version 1; its key comes from the
+ * matching _keys call. Triggered and static modifiers are not among them. The
+ * list is the game's own, so it also holds a few the game sets up by itself and
+ * leaves out of a save, such as world_port. */
+typedef struct AnvilGameTimedModifier {
+    uint32_t flags;      /* ANVIL_GAME_TIMED_* */
+    uint32_t reserved;
+    AnvilGameDate start; /* when it was given; its `session` is the current one */
+    AnvilGameDate end;   /* when it ends: the date its save entry has */
+} AnvilGameTimedModifier;
+
 #define ANVIL_GAME_WORLD_SERVICE "anvil-game.world"
 #define ANVIL_GAME_WORLD_SERVICE_VERSION 1
 
@@ -609,6 +631,27 @@ typedef struct AnvilGameWorldService {
      * when a port declared the statistics symbols absent. */
     AnvilResult (*country_statistics)(const char *tag, uint32_t kind, AnvilGameStatisticPoint *out, uint32_t capacity,
                                       uint32_t *count);
+    /* Since anvil-game 1.21.0, for the four calls below. A country's or a
+     * province's timed modifiers, in the game's order (the order of its save),
+     * and their keys in the same order: each key as the game's files write it,
+     * in UTF-8 and followed by a NUL, one after the other, filled with whole keys
+     * as far as they fit; *length gets the size of them all, their NULs included.
+     * Ask both in one handler or work: the list changes only between frames.
+     * ANVIL_ERROR_NOT_DECLARED for all four when a port declared the timed
+     * modifier symbols absent. A read walks the list: a few hundred ns. */
+    AnvilResult (*country_timed_modifiers)(const char *tag, AnvilGameTimedModifier *out, uint32_t capacity,
+                                           uint32_t *count);
+    AnvilResult (*country_timed_modifier_keys)(const char *tag, char *keys, uint32_t capacity, uint32_t *length);
+    AnvilResult (*province_timed_modifiers)(int32_t province, AnvilGameTimedModifier *out, uint32_t capacity,
+                                            uint32_t *count);
+    AnvilResult (*province_timed_modifier_keys)(int32_t province, char *keys, uint32_t capacity, uint32_t *length);
+    /* Since anvil-game 1.21.0. The province the game's province view shows while
+     * that window is open: *province gets its ID. ANVIL_ERROR_NOT_FOUND while no
+     * province view is open (also before the first one in a session);
+     * ANVIL_ERROR_NOT_DECLARED when a port declared the view symbols absent. It
+     * reads the window's own state, so it follows every way the view opens: a
+     * click on the map, the outliner, a link or a plugin. */
+    AnvilResult (*province_view)(int32_t *province);
 } AnvilGameWorldService;
 
 /* Nonzero when `service` provides `field`. */

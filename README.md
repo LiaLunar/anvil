@@ -88,6 +88,12 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   its events and decisions like any other effect, and have its work done once
   a day right after the game's day (the Day end). By itself it changes
   nothing.
+- And `anvil-inspector` (`anvil/plugins/anvil-inspector/`, from Anvil 1.21): for
+  modders, its `window` setting (off by default) opens a window with the flags,
+  variables and timed modifiers of the province whose view is open, of its
+  owner and of your country, with their rulers, heirs and consorts, as the
+  running game holds them ([docs/inspector.md](docs/inspector.md)). It only
+  reads.
 - Each start writes `anvil/anvil.log`: what was loaded, what was skipped and why.
 - A crash writes a report to `anvil/crashes/` (the last 10 are kept): where it
   happened and which plugins were involved, with each plugin's `issues` link.

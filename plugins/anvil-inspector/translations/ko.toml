@@ -1,0 +1,8 @@
+# anvil-inspector's texts in Korean (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, with their rulers, heirs and consorts. It only reads, and it is off until you turn it on." = "모드 제작자를 위한 표준 플러그인: 오버레이 창에 보기가 열려 있는 프로빈스, 그 소유국, 당신의 국가의 플래그, 변수, 기간 수정치와 통치자, 후계자, 배우자를 보여 줍니다. 읽기만 하며, 켜기 전에는 꺼져 있습니다."
+"Inspector window" = "검사기 창"
+"For modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, read from the running game. On: the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel. Off: the plugin does nothing." = "모드 제작자용: 오버레이 창에 보기가 열려 있는 프로빈스, 그 소유국, 당신의 국가의 플래그, 변수, 기간 수정치를 실행 중인 게임에서 읽어 보여 줍니다. 켜짐: 창이 열리며, 시작할 때마다 열립니다. 닫은 뒤에는 Anvil 패널의 상태 탭에 있습니다. 꺼짐: 플러그인은 아무것도 하지 않습니다."

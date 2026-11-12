@@ -714,6 +714,53 @@ unsafe extern "C" fn world_country_statistics(
     ANVIL_OK
 }
 
+unsafe extern "C" fn world_country_timed_modifiers(
+    _tag: *const c_char,
+    out: *mut AnvilGameTimedModifier,
+    capacity: u32,
+    count: *mut u32,
+) -> AnvilResult {
+    unsafe {
+        *count = 2;
+        if capacity >= 2 {
+            let mut a: AnvilGameTimedModifier = std::mem::zeroed();
+            a.flags = ANVIL_GAME_TIMED_HIDDEN;
+            a.start.year = 1715;
+            a.start.month = 1;
+            a.start.day = 1;
+            a.end.year = 1725;
+            a.end.month = 1;
+            a.end.day = 1;
+            let mut b: AnvilGameTimedModifier = std::mem::zeroed();
+            b.flags = ANVIL_GAME_TIMED_RULER | ANVIL_GAME_TIMED_NO_END | ANVIL_GAME_TIMED_NO_START;
+            *out = a;
+            *out.add(1) = b;
+        }
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_country_timed_modifier_keys(
+    _tag: *const c_char,
+    keys: *mut c_char,
+    capacity: u32,
+    length: *mut u32,
+) -> AnvilResult {
+    let all = b"obstacle_shipbuilding\0tsars_reforms\0";
+    unsafe {
+        *length = all.len() as u32;
+        if capacity as usize >= all.len() {
+            ptr::copy_nonoverlapping(all.as_ptr(), keys.cast::<u8>(), all.len());
+        }
+    }
+    ANVIL_OK
+}
+
+unsafe extern "C" fn world_province_view(province: *mut i32) -> AnvilResult {
+    unsafe { *province = 295 };
+    ANVIL_OK
+}
+
 static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
     let mut table: AnvilGameWorldService = unsafe { std::mem::zeroed() };
     table.size = std::mem::size_of::<AnvilGameWorldService>() as u32;
@@ -724,6 +771,9 @@ static FAKE_WORLD_FULL: Shared<AnvilGameWorldService> = Shared({
     table.pending_event = Some(world_pending_event);
     table.pending_event_key = Some(world_pending_event_key);
     table.country_statistics = Some(world_country_statistics);
+    table.country_timed_modifiers = Some(world_country_timed_modifiers);
+    table.country_timed_modifier_keys = Some(world_country_timed_modifier_keys);
+    table.province_view = Some(world_province_view);
     table
 });
 
@@ -1037,6 +1087,21 @@ fn world_reads_rulers_flags_and_variable_names() {
     assert_eq!(
         w.country_variable_names(rus).unwrap(),
         ["treasury_plan", "war_goal"]
+    );
+    let timed = w.country_timed_modifiers(rus).unwrap();
+    assert_eq!(timed.len(), 2);
+    assert_eq!(timed[0].key, "obstacle_shipbuilding");
+    assert!(timed[0].hidden && !timed[0].ruler);
+    assert_eq!(timed[0].start.unwrap().to_string(), "1715.1.1");
+    assert_eq!(timed[0].end.unwrap().to_string(), "1725.1.1");
+    assert_eq!(timed[1].key, "tsars_reforms");
+    assert!(
+        timed[1].ruler && !timed[1].hidden && timed[1].start.is_none() && timed[1].end.is_none()
+    );
+    assert_eq!(w.province_view().unwrap(), 295);
+    assert_eq!(
+        w.province_timed_modifiers(295).unwrap_err().code(),
+        ErrorCode::Unsupported
     );
     // Set in the table's size but not filled in: Unsupported, like an older anvil-game.
     assert_eq!(w.flag_id("x").unwrap_err().code(), ErrorCode::Unsupported);

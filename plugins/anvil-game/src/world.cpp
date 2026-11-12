@@ -1062,4 +1062,87 @@ AnvilResult read_statistics(const WorldLayout& l, std::string_view tag, std::uin
     return ANVIL_ERROR_NOT_FOUND;
 }
 
+// ---- timed modifiers and the province view (1.21.0) -----------------------------
+
+namespace {
+
+constexpr std::size_t kMaxTimed = 65536;  // a longer list is taken as garbage
+
+bool read_timed(const WorldLayout& l, std::int32_t never, std::uintptr_t timed, TimedEntry& out) {
+    std::uintptr_t modifier = 0;
+    std::uint8_t ruler = 0, hidden = 0;
+    if (timed == 0 || !read(timed + l.timed_modifier, modifier) || modifier == 0 ||
+        !read_string(modifier + l.timed_key, out.key) || !read(timed + l.timed_start, out.start) ||
+        !read(timed + l.timed_end, out.end) || !read(timed + l.timed_ruler, ruler) ||
+        !read(timed + l.timed_hidden, hidden)) {
+        return false;
+    }
+    out.flags = (hidden != 0 ? ANVIL_GAME_TIMED_HIDDEN : 0u) | (ruler != 0 ? ANVIL_GAME_TIMED_RULER : 0u);
+    // Given for good (a negative duration): the game's date for never; never set: the unset date.
+    if (out.end == l.unset_hours || out.end == never) out.flags |= ANVIL_GAME_TIMED_NO_END;
+    if (out.start == l.unset_hours) out.flags |= ANVIL_GAME_TIMED_NO_START;
+    return true;
+}
+
+}  // namespace
+
+AnvilResult read_country_timed(const WorldLayout& l, std::string_view tag, std::vector<TimedEntry>& out) {
+    if (l.timed_key == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t country = 0, node = 0;
+    std::uint64_t own = 0;
+    if (const AnvilResult r = country_at(l, tag, country, own); r != ANVIL_OK) return r;
+    std::int32_t never = 0;
+    if (!read(country + l.country_timed, node) || !read(l.timed_never, never)) return ANVIL_ERROR_INTERNAL;
+    out.clear();
+    while (node != 0) {
+        if (out.size() >= kMaxTimed) return ANVIL_ERROR_INTERNAL;  // a loop
+        std::uintptr_t timed = 0;
+        TimedEntry e;
+        if (!read(node, timed) || !read_timed(l, never, timed, e) || !read(node + l.timed_node_next, node)) {
+            return ANVIL_ERROR_INTERNAL;
+        }
+        out.push_back(std::move(e));
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_province_timed(const WorldLayout& l, std::int32_t province, std::vector<TimedEntry>& out) {
+    if (l.timed_key == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t p = 0, begin = 0, end = 0;
+    std::int32_t never = 0;
+    if (const AnvilResult r = province_at(l, province, p); r != ANVIL_OK) return r;
+    if (!read(l.timed_never, never) || !read(p + l.province_timed, begin) || !read(p + l.province_timed_end, end) || end < begin ||
+        (end - begin) % 8 != 0 || (end - begin) / 8 > kMaxTimed) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    out.clear();
+    for (std::uintptr_t at = begin; at < end; at += 8) {
+        std::uintptr_t timed = 0;
+        TimedEntry e;
+        if (!read(at, timed) || !read_timed(l, never, timed, e)) return ANVIL_ERROR_INTERNAL;
+        out.push_back(std::move(e));
+    }
+    return ANVIL_OK;
+}
+
+AnvilResult read_province_view(const WorldLayout& l, std::int32_t& province) {
+    if (l.view_holder == 0) return ANVIL_ERROR_NOT_DECLARED;
+    std::uintptr_t root = 0, session = 0, holder = 0, view = 0, shown = 0, window = 0;
+    if (!read_root(l, root) || !read(root + l.session, session) || session == 0 || !read(session + l.view_holder, holder)) {
+        return ANVIL_ERROR_INTERNAL;
+    }
+    if (holder == 0) return ANVIL_ERROR_NOT_FOUND;  // no selection object yet
+    if (!read(holder + l.view, view)) return ANVIL_ERROR_INTERNAL;
+    if (view == 0) return ANVIL_ERROR_NOT_FOUND;
+    if (!read(view + l.view_province, shown) || !read(view + l.view_window, window)) return ANVIL_ERROR_INTERNAL;
+    if (shown == 0 || window == 0) return ANVIL_ERROR_NOT_FOUND;
+    std::uint8_t visible = 0;
+    if (!read(window + l.window_part + l.widget_shown, visible)) return ANVIL_ERROR_INTERNAL;
+    if (visible == 0) return ANVIL_ERROR_NOT_FOUND;
+    std::int32_t id = 0;
+    if (!province_id_of(l, shown, id) || id == 0) return ANVIL_ERROR_INTERNAL;
+    province = id;
+    return ANVIL_OK;
+}
+
 }  // namespace anvil_game

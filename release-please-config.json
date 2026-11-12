@@ -16,7 +16,8 @@
         { "type": "toml", "path": "plugins/anvil-overlay/plugin.toml", "jsonpath": "$.version" },
         { "type": "toml", "path": "plugins/anvil-log-throttle/plugin.toml", "jsonpath": "$.version" },
         { "type": "toml", "path": "plugins/anvil-map/plugin.toml", "jsonpath": "$.version" },
-        { "type": "toml", "path": "plugins/anvil-script/plugin.toml", "jsonpath": "$.version" }
+        { "type": "toml", "path": "plugins/anvil-script/plugin.toml", "jsonpath": "$.version" },
+        { "type": "toml", "path": "plugins/anvil-inspector/plugin.toml", "jsonpath": "$.version" }
       ],
       "changelog-sections": [
         { "type": "feat", "section": "Features" },

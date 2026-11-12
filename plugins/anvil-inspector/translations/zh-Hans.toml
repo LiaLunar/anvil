@@ -1,0 +1,8 @@
+# anvil-inspector's texts in Simplified Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, with their rulers, heirs and consorts. It only reads, and it is off until you turn it on." = "面向模组作者的标准插件：叠加层中的一个窗口，显示当前打开视图的省份、其拥有者以及你的国家的标记、变量和限时修正，以及它们的统治者、继承人和配偶。它只读取数据，在你开启之前不会运行。"
+"Inspector window" = "检查器窗口"
+"For modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, read from the running game. On: the window opens, at every start too; once closed, it is in the Status tab of the Anvil panel. Off: the plugin does nothing." = "面向模组作者：叠加层中的一个窗口，显示当前打开视图的省份、其拥有者以及你的国家的标记、变量和限时修正，数据读取自正在运行的游戏。开启：窗口会打开，每次启动时也会打开；关闭窗口后，可在 Anvil 面板的“状态”选项卡中找到它。关闭：插件不做任何事。"

@@ -184,6 +184,36 @@ struct WorldLayout {
     std::uint32_t statistics_key = 0;       // node: std::string
     std::uint32_t statistics_values = 0;    // node: vector of int32, its begin; end after it
     std::uint32_t statistics_years = 0;     // node: vector of int32, its begin; end after it
+
+    // Timed modifiers: `timed_key` 0 when absent on this build.
+    std::uint32_t country_timed = 0;        // country: the list's head node, null when empty
+    std::uint32_t timed_node_next = 0;      // node: the next node (the object is at +0)
+    std::uint32_t province_timed = 0;       // province: std::vector of CTimedModifier*, its begin
+    std::uint32_t province_timed_end = 0;
+    std::uint32_t timed_modifier = 0;       // timed modifier: its CStaticModifier*
+    std::uint32_t timed_key = 0;            // static modifier: its key, a std::string
+    std::uint32_t timed_start = 0;          // timed modifier: int32, hours
+    std::uint32_t timed_end = 0;
+    std::uint32_t timed_ruler = 0;          // timed modifier: bool
+    std::uint32_t timed_hidden = 0;
+    std::int32_t unset_hours = 0;           // the date the game writes for none
+    std::uintptr_t timed_never = 0;         // the address of the global date of a modifier given for good
+
+    // The province view: `view_holder` 0 when absent on this build.
+    std::uint32_t view_holder = 0;          // session: the selection object
+    std::uint32_t view = 0;                 // selection object: the province view
+    std::uint32_t view_province = 0;        // view: the CProvince* it shows
+    std::uint32_t view_window = 0;          // view: its window's full object
+    std::uint32_t window_part = 0;          // full window object: its widget
+    std::uint32_t widget_shown = 0;         // widget: byte, nonzero while it is shown
+};
+
+// A timed modifier, its dates still the game's hours.
+struct TimedEntry {
+    std::string key;  // as the game stores it
+    std::uint32_t flags = 0;  // ANVIL_GAME_TIMED_*: NO_END and NO_START say the dates are not ones
+    std::int32_t start = 0;
+    std::int32_t end = 0;
 };
 
 
@@ -250,6 +280,11 @@ AnvilResult read_pending_text(const WorldLayout& l, const PendingKey& key, bool 
 // `kind` is ANVIL_GAME_STATISTIC_*; the caller checks it.
 AnvilResult read_statistics(const WorldLayout& l, std::string_view tag, std::uint32_t kind,
                             std::vector<AnvilGameStatisticPoint>& out);
+
+AnvilResult read_country_timed(const WorldLayout& l, std::string_view tag, std::vector<TimedEntry>& out);
+AnvilResult read_province_timed(const WorldLayout& l, std::int32_t province, std::vector<TimedEntry>& out);
+// NOT_FOUND while no province view is shown.
+AnvilResult read_province_view(const WorldLayout& l, std::int32_t& province);
 
 // A getter of 3 bytes that returns a constant bool: xor al,al; ret or mov al,1; ret.
 bool decode_bool_getter(const std::uint8_t* code, std::size_t size, bool& value);
