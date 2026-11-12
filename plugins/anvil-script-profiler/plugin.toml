@@ -1,6 +1,6 @@
 id = "anvil-script-profiler"
 name = "Anvil script profiler"
-version = "1.21.0"
+version = "1.22.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin for modders: a window of the overlay that times the game's triggers and effects by the event, decision, on_action, casus belli, triggered modifier or mission they belong to, and writes the results to a CSV file. It hooks nothing until you start a measurement, and the game runs slower while it measures."
 api = 2

@@ -20,7 +20,7 @@ name = "anvil"
 [dependencies]
 # The anvil-sys of the same Anvil release (release-please keeps the version
 # equal to version.txt).
-anvil-sys = { version = "1.21.0", path = "../anvil-sys" } # x-release-please-version
+anvil-sys = { version = "1.22.0", path = "../anvil-sys" } # x-release-please-version
 
 [package.metadata.docs.rs]
 targets = ["x86_64-pc-windows-msvc"]

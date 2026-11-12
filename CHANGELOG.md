@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.22.0](https://github.com/happy-dwarf-team/anvil/compare/v1.21.0...v1.22.0) (2026-11-12)
+
+
+### Features
+
+* add anvil-script-profiler, a profiler of triggers and effects for modders ([#345](https://github.com/happy-dwarf-team/anvil/issues/345)) ([cf7a59d](https://github.com/happy-dwarf-team/anvil/commit/cf7a59df3a1a41a909f5428e9886b75ae8eb0d84))
+* **api:** plugins can add an army's map area to its autonomous siege or rebel hunt, or take it out, as a click in those map modes (`ANVIL_GAME_COMMAND_SIEGE_AREA` and `_SUPPRESS_AREA`, `Commands::siege_area` and `suppress_area` in anvil-sdk 0.1.10) ([91e53b0](https://github.com/happy-dwarf-team/anvil/commit/91e53b0ae6523e64947dcdaa1c8af1803667bdec))
+* **api:** plugins can send armies and fleets exploring (land, circumnavigation, stop) and move them as a right-click does (`ANVIL_GAME_COMMAND_EXPLORE` and `_MOVE`, `Commands::explore` and `move_to` in anvil-sdk 0.1.10) ([614b31e](https://github.com/happy-dwarf-team/anvil/commit/614b31e48a6aa43fa7ff0291aae5fd03c3f9baae))
+* **api:** plugins can set the game speed as the speed bar's buttons do (`ANVIL_GAME_COMMAND_SPEED`, `anvil-game.commands` version 3, `Commands::set_speed` in anvil-sdk 0.1.10); in multiplayer only the host can ([77c924e](https://github.com/happy-dwarf-team/anvil/commit/77c924e44c9d4c28bf49b2b3b6d8791687f5642b))
+* **api:** plugins can split their features into modules, each with its own switch and gameplay flag (`[[modules]]` in `plugin.toml`, `host->module`, anvil-sdk 0.1.10); in ironman and multiplayer Anvil suspends only the modules that change the game ([5f07509](https://github.com/happy-dwarf-team/anvil/commit/5f07509931ec4cac53b60b18655f8123e814d3fc))
+* **api:** read diplomacy and the cached opinion from anvil-game.world ([#344](https://github.com/happy-dwarf-team/anvil/issues/344)) ([cb06407](https://github.com/happy-dwarf-team/anvil/commit/cb06407505b4c3adb7dbb28de5beb101b5f624d5))
+* **cli:** `anvil check` lists a plugin's modules and warns when its `anvil` range admits a release without modules ([f9d82f7](https://github.com/happy-dwarf-team/anvil/commit/f9d82f7d39705d46469d6457c61ac7257be20739))
+* **manager:** the Plugins tab has a switch for each module and its own ironman and multiplayer boxes; a change applies at the next start ([0103a0c](https://github.com/happy-dwarf-team/anvil/commit/0103a0ca1e4592a50487def8bde2416e5226dcf3))
+* name scripted triggers and church aspects in anvil-script-profiler ([#352](https://github.com/happy-dwarf-team/anvil/issues/352)) ([f46abc7](https://github.com/happy-dwarf-team/anvil/commit/f46abc7967bf82afeec9eb2cab34754183e7fa45))
+* **overlay:** the panel's Status tab shows each module's state, and the ironman notice names the plugins and modules you allowed ([95ae765](https://github.com/happy-dwarf-team/anvil/commit/95ae7650401a3f0e85467b909948ca7cf1cc7964))
+* the approval of a plugin from a mod lists its modules and what each one does to the game ([3c1e28d](https://github.com/happy-dwarf-team/anvil/commit/3c1e28dbd812991585eed08d8536636e3d03a2f7))
+
 ## [1.21.0](https://github.com/happy-dwarf-team/anvil/compare/v1.20.0...v1.21.0) (2026-11-12)
 
 ### Features
