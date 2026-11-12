@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.21.0](https://github.com/happy-dwarf-team/anvil/compare/v1.20.0...v1.21.0) (2026-11-12)
+
+### Features
+
+* Modders get an inspector window from the new standard plugin `anvil-inspector`: turn on **Inspector window** (off by default) to see the flags, variables and timed modifiers of the open province, its owner and the player's country. Its texts in other languages are drafts. ([#330](https://github.com/happy-dwarf-team/anvil/issues/330)) ([6ee5c01](https://github.com/happy-dwarf-team/anvil/commit/6ee5c01a4ffd8355607bdd394f1b2c5fcc1caf49))
+* **api:** `anvil-game.world` also reads the events waiting for a country's choice and the statistics of the game's graphs, in Rust through `anvil-sdk` 0.1.9. ([#329](https://github.com/happy-dwarf-team/anvil/issues/329)) ([df11a93](https://github.com/happy-dwarf-team/anvil/commit/df11a9386f95018b6ddc34226767155438b1c095))
+
 ## [1.20.0](https://github.com/happy-dwarf-team/anvil/compare/v1.19.0...v1.20.0) (2026-11-12)
 
 ### Features

@@ -1,6 +1,6 @@
 id = "anvil-inspector"
 name = "Anvil inspector"
-version = "1.20.0"
+version = "1.21.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin for modders: a window of the overlay with the flags, variables and timed modifiers of the province whose view is open, of its owner and of your country, with their rulers, heirs and consorts. It only reads, and it is off until you turn it on."
 api = 2
