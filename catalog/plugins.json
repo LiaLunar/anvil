@@ -34,7 +34,7 @@
       "repo": "https://github.com/happy-dwarf-team/bellows",
       "page": "https://anvil.happydwarf.dev/plugins/bellows/",
       "workshop": "https://steamcommunity.com/sharedfiles/filedetails/?id=3823747170",
-      "version": "1.7.0",
+      "version": "1.8.0",
       "anvil": ">=1.7.0",
       "affects_gameplay": false,
       "builds": [
@@ -43,9 +43,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.7.0/bellows-windows-x64.zip",
-        "size": 1427644,
-        "sha256": "4b4742efe39b84ce6124437ce4ea0b65ea84b525695c7f20f33d351789b8dad2"
+        "url": "https://github.com/happy-dwarf-team/bellows/releases/download/v1.8.0/bellows-windows-x64.zip",
+        "size": 1481853,
+        "sha256": "1570fa076da09c6c953f943a3b160921070dea28f3e64d862edc6a19953e9c52"
       }
     },
     {
@@ -184,7 +184,7 @@
           "note": "Zip zawiera wtyczkę. Fonty Mei przychodzą z jej przedmiotem z Warsztatu Steam; na GOG to mei-fonts.zip w jej wydaniu, jako lokalny mod. Bez nich zostają fonty samej gry."
         }
       },
-      "version": "0.7.1",
+      "version": "0.8.0",
       "anvil": ">=1.9.0",
       "affects_gameplay": false,
       "builds": [
@@ -193,9 +193,9 @@
         "eu4-1.37.5.0-gog-win64"
       ],
       "zip": {
-        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.7.1/mei-windows-x64.zip",
-        "size": 1067455,
-        "sha256": "cc53c205a8efffbbba0c1772c2d8a0d878d7b5e249c944bbbb08f7e22b15f25e"
+        "url": "https://github.com/happy-dwarf-team/mei/releases/download/v0.8.0/mei-windows-x64.zip",
+        "size": 1086695,
+        "sha256": "f9508e57f31e446a02a4b8cbbb379edec9d3c96e3200d45ed4cc82cb469c1a6c"
       }
     }
   ]
