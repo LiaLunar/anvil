@@ -233,6 +233,45 @@ void check_lock(const CheckOptions& options, const SymbolFile& file, const std::
     if (complete) report.lock = "matches";
 }
 
+// The first Anvil that reads [[modules]] (ADR 0011). A working number until the
+// release that ships modules: keep it equal to that release.
+constexpr const char* kFirstWithModules = "1.22.0";
+
+// A plugin with modules whose `anvil` range also admits an older Anvil: that
+// Anvil skips it with "unknown key 'modules'", so the player sees an error
+// instead of "needs Anvil 1.22.0". Checks the releases before the first one with
+// modules, minor by minor.
+std::string modules_range_warning(const Manifest& m) {
+    if (m.modules.empty()) return {};
+    const Version first = *Version::parse(kFirstWithModules);
+    bool admits_older = !m.anvil;
+    for (unsigned minor = 0; !admits_older && minor < first.minor; ++minor) {
+        admits_older = m.anvil->matches(Version{first.major, minor, 0, {}}) ||
+                       m.anvil->matches(Version{first.major, minor, 99, {}});
+    }
+    if (!admits_older) return {};
+    return std::string("[[modules]] needs Anvil ") + kFirstWithModules + ", but anvil = \"" +
+           (m.anvil ? m.anvil->text() : std::string("*")) + "\" admits older releases, which skip the plugin with "
+           "\"unknown key 'modules'\": declare anvil = \">=" + kFirstWithModules + "\"";
+}
+
+std::string allow_text(Allow allow, const char* mode) {
+    return allow == Allow::OptIn ? std::string(", ") + mode + " opt-in" : std::string();
+}
+
+// One line per module of plugin.toml, for the text report.
+std::string module_lines(const CheckReport& report) {
+    if (!report.manifest) return {};
+    std::string out;
+    for (const Module& mod : report.manifest->modules) {
+        out += "module " + module_key(*report.manifest, mod) + ": " + mod.name + " (" +
+               (mod.affects_gameplay ? "affects gameplay" : "does not affect gameplay") +
+               allow_text(mod.allow_ironman, "ironman") + allow_text(mod.allow_multiplayer, "multiplayer") +
+               (mod.enabled_by_default ? ", on by default" : ", off by default") + ")\n";
+    }
+    return out;
+}
+
 }  // namespace
 
 std::string tool_name() { return "anvil " ANVIL_VERSION; }
@@ -408,6 +447,7 @@ CheckReport check_plugin(const CheckOptions& options) {
     }
     report.manifest = manifest.manifest;
     const Manifest& m = *manifest.manifest;
+    if (const std::string why = modules_range_warning(m); !why.empty()) report.warnings.push_back({manifest_path, 0, why});
     report.plugin = m.id;
     report.has_symbols = !m.symbols.empty();
     if (report.has_symbols) {
@@ -527,6 +567,21 @@ std::string report_json(const CheckReport& report, const std::string& pad, const
         }
     }
     if (report.has_settings) out += in + "\"settings\": " + std::to_string(report.settings) + ",\n";
+    if (report.manifest && !report.manifest->modules.empty()) {
+        const auto allow = [](Allow a) { return a == Allow::OptIn ? std::string("\"opt-in\"") : std::string("false"); };
+        out += in + "\"modules\": [";
+        const auto& modules = report.manifest->modules;
+        for (size_t i = 0; i < modules.size(); ++i) {
+            const Module& mod = modules[i];
+            out += std::string(i == 0 ? "\n" : ",\n") + in + "  {\"id\": " + json_string(mod.id) +
+                   ", \"name\": " + json_string(mod.name) +
+                   ", \"affects_gameplay\": " + (mod.affects_gameplay ? "true" : "false") +
+                   ", \"allow_ironman\": " + allow(mod.allow_ironman) +
+                   ", \"allow_multiplayer\": " + allow(mod.allow_multiplayer) +
+                   ", \"default\": " + (mod.enabled_by_default ? "true" : "false") + "}";
+        }
+        out += "\n" + in + "],\n";
+    }
     if (report.with_exe && !report.exe_sha256.empty()) {
         out += in + "\"exe\": {\"sha256\": " + json_string(report.exe_sha256) + ", \"build\": " +
                (report.exe_build.empty() ? std::string("null") : json_string(report.exe_build)) + "},\n";
@@ -585,6 +640,9 @@ std::string report_summary(const CheckReport& report) {
         if (!report.lock.empty()) summary += "; " + std::string(kLockFile) + " " + report.lock;
     }
     if (report.has_settings) summary += "; " + std::to_string(report.settings) + " setting(s)";
+    if (report.manifest && !report.manifest->modules.empty()) {
+        summary += "; " + std::to_string(report.manifest->modules.size()) + " module(s)";
+    }
     if (report.translations != 0) summary += "; " + std::to_string(report.translations) + " translation(s)";
     summary += report.problems.empty() ? ": OK" : ": " + std::to_string(report.problems.size()) + " problem(s)";
     if (!report.warnings.empty()) summary += ", " + std::to_string(report.warnings.size()) + " warning(s)";
@@ -600,6 +658,7 @@ std::string format_report(const CheckReport& report, Format format) {
                                         : "error: cannot check: " + report.cannot_check + "\n";
         return out;
     }
+    if (format == Format::Text) out += module_lines(report);
     return out + report_summary(report) + "\n";
 }
 

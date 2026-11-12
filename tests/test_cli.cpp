@@ -345,6 +345,37 @@ int main(int argc, char** argv) {
         CHECK(broken.problems[0].file.ends_with("broken/symbols.toml"));
     });
 
+    run("check lists modules and warns about an anvil range older than modules (ADR 0011)", [&] {
+        const fs::path dir = fx.plugin("modular", "");
+        const std::string modules =
+            "\n[[modules]]\nid = \"look\"\nname = \"Look\"\naffects_gameplay = false\n"
+            "\n[[modules]]\nid = \"act\"\nname = \"Act\"\naffects_gameplay = true\nallow_ironman = \"opt-in\"\n"
+            "default = false\n";
+        write(dir / "plugin.toml", plugin_toml("modular", "anvil = \">=1.22.0\"\n" + modules));
+        const auto ok = fx.check(dir, false);
+        CHECK(ok.exit_code == kExitOk && ok.warnings.empty());
+        const std::string text = format_report(ok, Format::Text);
+        CHECK(contains(text, "module modular.look: Look (does not affect gameplay, on by default)\n"));
+        CHECK(contains(text, "module modular.act: Act (affects gameplay, ironman opt-in, off by default)\n"));
+        CHECK(contains(text, "modular: no symbols.toml (runs on every game build); 2 module(s): OK"));
+        CHECK(!contains(format_report(ok, Format::Github), "module modular.look"));
+        const std::string json = report_json(ok);
+        CHECK(contains(json, "{\"id\": \"look\", \"name\": \"Look\", \"affects_gameplay\": false, "
+                             "\"allow_ironman\": false, \"allow_multiplayer\": false, \"default\": true}"));
+        CHECK(contains(json, "\"allow_ironman\": \"opt-in\", \"allow_multiplayer\": false, \"default\": false}"));
+
+        for (const std::string range : {"anvil = \">=1.20.0\"\n", "anvil = \"^1.0\"\n", ""}) {
+            write(dir / "plugin.toml", plugin_toml("modular", range + modules));
+            const auto old = fx.check(dir, false);
+            CHECK(old.exit_code == kExitOk && old.warnings.size() == 1);
+            CHECK(!old.warnings.empty() && contains(old.warnings[0].message, "declare anvil = \">=1.22.0\""));
+        }
+        write(dir / "plugin.toml", plugin_toml("modular", "anvil = \">=2.0.0\"\n" + modules));
+        CHECK(fx.check(dir, false).warnings.empty());
+        write(dir / "plugin.toml", plugin_toml("modular", "anvil = \">=1.0.0\"\n"));
+        CHECK(fx.check(dir, false).warnings.empty());  // no modules, no warning
+    });
+
     run("check settings.toml: the schema at its line, and the loader's reason", [&] {
         const fs::path dir = fx.plugin("with-settings", "");
         write(dir / "plugin.toml", plugin_toml("with-settings", "settings = \"settings.toml\"\n"));
