@@ -785,9 +785,10 @@ typedef struct AnvilGameWorldService {
  * own symbols are absent.
  *
  * Version 2 (also anvil-game 1.17.0) adds ANVIL_GAME_COMMAND_EVENT_OPTION and
- * the two fields it reads; anvil-game registers the same table as version 1
- * too, so a plugin built against version 1 keeps working. Ask for version 2
- * first and fall back to version 1 for an anvil-game that has only that.
+ * the two fields it reads, version 3 (anvil-game 1.22.0) ANVIL_GAME_COMMAND_SPEED
+ * and `speed`; anvil-game registers the same table as versions 1 and 2 too, so
+ * a plugin built against an older version keeps working. Ask for the newest
+ * version first and fall back for an anvil-game that has only an older one.
  *
  * Choosing an event option. The type does what the option's button does: it
  * finds the event window of the local player's pending event by its id and
@@ -814,6 +815,19 @@ typedef struct AnvilGameWorldService {
  *     observer's save, a player whose country was annexed) has no choice
  *     through the service, and the game's own auto-choice does not run either.
  *
+ * Game speed (version 3, anvil-game 1.22.0). ANVIL_GAME_COMMAND_SPEED does what
+ * the speed bar's + and - buttons do, as many times as it takes to reach
+ * `speed` (1 the slowest, 5 the fastest, as the bar shows it): it posts one
+ * game command per step, and the speed changes when the session runs them, on
+ * every machine. The game's buttons do nothing while the in-game menu is
+ * shown, or for a player without admin rights (a client in multiplayer, where
+ * the host sets the speed); the service then answers `refused` 1 and posts
+ * nothing.
+ *   - `count` is 0, `units` NULL, `flags` 0; `size` covers `speed`.
+ *   - Results: `posted` the steps posted; `skipped` 1 when the game is at
+ *     `speed` already; ANVIL_ERROR_INVALID_ARGUMENT for a speed outside 1..5.
+ *   - Pausing is not a speed: the game's pause stays the player's.
+ *
  * Within a version types and fields are only appended; check `size`. */
 
 /* AnvilGameCommand.type */
@@ -821,6 +835,7 @@ typedef struct AnvilGameWorldService {
 #define ANVIL_GAME_COMMAND_MERGE 2u /* two or more armies, or navies, in one province: into the first */
 #define ANVIL_GAME_COMMAND_SPLIT 3u /* one army or navy: in half, rounded up, as the button does */
 #define ANVIL_GAME_COMMAND_EVENT_OPTION 4u /* version 2: the local player's pending event, choose an option */
+#define ANVIL_GAME_COMMAND_SPEED 5u /* version 3: the game speed, 1 .. 5, as the speed bar's buttons set it */
 
 /* AnvilGameCommand.flags */
 #define ANVIL_GAME_COMMAND_START 0x1u /* DRILL: start; without it, stop */
@@ -837,6 +852,8 @@ typedef struct AnvilGameCommand {
     /* Version 2, read only for EVENT_OPTION. */
     int32_t pending_event_id;      /* the pending event's id, as its event window holds it */
     int32_t option_index;          /* the option in the event file's order, from 0 */
+    /* Version 3, read only for SPEED. */
+    int32_t speed;                 /* the speed to reach, 1 (slowest) .. 5 (fastest) */
 } AnvilGameCommand;
 
 typedef struct AnvilGameCommandResult {
@@ -847,7 +864,7 @@ typedef struct AnvilGameCommandResult {
 } AnvilGameCommandResult;
 
 #define ANVIL_GAME_COMMANDS_SERVICE "anvil-game.commands"
-#define ANVIL_GAME_COMMANDS_SERVICE_VERSION 2
+#define ANVIL_GAME_COMMANDS_SERVICE_VERSION 3
 
 typedef struct AnvilGameCommandsService {
     uint32_t size; /* sizeof(AnvilGameCommandsService) as known by anvil-game */

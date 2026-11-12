@@ -1629,6 +1629,15 @@ struct CommandsLayout {
     std::uint32_t button_next = 0;     // a button node: the next one
     std::uint32_t button_name = 0;     // button: std::string "<event id>_<option index>"
     std::uint32_t button_state = 0;    // button: int32, 3 = disabled
+    // SPEED (version 3): `speed_up` 0 when absent on this build.
+    sym::Types::speed_up_command::Pointer speed_up = nullptr;
+    sym::Types::speed_down_command::Pointer speed_down = nullptr;
+    sym::Types::speed_admin::Pointer speed_admin = nullptr;
+    std::uint32_t speed_up_size = 0;
+    std::uint32_t speed_down_size = 0;
+    std::uint32_t speed = 0;       // root: int32, the game speed, 0 = the bar's 1
+    std::uint32_t menu = 0;        // idler: the in-game menu window
+    std::uint32_t menu_shown = 0;  // that window: byte, shown
 };
 
 CommandsLayout g_commands;
@@ -1754,6 +1763,24 @@ AnvilResult find_event_window(std::int32_t pending, std::int32_t option, anvil_g
     }
 }
 
+// The game speed (1 .. 5), the idler and whether the in-game menu is shown;
+// no objects with destructors: the body runs under __try.
+bool read_speed_state(std::int32_t& speed, std::uintptr_t& idler, bool& menu_shown) {
+    __try {
+        const std::uintptr_t root = *g_layout.root;
+        if (root == 0) return false;
+        idler = *reinterpret_cast<const std::uintptr_t*>(root + g_layout.session);
+        if (idler == 0 || *reinterpret_cast<const std::uintptr_t*>(idler) != g_layout.session_vtable) return false;
+        speed = *reinterpret_cast<const volatile std::int32_t*>(root + g_commands.speed) + 1;
+        const std::uintptr_t menu = *reinterpret_cast<const std::uintptr_t*>(idler + g_commands.menu);
+        menu_shown = menu != 0 && *reinterpret_cast<const volatile std::uint8_t*>(menu + g_commands.menu_shown) != 0;
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
 // The post function's conditions: a server, and a dummy session or posting allowed.
 bool post_allowed_on(std::uintptr_t session) {
     __try {
@@ -1793,6 +1820,7 @@ public:
         case ANVIL_GAME_COMMAND_SPLIT: return g_commands.split != nullptr;
         case ANVIL_GAME_COMMAND_MERGE: return g_commands.merge != nullptr;
         case ANVIL_GAME_COMMAND_EVENT_OPTION: return g_commands.option_selected != nullptr;
+        case ANVIL_GAME_COMMAND_SPEED: return g_commands.speed_up != nullptr;
         }
         return false;
     }
@@ -1858,6 +1886,19 @@ public:
     bool post_allowed() override { return post_allowed_on(session_); }
     void choose_option(const anvil_game::EventWindow& window, std::int32_t option) override {
         g_commands.option_selected(reinterpret_cast<void*>(window.object), option);
+    }
+    bool game_speed(std::int32_t& speed, bool& buttons_act) override {
+        std::uintptr_t idler = 0;
+        bool menu_shown = true;
+        if (!read_speed_state(speed, idler, menu_shown)) return false;
+        // The buttons' own order: the menu first, then the admin rights.
+        buttons_act = !menu_shown && g_commands.speed_admin(reinterpret_cast<void*>(idler));
+        return true;
+    }
+    void* make_speed_step(bool up) override {
+        void* command = g_commands.allocate(up ? g_commands.speed_up_size : g_commands.speed_down_size);
+        if (command == nullptr) return nullptr;
+        return up ? g_commands.speed_up(command) : g_commands.speed_down(command);
     }
 
 private:
@@ -1928,14 +1969,32 @@ void load_commands(anvil::Host& host) {
         c.button_name = static_cast<std::uint32_t>(host.value(sym::option_click, "name"));
         c.button_state = static_cast<std::uint32_t>(host.value(sym::button_state, "state"));
     }
+    if (host.present(sym::speed_up_command) && host.present(sym::speed_down_command) &&
+        host.present(sym::speed_value) && host.present(sym::speed_admin) && host.present(sym::speed_button) &&
+        host.present(sym::speed_down_button)) {
+        // The buttons post through the same path as the unit panel's.
+        if (host.value(sym::speed_button, "game") == c.game) {
+            c.speed_up = host.function(sym::speed_up_command);
+            c.speed_down = host.function(sym::speed_down_command);
+            c.speed_admin = host.function(sym::speed_admin);
+            c.speed_up_size = static_cast<std::uint32_t>(host.value(sym::speed_button, "size"));
+            c.speed_down_size = static_cast<std::uint32_t>(host.value(sym::speed_down_button, "size"));
+            c.speed = static_cast<std::uint32_t>(host.value(sym::speed_value, "speed"));
+            c.menu = static_cast<std::uint32_t>(host.value(sym::speed_button, "menu"));
+            c.menu_shown = static_cast<std::uint32_t>(host.value(sym::speed_button, "menu_shown"));
+        } else {
+            host.warn("the speed buttons reach the session another way than the unit panel: no SPEED");
+        }
+    }
     g_commands = c;
-    // Version 2 only appends a type and two fields, so version 1 callers get the same table.
+    // Each version only appends types and fields, so older callers get the same table.
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 1, kCommandsService);
+    host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 2, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, kCommandsService);
-    host.info("service {} v1 and v{}: drill {}, merge {}, split {}, event option {}", ANVIL_GAME_COMMANDS_SERVICE,
-              ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
+    host.info("service {} v1 to v{}: drill {}, merge {}, split {}, event option {}, speed {}",
+              ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
               c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent",
-              c.option_selected != nullptr ? "yes" : "absent");
+              c.option_selected != nullptr ? "yes" : "absent", c.speed_up != nullptr ? "yes" : "absent");
 }
 
 struct AnvilGame : anvil::Plugin {

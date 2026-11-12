@@ -1563,6 +1563,120 @@ bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00
 rva = 0x6EC4FD
 bytes = "B9 20 00 00 00 E8 4D 0A 33 01 48 89 38 48 89 58 08 48 C7 40 10 00 00 00 00 C6 40 18 00"
 
+# --- game speed (anvil-game.commands version 3, 1.22.0) ---------------------------
+# The speed bar's + and - buttons (CInGameIdler::IncreaseGameSpeed and
+# DecreaseGameSpeed) do nothing while the in-game menu is shown or when the
+# player has no admin rights (a client in multiplayer); otherwise each builds one
+# CIncreaseGameSpeedCommand (0x50 bytes) or CDecreaseGameSpeedCommand (0x70) in
+# place, as the constructors below do, and posts it through the session of the
+# drill button's path. Found in GOG 1.37.5.2 by its eu4.pdb (the commands'
+# vtables are referenced only there and in the constructors), matched by bytes on
+# Steam 1.37.5 and GOG 1.37.5.0.
+
+[symbol.speed_up_command]
+# xor edx,edx; mov dword [rcx+8],165h; lea rax,vtable; mov byte [rcx+10h],0; mov [rcx],rax; mov rax,rcx; ...
+# mov dword [rcx+44h],28DBh (the command's token); mov qword [rcx+48h],0FFFFh; ret
+bytes = """
+33 D2 C7 41 08 65 01 00 00 48 8D 05 ?? ?? ?? ?? C6 41 10 00 48 89 01 48 8B C1 48 89 51 18 48 89 51 28
+48 C7 41 30 0F 00 00 00 C7 41 38 FF FF FF FF 89 51 3C 66 89 51 40 C7 41 44 DB 28 00 00 48 C7 41 48 FF FF 00 00 C3
+"""
+memory = "code"
+signature = "void* (void* command)"
+note = "CIncreaseGameSpeedCommand(): its Execute sets the game speed one step up (CGameState::SetGamespeed)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB79920 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB780C0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB780C0 }
+
+[symbol.speed_down_command]
+# as speed_up_command with the token 28DCh and an empty string at +50h
+bytes = """
+33 D2 C7 41 08 65 01 00 00 48 8D 05 ?? ?? ?? ?? C6 41 10 00 48 89 01 48 8B C1 48 89 51 18 48 89 51 28
+48 C7 41 30 0F 00 00 00 C7 41 38 FF FF FF FF 89 51 3C 66 89 51 40 C7 41 44 DC 28 00 00 48 C7 41 48 FF FF 00 00
+48 89 51 50 48 89 51 60 48 C7 41 68 0F 00 00 00 C3
+"""
+memory = "code"
+signature = "void* (void* command)"
+note = "CDecreaseGameSpeedCommand(): its Execute sets the game speed one step down, never below the slowest in multiplayer"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB79A50 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB781F0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB781F0 }
+
+[symbol.speed_value]
+# CIncreaseGameSpeedCommand::Execute: mov rcx,[root]; mov edx,[rcx+1E08h]; inc edx; jmp SetGamespeed
+bytes = "48 8B 0D ?? ?? ?? ?? 8B 91 08 1E 00 00 FF C2 E9 ?? ?? ?? ??"
+memory = "code"
+values.speed = { at = 9, size = 4 }
+note = "the root's game speed: int32 at root+0x1E08, 0 the slowest (the bar's 1) to 4"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB79970 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB78110 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB78110 }
+
+[symbol.speed_admin]
+# push rbx; sub rsp,20h; mov rax,[rcx]; mov rbx,rcx; call [rax+400h]; mov rdx,[rbx]; mov rcx,rbx; test al,al;
+# je; call [rdx+3F8h]; test al,al; jne
+bytes = "40 53 48 83 EC 20 48 8B 01 48 8B D9 FF 90 00 04 00 00 48 8B 13 48 8B CB 84 C0 74 1A FF 92 F8 03 00 00 84 C0 75 3A"
+memory = "code"
+signature = "bool (void* idler)"
+note = "CEU3Idler::HasAdminRights: the speed buttons act only when it answers true (single player, or the host and admins in multiplayer)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x6EAAA0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x6EA460 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x6EA460 }
+
+[symbol.speed_button]
+memory = "code"
+values.menu = { at = 9, size = 4 }
+values.menu_shown = { at = 18, size = 4 }
+values.game = { at = 45, size = 4 }
+values.size = { at = 50, size = 4 }
+note = "CInGameIdler::IncreaseGameSpeed: nothing while the in-game menu (idler+0x12E0 GOG, +0x12F0 Steam) shows (+0xF5), nor without admin rights; then the idler's game, operator new(0x50)"
+
+[symbol.speed_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x81F6D0
+bytes = """
+40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 30 03 00 00 B9 50 00 00 00
+"""
+
+[symbol.speed_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81EA30
+bytes = """
+40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 28 03 00 00 B9 50 00 00 00
+"""
+
+[symbol.speed_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x81EA30
+bytes = """
+40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 28 03 00 00 B9 50 00 00 00
+"""
+
+[symbol.speed_down_button]
+memory = "code"
+values.size = { at = 50, size = 4 }
+note = "CInGameIdler::DecreaseGameSpeed: the same checks, then operator new(0x70)"
+
+[symbol.speed_down_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x81F840
+bytes = """
+40 53 48 83 EC 50 48 8B 81 F0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 30 03 00 00 B9 70 00 00 00
+"""
+
+[symbol.speed_down_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x81EBA0
+bytes = """
+40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 28 03 00 00 B9 70 00 00 00
+"""
+
+[symbol.speed_down_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x81EBA0
+bytes = """
+40 53 48 83 EC 50 48 8B 81 E0 12 00 00 48 8B D9 80 B8 F5 00 00 00 00 0F 85 ?? ?? ?? ?? E8 ?? ?? ?? ??
+84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 28 03 00 00 B9 70 00 00 00
+"""
+
 # --- timed modifiers and the province view (anvil-game.world, 1.21.0) ------------
 # Read only; names and layouts from the GOG 1.37.5.2 PDB, one site each, checked
 # unique in the .text of all three builds. The seven timed modifier symbols may be

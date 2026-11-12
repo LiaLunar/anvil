@@ -1,6 +1,8 @@
 //! `anvil-game.commands`: the commands a player's click on the unit panel
 //! would post, through the game's own queue, and the choice of an event
-//! option as its button makes it (anvil-game 1.17.0, service versions 1 and 2).
+//! option as its button makes it (anvil-game 1.17.0, service versions 1 and 2),
+//! and the game speed as the speed bar's buttons set it (anvil-game 1.22.0,
+//! version 3).
 //!
 //! **Who.** Only a plugin with `affects_gameplay = true`, and only while Anvil
 //! has not suspended it (ironman or multiplayer without the player's opt-in):
@@ -39,8 +41,8 @@ use crate::sys::{
     AnvilGameCommand, AnvilGameCommandResult, AnvilGameCommandsService, AnvilGameUnitRef,
     AnvilPlugin, ANVIL_GAME_COMMANDS_SERVICE_VERSION, ANVIL_GAME_COMMAND_DRILL,
     ANVIL_GAME_COMMAND_EVENT_OPTION, ANVIL_GAME_COMMAND_MAX_PER_FRAME,
-    ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_SPLIT,
-    ANVIL_GAME_COMMAND_START, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
+    ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_SPEED,
+    ANVIL_GAME_COMMAND_SPLIT, ANVIL_GAME_COMMAND_START, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
 };
 use crate::world::{UnitKind, UnitRef};
 
@@ -103,12 +105,12 @@ fn raw_ref(unit: &UnitRef) -> AnvilGameUnitRef {
 }
 
 impl Commands {
-    /// The service, posting for this plugin: version 2 when anvil-game has
-    /// it, else version 1; `None` without anvil-game 1.17.0 or on a game build
+    /// The service, posting for this plugin: the newest version anvil-game
+    /// has (3, 2, then 1); `None` without anvil-game 1.17.0 or on a game build
     /// whose symbols for it are declared absent.
     pub fn get(host: &Host) -> Option<Self> {
-        [VERSION, 1].into_iter().find_map(|version| {
-            // SAFETY: the table type of anvil-game.commands; version 2 only appends.
+        [VERSION, 2, 1].into_iter().find_map(|version| {
+            // SAFETY: the table type of anvil-game.commands; each version only appends.
             let table = unsafe { host.service::<AnvilGameCommandsService>(SERVICE, version) }?;
             Some(Self {
                 table,
@@ -118,7 +120,8 @@ impl Commands {
         })
     }
 
-    /// The service version found: 2 chooses event options, 1 does not.
+    /// The service version found: 2 chooses event options, 3 also sets the
+    /// game speed.
     pub fn version(&self) -> u32 {
         self.version
     }
@@ -148,6 +151,7 @@ impl Commands {
             },
             pending_event_id: 0,
             option_index: 0,
+            speed: 0,
         };
         self.send(&command, what, units.len())
     }
@@ -216,7 +220,34 @@ impl Commands {
             units: std::ptr::null(),
             pending_event_id,
             option_index: option,
+            speed: 0,
         };
         self.send(&command, "event option", 0)
+    }
+
+    /// Version 3: sets the game speed to `speed` (1 the slowest .. 5), as that
+    /// many clicks on the speed bar's + or - would: one command a step.
+    /// `skipped` 1 at that speed already; `refused` 1 when the bar's buttons
+    /// would do nothing (the in-game menu is shown, or a multiplayer client
+    /// without admin rights); `InvalidArgument` outside 1..5. `Unsupported`
+    /// before version 3.
+    pub fn set_speed(&self, speed: i32) -> Result<Posted> {
+        if self.version < 3 {
+            return Err(crate::Error::new(
+                crate::ErrorCode::Unsupported,
+                "commands speed: anvil-game.commands before version 3",
+            ));
+        }
+        let command = AnvilGameCommand {
+            size: size_of::<AnvilGameCommand>() as u32,
+            type_: ANVIL_GAME_COMMAND_SPEED,
+            flags: 0,
+            count: 0,
+            units: std::ptr::null(),
+            pending_event_id: 0,
+            option_index: 0,
+            speed,
+        };
+        self.send(&command, "speed", 0)
     }
 }

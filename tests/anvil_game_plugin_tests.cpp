@@ -946,6 +946,16 @@ struct FakeCommands final : anvil_game::CommandBackend {
         chosen.push_back(std::to_string(w.object - 0x5000) + " " + std::to_string(option));
         windows[static_cast<int32_t>(w.object - 0x5000)] = false;  // OptionSelected clears _KeepAlive
     }
+
+    // The game speed, 1 .. 5, and whether the speed bar's buttons act; readable = false: unreadable.
+    int32_t speed = 3;
+    bool buttons_act = true, readable = true;
+    bool game_speed(int32_t& s, bool& act) override {
+        s = speed;
+        act = buttons_act;
+        return readable;
+    }
+    void* make_speed_step(bool up) override { return make(up ? "speed up" : "speed down"); }
 };
 
 // The game's side of anvil-game.commands in FakeEu4: its functions are
@@ -1348,6 +1358,79 @@ int main(int argc, char** argv) {
         CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 64);
     });
 
+    run("anvil-game.commands: the game speed, with a fake game (version 3)", [] {
+        FakeCommands game;
+        anvil_game::CommandPoster poster;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(&game);
+        AnvilGameCommand c{};
+        c.size = sizeof(c);
+        c.type = ANVIL_GAME_COMMAND_SPEED;
+        c.speed = 5;
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+        // From 3 to 5: two steps up, each its own command, as two clicks on +.
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 2 && out.skipped == 0 && out.refused == 0);
+        CHECK((game.made == std::vector<std::string>{"speed up", "speed up"}) && game.submitted.size() == 2);
+        // Down to 1: two steps down from 3 (the fake keeps its speed: the game changes it when it runs them).
+        c.speed = 1;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 2);
+        CHECK(game.made.size() == 4 && game.made[2] == "speed down" && game.made[3] == "speed down");
+        // At the speed already: skipped, nothing made.
+        c.speed = 3;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.skipped == 1 && game.made.size() == 4);
+        // The buttons would do nothing (the in-game menu, or a multiplayer client): refused, nothing made.
+        game.buttons_act = false;
+        c.speed = 4;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 1 && game.made.size() == 4);
+        game.buttons_act = true;
+        // The session refuses a step: freed, counted.
+        game.take = false;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 1);
+        CHECK(game.destroyed == std::vector<int>{4});
+        game.take = true;
+        // Arguments: a speed outside 1 .. 5, flags, units, a caller of version 2 (size without `speed`).
+        const auto refused = [&](AnvilGameCommand bad, AnvilResult expected) {
+            const size_t before = game.made.size();
+            return poster.post(game, self, &bad, &out) == expected && game.made.size() == before;
+        };
+        AnvilGameCommand bad = c;
+        bad.speed = 0;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        bad.speed = 6;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        bad = c;
+        bad.flags = ANVIL_GAME_COMMAND_START;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        const AnvilGameUnitRef army = {1, {"RUS"}, ANVIL_GAME_UNIT_ARMY};
+        bad = c;
+        bad.count = 1;
+        bad.units = &army;
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        bad = c;
+        bad.size = offsetof(AnvilGameCommand, speed);
+        CHECK(refused(bad, ANVIL_ERROR_INVALID_ARGUMENT));
+        // The usual gates: a suspended caller, a build without the symbols, a hot-join, an unreadable speed.
+        game.suspended = true;
+        CHECK(refused(c, ANVIL_ERROR_SUSPENDED));
+        game.suspended = false;
+        game.absent = ANVIL_GAME_COMMAND_SPEED;
+        CHECK(refused(c, ANVIL_ERROR_NOT_DECLARED));
+        game.absent = 0;
+        game.hot = true;
+        CHECK(refused(c, ANVIL_ERROR_WRONG_PHASE));
+        game.hot = false;
+        game.readable = false;
+        CHECK(refused(c, ANVIL_ERROR_INTERNAL));
+        game.readable = true;
+        // Bounded per frame like the other types.
+        game.frame_number = 70;
+        game.speed = 1;
+        c.speed = 5;
+        int posted = 0;
+        while (poster.post(game, self, &c, &out) == ANVIL_OK) posted += static_cast<int>(out.posted);
+        CHECK(posted == 256);
+    });
+
     run("anvil-game.commands: choosing an event option, with a fake game", [] {
         FakeCommands game;
         anvil_game::CommandPoster poster;
@@ -1485,7 +1568,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 149);
+        CHECK(reason.empty() && verified.symbols.size() == 155);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -2740,8 +2823,10 @@ int main(int argc, char** argv) {
         const auto* commands = static_cast<const AnvilGameCommandsService*>(
             bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION));
         CHECK(commands != nullptr && ANVIL_GAME_COMMANDS_HAS(commands, post));
-        CHECK(contains(log, "anvil-game: service anvil-game.commands v1 and v2: drill yes, merge yes, split yes, event option yes"));
+        CHECK(contains(log, "anvil-game: service anvil-game.commands v1 to v3: drill yes, merge yes, split yes, "
+                            "event option yes, speed yes"));
         CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 1) == commands);
+        CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 2) == commands);
         if (commands == nullptr) return;
         // The game's functions, verified at load, now jump to the stand-ins.
         const auto jump = [&](uint32_t rva, const void* target) {

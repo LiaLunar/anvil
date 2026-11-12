@@ -65,6 +65,13 @@ public:
     virtual bool post_allowed() = 0;
     // CEventWindow::OptionSelected: what the button does.
     virtual void choose_option(const EventWindow& window, std::int32_t option) = 0;
+
+    // Version 3. The game speed now (1 the slowest .. 5) and whether the speed
+    // bar's buttons act now (no in-game menu shown, the player has admin
+    // rights); false when the speed cannot be read.
+    virtual bool game_speed(std::int32_t& speed, bool& buttons_act) = 0;
+    // One step of the speed bar: CIncreaseGameSpeedCommand or CDecrease...
+    virtual void* make_speed_step(bool up) = 0;
 };
 
 // The regiments or ships the split button moves: half, rounded up.
@@ -78,6 +85,7 @@ public:
 
 private:
     AnvilResult choose(CommandBackend& backend, const AnvilGameCommand& command, AnvilGameCommandResult* out);
+    AnvilResult set_speed(CommandBackend& backend, const AnvilGameCommand& command, AnvilGameCommandResult* out);
 
     std::uint64_t frame_ = 0;
     std::uint32_t used_ = 0;  // commands posted in frame_

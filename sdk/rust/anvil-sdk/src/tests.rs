@@ -132,7 +132,7 @@ unsafe extern "C" fn fake_get_service(
         ("anvil-overlay.input", 1) => ptr::from_ref(&*FAKE_INPUT).cast(),
         ("anvil-script.day_end", 1) => ptr::from_ref(&*FAKE_DAY_END).cast(),
         ("anvil-script.effects", 1) => ptr::from_ref(&*FAKE_EFFECTS).cast(),
-        ("anvil-game.commands", 1 | 2) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
+        ("anvil-game.commands", 1..=3) => ptr::from_ref(&*FAKE_COMMANDS).cast(),
         ("anvil-log-throttle.messages", 1) => ptr::from_ref(&*FAKE_LOG_MESSAGES).cast(),
         _ => ptr::null(),
     }
@@ -181,6 +181,13 @@ unsafe extern "C" fn commands_post(
     out: *mut AnvilGameCommandResult,
 ) -> AnvilResult {
     let c = unsafe { &*command };
+    if c.type_ == ANVIL_GAME_COMMAND_SPEED {
+        let line = format!("{:x} speed {} size {}", plugin as usize, c.speed, c.size);
+        with(|r| r.commands.push(line));
+        let out = unsafe { &mut *out };
+        out.posted = 2;
+        return ANVIL_OK;
+    }
     if c.type_ == ANVIL_GAME_COMMAND_EVENT_OPTION {
         let line = format!(
             "{:x} event {} {} size {}",
@@ -1400,15 +1407,17 @@ fn commands_post_for_this_plugin_with_the_units_as_given() {
         }
     );
     assert_eq!(c.split(&navy).unwrap().posted, 1);
-    assert_eq!(c.version(), 2);
+    assert_eq!(c.version(), 3);
     assert_eq!(c.choose_event_option(41, 2).unwrap().posted, 1);
+    assert_eq!(c.set_speed(5).unwrap().posted, 2);
     assert_eq!(c.merge(&[]).unwrap_err().code(), ErrorCode::InvalidArgument);
     assert_eq!(
         with(|r| r.commands.clone()),
         [
             "5e1f 1 1 36/RUS/0 36/RUS/0",
             "5e1f 3 0 37/RUS/1",
-            "5e1f event 41 2 size 32"
+            "5e1f event 41 2 size 40",
+            "5e1f speed 5 size 40"
         ]
     );
     assert_eq!(commands::MAX_UNITS, 64);
