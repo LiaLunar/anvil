@@ -1,0 +1,10 @@
+# anvil-script-profiler's texts in Korean (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay that times the game's triggers and effects by the event, decision, on_action, casus belli, triggered modifier or mission they belong to, and writes the results to a CSV file. It hooks nothing until you start a measurement, and the game runs slower while it measures." = "모더를 위한 표준 플러그인: 오버레이의 창에서 게임의 트리거와 효과에 걸리는 시간을 그것이 속한 이벤트, 결정, on_action, 전쟁 명분, 조건부 수정치, 임무별로 재고, 결과를 CSV 파일에 씁니다. 측정을 시작하기 전에는 아무것도 후킹하지 않으며, 측정하는 동안 게임이 느려집니다."
+"Days to measure" = "측정할 일수"
+"How many game days the window's \"Measure N days\" button measures before it stops by itself." = "창의 \"N일 측정\" 버튼이 스스로 멈추기 전에 측정하는 게임 일수입니다."
+"Rows per list" = "목록당 행 수"
+"How many of the longest triggers and of the longest effects the window lists; the CSV file has them all." = "창에 표시할 가장 오래 걸린 트리거와 효과의 수입니다. CSV 파일에는 모두 들어 있습니다."

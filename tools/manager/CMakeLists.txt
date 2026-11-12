@@ -64,7 +64,8 @@ add_custom_command(
         --prefix ${ANVIL_MANAGER_STAGE}
     COMMAND ${CMAKE_COMMAND} -E chdir ${ANVIL_MANAGER_STAGE}
         ${CMAKE_COMMAND} -E tar cf ${ANVIL_MANAGER_PACKAGE} --format=zip -- version.dll anvil
-    DEPENDS version_dll anvil_game anvil_overlay anvil_log_throttle anvil_map anvil_script anvil_inspector ${PROJECT_SOURCE_DIR}/dist/anvil.toml
+    DEPENDS version_dll anvil_game anvil_overlay anvil_log_throttle anvil_map anvil_script anvil_inspector
+        anvil_script_profiler ${PROJECT_SOURCE_DIR}/dist/anvil.toml
         ${PROJECT_SOURCE_DIR}/dist/plugins-README.txt ${PROJECT_SOURCE_DIR}/LICENSE ${PROJECT_SOURCE_DIR}/README.md ${ANVIL_STANDARD_TRANSLATIONS}
     COMMENT "Anvil package for AnvilManager.exe"
     VERBATIM)

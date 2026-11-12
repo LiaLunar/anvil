@@ -1,0 +1,10 @@
+# anvil-script-profiler's texts in German (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay that times the game's triggers and effects by the event, decision, on_action, casus belli, triggered modifier or mission they belong to, and writes the results to a CSV file. It hooks nothing until you start a measurement, and the game runs slower while it measures." = "Standard-Plugin für Modder: ein Fenster des Overlays, das die Auslöser und Effekte des Spiels nach dem Ereignis, der Entscheidung, der on_action, dem Kriegsgrund, dem ausgelösten Modifikator oder der Mission misst, zu denen sie gehören, und die Ergebnisse in eine CSV-Datei schreibt. Es hängt sich nirgends ein, bis du eine Messung startest, und während der Messung läuft das Spiel langsamer."
+"Days to measure" = "Zu messende Tage"
+"How many game days the window's \"Measure N days\" button measures before it stops by itself." = "Wie viele Spieltage die Schaltfläche „N Tage messen“ des Fensters misst, bevor sie von selbst stoppt."
+"Rows per list" = "Zeilen pro Liste"
+"How many of the longest triggers and of the longest effects the window lists; the CSV file has them all." = "Wie viele der längsten Auslöser und der längsten Effekte das Fenster auflistet; die CSV-Datei enthält alle."

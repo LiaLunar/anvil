@@ -228,10 +228,14 @@ add_subdirectory(plugins/anvil-script)
 # anvil-inspector, the standard plugin of the inspector for modders: flags,
 # variables and timed modifiers in a window of the overlay (docs/inspector.md).
 add_subdirectory(plugins/anvil-inspector)
+# anvil-script-profiler, the standard plugin that times the game's triggers and
+# effects by their owner, hooked only while it measures (docs/script-profiler.md).
+add_subdirectory(plugins/anvil-script-profiler)
 unset(CMAKE_COMPILE_WARNING_AS_ERROR)
 # The standard plugins ship only inside the package, so their version is
 # Anvil's: release-please bumps their manifests with version.txt.
-foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script anvil-inspector)
+foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script anvil-inspector
+    anvil-script-profiler)
     set(_manifest plugins/${_standard}/plugin.toml)
     file(STRINGS ${_manifest} _manifest_version LIMIT_COUNT 1 REGEX "^version = \"[^\"]*\"$")
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${_manifest})
@@ -424,6 +428,20 @@ if(ANVIL_BUILD_TESTS)
     target_compile_definitions(anvil_inspector_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_test(NAME anvil_inspector_tests COMMAND anvil_inspector_tests)
 
+    # anvil-script-profiler's tables, owners, reports and texts on their own,
+    # and the plugin end to end on a synthetic image: no change until a span
+    # starts, the two hooks while it runs, none after (tests/script_profiler_tests.cpp).
+    # -userdir= keeps its CSV files in the build folder.
+    add_executable(anvil_script_profiler_tests tests/script_profiler_tests.cpp
+        plugins/anvil-script-profiler/src/recorder.cpp plugins/anvil-script-profiler/src/owners.cpp
+        plugins/anvil-script-profiler/src/report.cpp plugins/anvil-script-profiler/src/texts.cpp)
+    target_include_directories(anvil_script_profiler_tests PRIVATE src/control)
+    target_link_libraries(anvil_script_profiler_tests PRIVATE anvil_loader)
+    target_compile_definitions(anvil_script_profiler_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    add_dependencies(anvil_script_profiler_tests anvil_script_profiler)
+    add_test(NAME anvil_script_profiler_tests COMMAND anvil_script_profiler_tests ${CMAKE_BINARY_DIR}/plugin
+        -userdir=${CMAKE_BINARY_DIR}/script-profiler-user)
+
     # anvil-map's registry, colour buffers and text rules on their own
     # (tests/map_modes_tests.cpp).
     add_executable(anvil_map_tests tests/map_modes_tests.cpp plugins/anvil-map/src/modes.cpp
@@ -449,6 +467,7 @@ if(ANVIL_BUILD_TESTS)
     add_test(NAME anvil_map_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-map --complete-translations)
     add_test(NAME anvil_script_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-script --complete-translations)
     add_test(NAME anvil_inspector_manifest COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-inspector --complete-translations)
+    add_test(NAME anvil_script_profiler_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/plugins/anvil-script-profiler --complete-translations)
     foreach(example hello-c hello-cpp hello-rust)
         add_test(NAME anvil_${example}_symbols_lock COMMAND anvil check ${CMAKE_CURRENT_SOURCE_DIR}/examples/${example})
     endforeach()
@@ -500,8 +519,12 @@ install(FILES $<TARGET_FILE:anvil_script> plugins/anvil-script/plugin.toml plugi
     DESTINATION anvil/plugins/anvil-script COMPONENT anvil)
 install(FILES $<TARGET_FILE:anvil_inspector> plugins/anvil-inspector/plugin.toml plugins/anvil-inspector/settings.toml
     DESTINATION anvil/plugins/anvil-inspector COMPONENT anvil)
+install(FILES $<TARGET_FILE:anvil_script_profiler> plugins/anvil-script-profiler/plugin.toml
+    plugins/anvil-script-profiler/symbols.toml plugins/anvil-script-profiler/settings.toml
+    DESTINATION anvil/plugins/anvil-script-profiler COMPONENT anvil)
 # Their plugin translations (design §5.4).
-foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script anvil-inspector)
+foreach(_standard anvil-game anvil-overlay anvil-log-throttle anvil-map anvil-script anvil-inspector
+    anvil-script-profiler)
     install(DIRECTORY plugins/${_standard}/translations DESTINATION anvil/plugins/${_standard} COMPONENT anvil)
 endforeach()
 install(FILES LICENSE README.md DESTINATION anvil/docs COMPONENT anvil)

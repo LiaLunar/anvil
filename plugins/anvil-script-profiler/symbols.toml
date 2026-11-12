@@ -1,0 +1,77 @@
+# The script blocks anvil-script-profiler times and the vtables of the classes
+# that own them, for EU4 1.37.5 (Steam and GOG 1.37.5.2 and 1.37.5.0, win64).
+# Source: EU4 engine lab, docs/script-profiler-prototype.md (lab#154, #158).
+# GOG's names come from its eu4.pdb; Steam's addresses are GOG's functions
+# found in Steam's eu4.exe, and its vtables the ones whose slots point to them.
+# A build that declared a vtable absent would still measure, without that
+# owner's names.
+builds = ["eu4-1.37.5-steam-win64", "eu4-1.37.5.2-gog-win64", "eu4-1.37.5.0-gog-win64"]
+
+[symbol.and_trigger_evaluate]
+bytes = "48 89 5C 24 08 48 89 74 24 10 57 48 83 EC 20 48 8B 59 08"
+memory = "code"
+signature = "bool (void* trigger, void* scope)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB98200 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB969B0 }   # CAndTrigger::Evaluate(CEventScope&)
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB969B0 }
+note = "CAndTrigger::Evaluate, 96 B: every AND block (the CRootTrigger of an event, decision or modifier, a limit, AND =) evaluates its children through vtable slot +0x30 and stops at the first false; the slot of CRootTrigger and CMTTHModifier points here too"
+
+[symbol.effect_execute]
+bytes = "48 89 6C 24 10 48 89 74 24 18 48 89 7C 24 20 41 56 48 83 EC 20"
+memory = "code"
+signature = "void (void* effect, void* scope, int32_t flags)"
+build."eu4-1.37.5-steam-win64" = { rva = 0x5ED800 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x5ED2D0 }   # CEffect::Execute(CEventScope&, int)
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x5ED2D0 }
+note = "CEffect::Execute, 119 B: runs the children of an effect block (CArray<CEffect*> at +0x10) through their own Execute"
+
+# The owner classes' vtables: slot 0 (the deleting destructor) is checked.
+
+[symbol.event_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CAB3A8, points_to = 0x6EDB00 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C93FE8, points_to = 0x6ECDF0 }   # CEvent::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C93FE8, points_to = 0x6ECDF0 }
+note = "CEvent: trigger +64, major trigger +184, immediate +304 and after +1120 (options, effect +80), options +1936, mean_time_to_happen +1960, key +32"
+
+[symbol.decision_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1C66920, points_to = 0x4879D0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C4F690, points_to = 0x4878A0 }   # CDecision::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C4F690, points_to = 0x4878A0 }
+note = "CDecision: potential +48, allow +168, provinces_to_highlight +288, effect +408, ai_will_do +464, name +16"
+
+[symbol.on_action_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1C663B0, points_to = 0x47A5C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C4F120, points_to = 0x47A490 }   # COnActionList::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C4F120, points_to = 0x47A490 }
+note = "COnActionList: effect +104, name +24"
+
+[symbol.casus_belli_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1C455F8, points_to = 0x1F6BB0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C2E858, points_to = 0x1F6B80 }   # CCasusBelliType::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C2E858, points_to = 0x1F6B80 }
+note = "CCasusBelliType: prerequisites_self +56, prerequisites +176, name +24"
+
+[symbol.triggered_modifier_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D19CA0, points_to = 0xD2F260 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D02770, points_to = 0xD2DA10 }   # CTriggeredModifier::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D02770, points_to = 0xD2DA10 }
+note = "CTriggeredModifier (a country's triggered_modifier): potential +376, trigger +496, name +344"
+
+[symbol.province_triggered_modifier_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D21D00, points_to = 0xDB28A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1D0A7E8, points_to = 0xDB1020 }   # CProvinceTriggeredModifier::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1D0A7E8, points_to = 0xDB1020 }
+note = "CProvinceTriggeredModifier: potential +376, trigger +496, on_activation +616, on_deactivation +672, name +344"
+
+[symbol.mission_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CC21C8, points_to = 0x8D4CE0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CAAC80, points_to = 0x8D3F10 }   # CMission::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1CAAC80, points_to = 0x8D3F10 }
+note = "CMission: trigger +112, effect +232, ai_weight +320, provinces_to_highlight +384, name +16"

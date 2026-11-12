@@ -1,0 +1,20 @@
+# anvil-script-profiler's settings. The player's values live in
+# anvil/data/anvil-script-profiler/settings.toml; the overlay's panel edits them.
+
+[setting.days]
+type = "int"
+default = 30
+min = 1
+max = 3650
+label = "Days to measure"
+description = "How many game days the window's \"Measure N days\" button measures before it stops by itself."
+restart = false
+
+[setting.rows]
+type = "int"
+default = 20
+min = 5
+max = 200
+label = "Rows per list"
+description = "How many of the longest triggers and of the longest effects the window lists; the CSV file has them all."
+restart = false

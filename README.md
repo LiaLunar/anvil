@@ -97,6 +97,15 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   owner and of your country, with their rulers, heirs and consorts, as the
   running game holds them ([docs/inspector.md](docs/inspector.md)). It only
   reads.
+- And `anvil-script-profiler` (`anvil/plugins/anvil-script-profiler/`, from
+  Anvil 1.22): for modders, a window that times the game's triggers and
+  effects by the event, decision, on_action, casus belli, triggered modifier or
+  mission they belong to, with the longest ones listed and every one in
+  `logs/script_profile_<date>.csv`
+  ([docs/script-profiler.md](docs/script-profiler.md)). It hooks nothing until
+  you press Start or Measure N days in its window; while it measures, the game
+  runs slower: 1.7% fewer days per second on vanilla and 1% on Anbennar in the
+  lab (eu4-engine-lab#164, within the run-to-run spread of a few percent).
 - Each start writes `anvil/anvil.log`: what was loaded, what was skipped and why.
 - A crash writes a report to `anvil/crashes/` (the last 10 are kept): where it
   happened and which plugins were involved, with each plugin's `issues` link.

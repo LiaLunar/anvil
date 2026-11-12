@@ -1,0 +1,10 @@
+# anvil-script-profiler's texts in Traditional Chinese (design §5.4), looked up by their English
+# words in plugin.toml and settings.toml. Machine-drafted by the agent; a native speaker has not checked it yet.
+status = "draft"
+
+[text]
+"Standard plugin for modders: a window of the overlay that times the game's triggers and effects by the event, decision, on_action, casus belli, triggered modifier or mission they belong to, and writes the results to a CSV file. It hooks nothing until you start a measurement, and the game runs slower while it measures." = "供模組作者使用的標準外掛：疊加層的一個視窗，按所屬的事件、決議、on_action、宣戰理由、觸發修正或任務，為遊戲的觸發器和效果計時，並把結果寫入 CSV 檔案。在你開始測量之前它不掛鉤任何東西，測量期間遊戲執行較慢。"
+"Days to measure" = "測量天數"
+"How many game days the window's \"Measure N days\" button measures before it stops by itself." = "視窗中「測量 N 天」按鈕在自動停止前測量多少個遊戲日。"
+"Rows per list" = "每個清單的列數"
+"How many of the longest triggers and of the longest effects the window lists; the CSV file has them all." = "視窗列出多少個耗時最長的觸發器和效果；CSV 檔案包含全部。"

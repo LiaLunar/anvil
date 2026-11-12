@@ -132,6 +132,24 @@ _Avoid_: open event, pop-up
 The moment after the game has finished a day (with its month and year) on the main thread, before it compares checksums, when no worker thread runs. A gameplay plugin is called there through `anvil-script.day_end`.
 _Avoid_: daily tick hook, after tick, end of tick
 
+### The script profiler
+
+**Script block**:
+One `AND` block of a trigger or one block of effects, as the game runs it: the `trigger` of an event, a decision's `potential`, a `limit`, an option's effects. `anvil-script-profiler` sees every one the game runs.
+_Avoid_: script, clause, scope (a scope is what a block runs on)
+
+**Root block**:
+The outermost script block of its kind running on a thread: the only one the profiler times, with the blocks it runs inside it counted toward it. Triggers and effects have separate roots, so a `limit` inside an effect is a root trigger.
+_Avoid_: top-level block, parent
+
+**Owner**:
+The event, event option, decision, on_action, casus belli, triggered modifier or mission a root block belongs to, with the block's role there (`trigger`, `potential`, `effect`...). The profiler's rows are owners with their roles; a block whose owner it cannot tell is "no owner found".
+_Avoid_: source, parent object, definition
+
+**Profiling span**:
+The game time between the start and the end of one measurement of `anvil-script-profiler`: its hooks exist only then. A load, leaving to the menu or quitting interrupts it.
+_Avoid_: session (a game session is another thing), recording, run
+
 ### When the game crashes
 
 **Crash report**:
