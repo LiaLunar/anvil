@@ -19,6 +19,7 @@ struct CommandUnit {
     std::int32_t location = 0;   // a province ID, 0 for none
     bool drilling = false;
     std::uint32_t subunits = 0;  // regiments or ships
+    std::int32_t mission = 0;    // ANVIL_GAME_MISSION_*
 };
 
 // The local player's event window for a pending event, as the backend found it.
@@ -72,6 +73,13 @@ public:
     virtual bool game_speed(std::int32_t& speed, bool& buttons_act) = 0;
     // One step of the speed bar: CIncreaseGameSpeedCommand or CDecrease...
     virtual void* make_speed_step(bool up) = 0;
+    // A CToggleExploreCommand for the unit: `mission` the game's EXPLORATION_MISSIONS,
+    // `target` the land-explore button's (the unit's province) or 0.
+    virtual void* make_explore(const CommandUnit& unit, std::int32_t mission, std::int32_t target) = 0;
+    // A CMoveCommand of the unit to `province`, as a right-click builds it.
+    virtual void* make_move(const CommandUnit& unit, std::int32_t province, bool clear_previous) = 0;
+    // The command's own IsValid, which the right-click asks before posting.
+    virtual bool valid(void* command) = 0;
 };
 
 // The regiments or ships the split button moves: half, rounded up.

@@ -956,6 +956,20 @@ struct FakeCommands final : anvil_game::CommandBackend {
         return readable;
     }
     void* make_speed_step(bool up) override { return make(up ? "speed up" : "speed down"); }
+    void* make_explore(const anvil_game::CommandUnit& u, int32_t mission, int32_t target) override {
+        return make("explore " + hex(u.object) + " " + std::to_string(mission) + " " + std::to_string(target));
+    }
+    void* make_move(const anvil_game::CommandUnit& u, int32_t province, bool clear_previous) override {
+        return make("move " + hex(u.object) + " " + std::to_string(province) + (clear_previous ? "" : " queue"));
+    }
+    std::vector<int32_t> illegal;  // provinces the fake's IsValid refuses
+    bool valid(void* command) override {
+        const std::string& what = made[reinterpret_cast<uintptr_t>(command) - 1];
+        for (const int32_t p : illegal) {
+            if (what.find(" " + std::to_string(p)) != std::string::npos) return false;
+        }
+        return true;
+    }
 };
 
 // The game's side of anvil-game.commands in FakeEu4: its functions are
@@ -1431,6 +1445,99 @@ int main(int argc, char** argv) {
         CHECK(posted == 256);
     });
 
+    run("anvil-game.commands: exploring and moving, with a fake game (version 3)", [] {
+        FakeCommands game;
+        anvil_game::CommandPoster poster;
+        const auto* self = reinterpret_cast<const AnvilPlugin*>(&game);
+        game.units[1] = {0x1001, 1, ANVIL_GAME_UNIT_ARMY, 33, false, 3, ANVIL_GAME_MISSION_NONE};
+        game.units[2] = {0x1002, 2, ANVIL_GAME_UNIT_ARMY, 34, false, 3, ANVIL_GAME_MISSION_EXPLORE_LAND};
+        game.units[3] = {0x1003, 3, ANVIL_GAME_UNIT_NAVY, 1300, false, 4, ANVIL_GAME_MISSION_NONE};
+        game.units[4] = {0x1004, 4, ANVIL_GAME_UNIT_NAVY, 1301, false, 4, ANVIL_GAME_MISSION_CIRCUMNAVIGATE};
+        std::vector<AnvilGameUnitRef> armies = {{1, {"RUS"}, ANVIL_GAME_UNIT_ARMY}, {2, {"RUS"}, ANVIL_GAME_UNIT_ARMY}};
+        std::vector<AnvilGameUnitRef> navies = {{3, {"RUS"}, ANVIL_GAME_UNIT_NAVY}, {4, {"RUS"}, ANVIL_GAME_UNIT_NAVY}};
+        const auto command = [](uint32_t type, std::vector<AnvilGameUnitRef>& refs) {
+            AnvilGameCommand c{};
+            c.size = sizeof(c);
+            c.type = type;
+            c.count = static_cast<uint32_t>(refs.size());
+            c.units = refs.data();
+            return c;
+        };
+        AnvilGameCommandResult out{};
+        out.size = sizeof(out);
+        // Land: the army that does not explore gets the button's command, aimed at its province.
+        AnvilGameCommand c = command(ANVIL_GAME_COMMAND_EXPLORE, armies);
+        c.explore = ANVIL_GAME_EXPLORE_LAND;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 1);
+        CHECK(game.made == std::vector<std::string>{"explore 1001 1 33"});
+        // Circumnavigation: the fleet not on one.
+        c = command(ANVIL_GAME_COMMAND_EXPLORE, navies);
+        c.explore = ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 1 && out.skipped == 1);
+        CHECK(game.made.back() == "explore 1003 4 0");
+        // Stop: only the units that explore.
+        std::vector<AnvilGameUnitRef> all = {armies[0], armies[1], navies[0], navies[1]};
+        c = command(ANVIL_GAME_COMMAND_EXPLORE, all);
+        c.explore = ANVIL_GAME_EXPLORE_STOP;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 2 && out.skipped == 2);
+        CHECK(game.made.size() == 4 && game.made[2] == "explore 1002 0 0" && game.made[3] == "explore 1004 0 0");
+        // Wrong kinds and values: nothing made.
+        const auto refused = [&](AnvilGameCommand bad, AnvilResult expected) {
+            const size_t before = game.made.size();
+            return poster.post(game, self, &bad, &out) == expected && game.made.size() == before;
+        };
+        c = command(ANVIL_GAME_COMMAND_EXPLORE, navies);
+        c.explore = ANVIL_GAME_EXPLORE_LAND;
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        c = command(ANVIL_GAME_COMMAND_EXPLORE, armies);
+        c.explore = ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE;
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        for (const int32_t value : {2, 3, 5, -1}) {  // sea and coast are not offered yet
+            c.explore = value;
+            CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        }
+        c.explore = ANVIL_GAME_EXPLORE_STOP;
+        c.flags = ANVIL_GAME_COMMAND_START;
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        c = command(ANVIL_GAME_COMMAND_EXPLORE, armies);
+        c.size = offsetof(AnvilGameCommand, explore);
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+
+        // Move: one command a unit, its path replaced, or added to with QUEUE.
+        const size_t before = game.made.size();
+        c = command(ANVIL_GAME_COMMAND_MOVE, all);
+        c.province = 50;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 4 && out.skipped == 0 && out.refused == 0);
+        CHECK(game.made.size() == before + 4 && game.made[before] == "move 1001 50" && game.made[before + 3] == "move 1004 50");
+        c = command(ANVIL_GAME_COMMAND_MOVE, armies);
+        c.province = 51;
+        c.flags = ANVIL_GAME_COMMAND_QUEUE;
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 2);
+        CHECK(game.made.back() == "move 1002 51 queue");
+        // A move the command's IsValid refuses is freed and counted, not posted.
+        game.illegal = {52};
+        c.province = 52;
+        const size_t submitted = game.submitted.size();
+        CHECK(poster.post(game, self, &c, &out) == ANVIL_OK && out.posted == 0 && out.refused == 2);
+        CHECK(game.submitted.size() == submitted && game.destroyed.size() == 2);
+        c.province = 0;
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        c.province = 53;
+        c.flags = ANVIL_GAME_COMMAND_START;
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        c.flags = 0;
+        c.size = offsetof(AnvilGameCommand, province);
+        CHECK(refused(c, ANVIL_ERROR_INVALID_ARGUMENT));
+        c.size = sizeof(c);
+        game.absent = ANVIL_GAME_COMMAND_MOVE;
+        CHECK(refused(c, ANVIL_ERROR_NOT_DECLARED));
+        game.absent = 0;
+        std::vector<AnvilGameUnitRef> foreign = {{9, {"TUR"}, ANVIL_GAME_UNIT_ARMY}};
+        c = command(ANVIL_GAME_COMMAND_MOVE, foreign);
+        c.province = 53;
+        CHECK(refused(c, ANVIL_ERROR_NOT_FOUND));
+    });
+
     run("anvil-game.commands: choosing an event option, with a fake game", [] {
         FakeCommands game;
         anvil_game::CommandPoster poster;
@@ -1568,7 +1675,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 155);
+        CHECK(reason.empty() && verified.symbols.size() == 160);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -2824,7 +2931,7 @@ int main(int argc, char** argv) {
             bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION));
         CHECK(commands != nullptr && ANVIL_GAME_COMMANDS_HAS(commands, post));
         CHECK(contains(log, "anvil-game: service anvil-game.commands v1 to v3: drill yes, merge yes, split yes, "
-                            "event option yes, speed yes"));
+                            "event option yes, speed yes, explore yes, move yes"));
         CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 1) == commands);
         CHECK(bus.get_service(ANVIL_GAME_COMMANDS_SERVICE, 2) == commands);
         if (commands == nullptr) return;

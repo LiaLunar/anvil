@@ -785,8 +785,8 @@ typedef struct AnvilGameWorldService {
  * own symbols are absent.
  *
  * Version 2 (also anvil-game 1.17.0) adds ANVIL_GAME_COMMAND_EVENT_OPTION and
- * the two fields it reads, version 3 (anvil-game 1.22.0) ANVIL_GAME_COMMAND_SPEED
- * and `speed`; anvil-game registers the same table as versions 1 and 2 too, so
+ * the two fields it reads, version 3 (anvil-game 1.22.0) SPEED, EXPLORE and MOVE
+ * with `speed`, `explore` and `province`; anvil-game registers the same table as versions 1 and 2 too, so
  * a plugin built against an older version keeps working. Ask for the newest
  * version first and fall back for an anvil-game that has only an older one.
  *
@@ -828,6 +828,30 @@ typedef struct AnvilGameWorldService {
  *     `speed` already; ANVIL_ERROR_INVALID_ARGUMENT for a speed outside 1..5.
  *   - Pausing is not a speed: the game's pause stays the player's.
  *
+ * Exploration (version 3, anvil-game 1.22.0). ANVIL_GAME_COMMAND_EXPLORE posts
+ * the command the unit panel's land-explore button and the naval exploration
+ * dialog post, one per unit, as an intent by `explore`:
+ *   - ANVIL_GAME_EXPLORE_LAND: armies start exploring the land around them, as
+ *     the button does; armies exploring already count as `skipped`.
+ *   - ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE: fleets start a circumnavigation;
+ *     fleets on one already count as `skipped`.
+ *   - ANVIL_GAME_EXPLORE_STOP: armies and fleets that explore (land, sea or a
+ *     circumnavigation) stop; the others count as `skipped`.
+ *   A fleet's sea or coast exploration needs a region of the game's own list
+ *   for that fleet, which the service does not offer yet. The game checks the
+ *   command when it runs it, as for the button: a unit the game does not let
+ *   explore stays as it was, so read anvil-game.world a few frames later.
+ *   `flags` 0; ANVIL_ERROR_INVALID_ARGUMENT for another `explore`, a navy with
+ *   LAND or an army with CIRCUMNAVIGATE.
+ *
+ * Movement (version 3, anvil-game 1.22.0). ANVIL_GAME_COMMAND_MOVE does what a
+ * right-click on the map does for a plain move: one command per unit to
+ * `province`, which replaces its path, or, with ANVIL_GAME_COMMAND_QUEUE, adds
+ * to it as Shift does. As the click does, the service first asks the command
+ * whether the move is legal now (a path the unit may take); one that is not is
+ * freed and counted as `refused`. An attack, a siege or a transport that a
+ * right-click would choose for some provinces is not part of this type.
+ *
  * Within a version types and fields are only appended; check `size`. */
 
 /* AnvilGameCommand.type */
@@ -836,9 +860,17 @@ typedef struct AnvilGameWorldService {
 #define ANVIL_GAME_COMMAND_SPLIT 3u /* one army or navy: in half, rounded up, as the button does */
 #define ANVIL_GAME_COMMAND_EVENT_OPTION 4u /* version 2: the local player's pending event, choose an option */
 #define ANVIL_GAME_COMMAND_SPEED 5u /* version 3: the game speed, 1 .. 5, as the speed bar's buttons set it */
+#define ANVIL_GAME_COMMAND_EXPLORE 6u /* version 3: armies or fleets start or stop exploring (`explore`) */
+#define ANVIL_GAME_COMMAND_MOVE 7u /* version 3: armies or fleets move to `province`, as a right-click */
 
 /* AnvilGameCommand.flags */
 #define ANVIL_GAME_COMMAND_START 0x1u /* DRILL: start; without it, stop */
+#define ANVIL_GAME_COMMAND_QUEUE 0x2u /* MOVE: add to the path, as Shift; without it, replace it */
+
+/* AnvilGameCommand.explore (version 3) */
+#define ANVIL_GAME_EXPLORE_STOP 0
+#define ANVIL_GAME_EXPLORE_LAND 1           /* armies */
+#define ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE 4 /* fleets; 2 and 3 (sea, coast) are the game's, not offered yet */
 
 #define ANVIL_GAME_COMMAND_MAX_UNITS 64u
 #define ANVIL_GAME_COMMAND_MAX_PER_FRAME 256u
@@ -852,8 +884,10 @@ typedef struct AnvilGameCommand {
     /* Version 2, read only for EVENT_OPTION. */
     int32_t pending_event_id;      /* the pending event's id, as its event window holds it */
     int32_t option_index;          /* the option in the event file's order, from 0 */
-    /* Version 3, read only for SPEED. */
+    /* Version 3, read only for SPEED, EXPLORE and MOVE. */
     int32_t speed;                 /* the speed to reach, 1 (slowest) .. 5 (fastest) */
+    int32_t explore;               /* EXPLORE: ANVIL_GAME_EXPLORE_* */
+    int32_t province;              /* MOVE: the province to go to */
 } AnvilGameCommand;
 
 typedef struct AnvilGameCommandResult {

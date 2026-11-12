@@ -1677,6 +1677,103 @@ bytes = """
 84 C0 0F 84 ?? ?? ?? ?? 48 8B 83 28 03 00 00 B9 70 00 00 00
 """
 
+# --- exploration and movement (anvil-game.commands version 3, 1.22.0) -----------
+# The land-explore button of the unit panel (CToggleLandExploreAction::DoInternal)
+# and the naval exploration dialog (CNavalExplorationDialog::OnAccept) build a
+# CToggleExploreCommand (0x70 bytes) in place, with the same fields as its
+# constructor; a right-click on the map builds one CMoveCommand (0xA0 bytes) per
+# unit in CUnit::PerformAction, asks its IsValid (vtable slot 0x40) and posts it.
+# Found in GOG 1.37.5.2 by its eu4.pdb, matched by bytes on Steam 1.37.5 and GOG
+# 1.37.5.0.
+
+[symbol.explore_command]
+# xor r10d,r10d; mov dword [rcx+8],165h; mov byte [rcx+10h],0; lea rax,vtable; mov [rcx],rax; lea rax,[rdx+20h]; ...
+# mov dword [rcx+44h],3156h; ...; mov [rcx+50h],rdx (the unit); its id at +58h; mov eax,[rsp+28h];
+# mov [rcx+64h],eax (_Mission); mov [rcx+60h],r9d (_nTarget); mov [rcx+68h],r8b (_Reason); ret
+bytes = """
+45 33 D2 C7 41 08 65 01 00 00 C6 41 10 00 48 8D 05 ?? ?? ?? ?? 48 89 01 48 8D 42 20 4C 89 51 18 4C 89 51 28
+48 C7 41 30 0F 00 00 00 C7 41 38 FF FF FF FF 44 89 51 3C 66 44 89 51 40 C7 41 44 56 31 00 00 48 C7 41 48 FF FF 00 00
+48 89 51 50 48 85 D2 75 07 48 8D 05 ?? ?? ?? ?? 48 8B 00 48 89 41 58 8B 44 24 28 89 41 64 48 8B C1 44 89 49 60
+44 88 41 68 C3
+"""
+memory = "code"
+signature = "void* (void* command, const void* unit, uint8_t reason, int32_t target, int32_t mission)"
+note = "CToggleExploreCommand(unit, reason, target, EXPLORATION_MISSIONS): 0 stops the unit's mission, 1 (land) starts or stops an army exploring, 2 and 3 a fleet's sea or coast exploration of the region `target`, 4 a circumnavigation"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD678A0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD66050 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD66050 }
+
+[symbol.explore_land_reason]
+# mov [r8+58h],rax; mov [r8+60h],edx (the army's province); mov rdx,r8; mov dword [r8+64h],1 (land);
+# mov byte [r8+68h],36h (the player's action); call CSession::Post
+bytes = "49 89 40 58 41 89 50 60 49 8B D0 41 C7 40 64 01 00 00 00 41 C6 40 68 36 E8 ?? ?? ?? ??"
+memory = "code"
+values.reason = { at = 23, size = 1 }
+note = "the land-explore button's command: the target is the army's province, the mission 1 (land), the stop reason 0x36"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14858E8 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x147F768 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x147F768 }
+
+[symbol.explore_button]
+memory = "code"
+values.game = { at = 57, size = 4 }
+values.size = { at = 73, size = 4 }
+note = "CToggleLandExploreAction::DoInternal: the idler's game and its session, as the drill button, then operator new(0x70)"
+
+[symbol.explore_button.build."eu4-1.37.5-steam-win64"]
+rva = 0x1485830
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 30 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 70 00 00 00
+"""
+
+[symbol.explore_button.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x147F6B0
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 28 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 70 00 00 00
+"""
+
+[symbol.explore_button.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x147F6B0
+bytes = """
+48 89 5C 24 18 57 48 83 EC 50 48 8B D9 48 8B 49 08 48 8B 01 FF 50 08 48 8B 4B 08 48 8B F8 48 8B 11 FF 52 10
+48 85 FF 0F 84 ?? ?? ?? ?? 48 85 C0 0F 84 ?? ?? ?? ?? 48 8B 88 28 03 00 00 48 89 74 24 68 48 8B 99 70 03 00 00
+B9 70 00 00 00
+"""
+
+[symbol.move_command]
+# mov [rsp+10h],rbx; mov [rsp+18h],r8d; mov [rsp+8],rcx; push rdi; sub rsp,20h; mov rdi,rdx; mov rbx,rcx;
+# mov dword [rcx+8],165h; mov byte [rcx+10h],0; xor edx,edx; ...; mov dword [rcx+44h],28A5h; ...
+bytes = """
+48 89 5C 24 10 44 89 44 24 18 48 89 4C 24 08 57 48 83 EC 20 48 8B FA 48 8B D9 C7 41 08 65 01 00 00 C6 41 10 00
+33 D2 48 89 51 18 48 89 51 28 48 C7 41 30 0F 00 00 00 88 51 18 C7 41 38 FF FF FF FF 89 51 3C 66 89 51 40
+C7 41 44 A5 28 00 00
+"""
+memory = "code"
+signature = "void* (void* command, const void* unit, int32_t province, bool clear_previous, bool safe_move, bool cancel_auto_transport, bool clear_all_but_next)"
+note = "CMoveCommand(unit, province, _bIsClearPrevious, _bSafeMove, _bCancelAutoTransport, _bClearAllButNext): one destination; a right-click on the map passes clear_previous unless Shift adds to the path, and cancel_auto_transport"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD5CD20 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD5B4D0 }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD5B4D0 }
+
+[symbol.move_site]
+# in CUnit::PerformAction: mov ecx,0A0h; call operator new; ...; call CMoveCommand; mov rdi,rax; mov rdx,[rax];
+# mov rcx,rax; call [rdx+40h] (IsValid)
+bytes = """
+B9 A0 00 00 00 E8 ?? ?? ?? ?? 48 89 85 30 01 00 00 45 0F B6 CE 41 80 F1 01 44 88 64 24 30 C6 44 24 28 00
+C6 44 24 20 00 45 8B 45 20 48 8B D7 48 8B C8 E8 ?? ?? ?? ?? 48 8B F8 48 8B 10 48 8B C8 FF 52 40
+"""
+memory = "code"
+values.size = { at = 1, size = 4 }
+values.is_valid = { at = 66, size = 1 }
+note = "a right-click's move: operator new(0xA0), the constructor, then the command's IsValid (vtable +0x40) before the post"
+build."eu4-1.37.5-steam-win64" = { rva = 0xD4439D }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xD42B4D }
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xD42B4D }
+
 # --- timed modifiers and the province view (anvil-game.world, 1.21.0) ------------
 # Read only; names and layouts from the GOG 1.37.5.2 PDB, one site each, checked
 # unique in the .text of all three builds. The seven timed modifier symbols may be

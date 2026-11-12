@@ -181,6 +181,16 @@ unsafe extern "C" fn commands_post(
     out: *mut AnvilGameCommandResult,
 ) -> AnvilResult {
     let c = unsafe { &*command };
+    if c.type_ == ANVIL_GAME_COMMAND_EXPLORE || c.type_ == ANVIL_GAME_COMMAND_MOVE {
+        let line = format!(
+            "{:x} {} {} explore {} province {} units {} size {}",
+            plugin as usize, c.type_, c.flags, c.explore, c.province, c.count, c.size
+        );
+        with(|r| r.commands.push(line));
+        let out = unsafe { &mut *out };
+        out.posted = c.count;
+        return ANVIL_OK;
+    }
     if c.type_ == ANVIL_GAME_COMMAND_SPEED {
         let line = format!("{:x} speed {} size {}", plugin as usize, c.speed, c.size);
         with(|r| r.commands.push(line));
@@ -1410,14 +1420,21 @@ fn commands_post_for_this_plugin_with_the_units_as_given() {
     assert_eq!(c.version(), 3);
     assert_eq!(c.choose_event_option(41, 2).unwrap().posted, 1);
     assert_eq!(c.set_speed(5).unwrap().posted, 2);
+    assert_eq!(
+        c.explore(&[army], commands::Explore::Land).unwrap().posted,
+        1
+    );
+    assert_eq!(c.move_to(&[army, navy], 1300, true).unwrap().posted, 2);
     assert_eq!(c.merge(&[]).unwrap_err().code(), ErrorCode::InvalidArgument);
     assert_eq!(
         with(|r| r.commands.clone()),
         [
             "5e1f 1 1 36/RUS/0 36/RUS/0",
             "5e1f 3 0 37/RUS/1",
-            "5e1f event 41 2 size 40",
-            "5e1f speed 5 size 40"
+            "5e1f event 41 2 size 48",
+            "5e1f speed 5 size 48",
+            "5e1f 6 0 explore 1 province 0 units 1 size 48",
+            "5e1f 7 2 explore 0 province 1300 units 2 size 48"
         ]
     );
     assert_eq!(commands::MAX_UNITS, 64);

@@ -83,7 +83,13 @@ pub const ANVIL_GAME_COMMAND_MERGE: u32 = 2;
 pub const ANVIL_GAME_COMMAND_SPLIT: u32 = 3;
 pub const ANVIL_GAME_COMMAND_EVENT_OPTION: u32 = 4;
 pub const ANVIL_GAME_COMMAND_SPEED: u32 = 5;
+pub const ANVIL_GAME_COMMAND_EXPLORE: u32 = 6;
+pub const ANVIL_GAME_COMMAND_MOVE: u32 = 7;
 pub const ANVIL_GAME_COMMAND_START: u32 = 1;
+pub const ANVIL_GAME_COMMAND_QUEUE: u32 = 2;
+pub const ANVIL_GAME_EXPLORE_STOP: u32 = 0;
+pub const ANVIL_GAME_EXPLORE_LAND: u32 = 1;
+pub const ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE: u32 = 4;
 pub const ANVIL_GAME_COMMAND_MAX_UNITS: u32 = 64;
 pub const ANVIL_GAME_COMMAND_MAX_PER_FRAME: u32 = 256;
 pub const ANVIL_GAME_COMMANDS_SERVICE: &[u8; 20] = b"anvil-game.commands\0";
@@ -1905,10 +1911,12 @@ pub struct AnvilGameCommand {
     pub pending_event_id: i32,
     pub option_index: i32,
     pub speed: i32,
+    pub explore: i32,
+    pub province: i32,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of AnvilGameCommand"][::core::mem::size_of::<AnvilGameCommand>() - 40usize];
+    ["Size of AnvilGameCommand"][::core::mem::size_of::<AnvilGameCommand>() - 48usize];
     [
         "Alignment of AnvilGameCommand",
     ][::core::mem::align_of::<AnvilGameCommand>() - 8usize];
@@ -1936,6 +1944,12 @@ const _: () = {
     [
         "Offset of field: AnvilGameCommand::speed",
     ][::core::mem::offset_of!(AnvilGameCommand, speed) - 32usize];
+    [
+        "Offset of field: AnvilGameCommand::explore",
+    ][::core::mem::offset_of!(AnvilGameCommand, explore) - 36usize];
+    [
+        "Offset of field: AnvilGameCommand::province",
+    ][::core::mem::offset_of!(AnvilGameCommand, province) - 40usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

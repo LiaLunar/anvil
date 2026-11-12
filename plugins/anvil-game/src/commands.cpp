@@ -24,6 +24,13 @@ bool same_ref(const AnvilGameUnitRef& a, const AnvilGameUnitRef& b) {
 constexpr std::uint32_t kVersion1Size = offsetof(AnvilGameCommand, pending_event_id);
 constexpr std::uint32_t kEventOptionSize = offsetof(AnvilGameCommand, option_index) + sizeof(std::int32_t);
 constexpr std::uint32_t kSpeedSize = offsetof(AnvilGameCommand, speed) + sizeof(std::int32_t);
+constexpr std::uint32_t kExploreSize = offsetof(AnvilGameCommand, explore) + sizeof(std::int32_t);
+constexpr std::uint32_t kMoveSize = offsetof(AnvilGameCommand, province) + sizeof(std::int32_t);
+
+bool exploring(std::int32_t mission) {
+    return mission == ANVIL_GAME_MISSION_EXPLORE || mission == ANVIL_GAME_MISSION_CIRCUMNAVIGATE ||
+           mission == ANVIL_GAME_MISSION_EXPLORE_LAND;
+}
 
 // The checks that need no unit: the arguments, the caller, the type, the moment.
 AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGameCommand* c,
@@ -43,6 +50,18 @@ AnvilResult check_call(CommandBackend& b, const AnvilPlugin* self, const AnvilGa
         break;
     case ANVIL_GAME_COMMAND_EVENT_OPTION:
         if (c->flags != 0 || c->size < kEventOptionSize || c->count != 0 || c->units != nullptr) {
+            return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
+        break;
+    case ANVIL_GAME_COMMAND_EXPLORE:
+        if (c->flags != 0 || c->size < kExploreSize ||
+            (c->explore != ANVIL_GAME_EXPLORE_STOP && c->explore != ANVIL_GAME_EXPLORE_LAND &&
+             c->explore != ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE)) {
+            return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
+        break;
+    case ANVIL_GAME_COMMAND_MOVE:
+        if ((c->flags & ~ANVIL_GAME_COMMAND_QUEUE) != 0 || c->size < kMoveSize || c->province <= 0) {
             return ANVIL_ERROR_INVALID_ARGUMENT;
         }
         break;
@@ -72,6 +91,11 @@ AnvilResult find_units(CommandBackend& b, const AnvilGameCommand& c, std::vector
         if (const AnvilResult r = b.find(c.units[i], unit); r != ANVIL_OK) return r;
         if (unit.kind != c.units[i].kind) return ANVIL_ERROR_INVALID_ARGUMENT;
         if (c.type == ANVIL_GAME_COMMAND_DRILL && unit.kind != ANVIL_GAME_UNIT_ARMY) return ANVIL_ERROR_INVALID_ARGUMENT;
+        if (c.type == ANVIL_GAME_COMMAND_EXPLORE &&
+            ((c.explore == ANVIL_GAME_EXPLORE_LAND && unit.kind != ANVIL_GAME_UNIT_ARMY) ||
+             (c.explore == ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE && unit.kind != ANVIL_GAME_UNIT_NAVY))) {
+            return ANVIL_ERROR_INVALID_ARGUMENT;
+        }
         units.push_back(unit);
     }
     if (c.type == ANVIL_GAME_COMMAND_SPLIT && (units.size() != 1 || units[0].subunits < 2)) {
@@ -174,7 +198,7 @@ AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, cons
     if (c.type == ANVIL_GAME_COMMAND_EVENT_OPTION) return choose(b, c, out);
     if (c.type == ANVIL_GAME_COMMAND_SPEED) return set_speed(b, c, out);
     std::vector<CommandUnit> units;
-    std::vector<const CommandUnit*> drills;
+    std::vector<const CommandUnit*> drills;  // DRILL and EXPLORE: the units the intent posts for
     try {
         units.reserve(c.count);
         if (const AnvilResult r = find_units(b, c, units); r != ANVIL_OK) return r;
@@ -184,14 +208,26 @@ AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, cons
                 if (u.drilling != start) drills.push_back(&u);
             }
         }
+        if (c.type == ANVIL_GAME_COMMAND_EXPLORE) {
+            for (const CommandUnit& u : units) {
+                const bool post = c.explore == ANVIL_GAME_EXPLORE_STOP ? exploring(u.mission)
+                                  : c.explore == ANVIL_GAME_EXPLORE_LAND
+                                      ? u.mission != ANVIL_GAME_MISSION_EXPLORE_LAND
+                                      : u.mission != ANVIL_GAME_MISSION_CIRCUMNAVIGATE;
+                if (post) drills.push_back(&u);
+            }
+        }
     } catch (const std::bad_alloc&) {
         return ANVIL_ERROR_OUT_OF_MEMORY;
     }
 
     AnvilGameCommandResult result{};
     result.size = sizeof(result);
-    const std::uint32_t planned = c.type == ANVIL_GAME_COMMAND_DRILL ? static_cast<std::uint32_t>(drills.size()) : 1;
-    result.skipped = c.type == ANVIL_GAME_COMMAND_DRILL ? c.count - planned : 0;
+    const bool intent = c.type == ANVIL_GAME_COMMAND_DRILL || c.type == ANVIL_GAME_COMMAND_EXPLORE;
+    const std::uint32_t planned = intent                              ? static_cast<std::uint32_t>(drills.size())
+                                  : c.type == ANVIL_GAME_COMMAND_MOVE ? c.count
+                                                                      : 1;
+    result.skipped = intent ? c.count - planned : 0;
 
     const std::uint64_t frame = b.frame();
     if (frame != frame_) {
@@ -220,6 +256,32 @@ AnvilResult CommandPoster::post(CommandBackend& b, const AnvilPlugin* self, cons
             if (!(memory = send(b.make_drill(*u)))) break;
         }
         break;
+    case ANVIL_GAME_COMMAND_EXPLORE:
+        for (const CommandUnit* u : drills) {
+            // The land button's target is the army's province; the others take none.
+            const std::int32_t target = c.explore == ANVIL_GAME_EXPLORE_LAND ? u->location : 0;
+            if (!(memory = send(b.make_explore(*u, c.explore, target)))) break;
+        }
+        break;
+    case ANVIL_GAME_COMMAND_MOVE: {
+        const bool clear_previous = (c.flags & ANVIL_GAME_COMMAND_QUEUE) == 0;
+        for (const CommandUnit& u : units) {
+            void* made = b.make_move(u, c.province, clear_previous);
+            if (made == nullptr) {
+                memory = false;
+                break;
+            }
+            if (!b.valid(made)) {
+                // As the right-click: a move the game says no to is not posted.
+                ++used_;
+                b.destroy(made);
+                ++result.refused;
+                continue;
+            }
+            send(made);
+        }
+        break;
+    }
     case ANVIL_GAME_COMMAND_SPLIT: memory = send(b.make_split(units[0], split_count(units[0].subunits))); break;
     case ANVIL_GAME_COMMAND_MERGE:
         try {

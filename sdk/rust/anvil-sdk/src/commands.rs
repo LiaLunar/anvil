@@ -40,9 +40,11 @@ use crate::host::Host;
 use crate::sys::{
     AnvilGameCommand, AnvilGameCommandResult, AnvilGameCommandsService, AnvilGameUnitRef,
     AnvilPlugin, ANVIL_GAME_COMMANDS_SERVICE_VERSION, ANVIL_GAME_COMMAND_DRILL,
-    ANVIL_GAME_COMMAND_EVENT_OPTION, ANVIL_GAME_COMMAND_MAX_PER_FRAME,
-    ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_SPEED,
-    ANVIL_GAME_COMMAND_SPLIT, ANVIL_GAME_COMMAND_START, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
+    ANVIL_GAME_COMMAND_EVENT_OPTION, ANVIL_GAME_COMMAND_EXPLORE, ANVIL_GAME_COMMAND_MAX_PER_FRAME,
+    ANVIL_GAME_COMMAND_MAX_UNITS, ANVIL_GAME_COMMAND_MERGE, ANVIL_GAME_COMMAND_MOVE,
+    ANVIL_GAME_COMMAND_QUEUE, ANVIL_GAME_COMMAND_SPEED, ANVIL_GAME_COMMAND_SPLIT,
+    ANVIL_GAME_COMMAND_START, ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE, ANVIL_GAME_EXPLORE_LAND,
+    ANVIL_GAME_EXPLORE_STOP, ANVIL_GAME_UNIT_ARMY, ANVIL_GAME_UNIT_NAVY,
 };
 use crate::world::{UnitKind, UnitRef};
 
@@ -132,6 +134,18 @@ impl Commands {
     }
 
     fn post(&self, kind: u32, flags: u32, units: &[UnitRef], what: &str) -> Result<Posted> {
+        self.post_with(kind, flags, units, 0, 0, what)
+    }
+
+    fn post_with(
+        &self,
+        kind: u32,
+        flags: u32,
+        units: &[UnitRef],
+        explore: i32,
+        province: i32,
+        what: &str,
+    ) -> Result<Posted> {
         let raw: Vec<AnvilGameUnitRef> = units.iter().map(raw_ref).collect();
         let command = AnvilGameCommand {
             // Version 1 takes the fields up to `units` only.
@@ -152,6 +166,8 @@ impl Commands {
             pending_event_id: 0,
             option_index: 0,
             speed: 0,
+            explore,
+            province,
         };
         self.send(&command, what, units.len())
     }
@@ -221,6 +237,8 @@ impl Commands {
             pending_event_id,
             option_index: option,
             speed: 0,
+            explore: 0,
+            province: 0,
         };
         self.send(&command, "event option", 0)
     }
@@ -247,7 +265,62 @@ impl Commands {
             pending_event_id: 0,
             option_index: 0,
             speed,
+            explore: 0,
+            province: 0,
         };
         self.send(&command, "speed", 0)
     }
+
+    /// Version 3: armies (`Explore::Land`) or fleets (`Explore::Circumnavigate`)
+    /// start exploring, as the unit panel's button and the exploration dialog
+    /// do; `Explore::Stop` stops the units that explore. Units already in the
+    /// asked state count as `skipped`. The game checks each command when it
+    /// runs it. `Unsupported` before version 3.
+    pub fn explore(&self, units: &[UnitRef], how: Explore) -> Result<Posted> {
+        self.need_version_3("explore")?;
+        let mission = match how {
+            Explore::Stop => ANVIL_GAME_EXPLORE_STOP,
+            Explore::Land => ANVIL_GAME_EXPLORE_LAND,
+            Explore::Circumnavigate => ANVIL_GAME_EXPLORE_CIRCUMNAVIGATE,
+        };
+        self.post_with(
+            ANVIL_GAME_COMMAND_EXPLORE,
+            0,
+            units,
+            mission as i32,
+            0,
+            "explore",
+        )
+    }
+
+    /// Version 3: armies or fleets move to `province`, as a right-click on the
+    /// map does for a plain move: the path is replaced, or added to with
+    /// `queue` (as Shift). A move the game does not allow now counts as
+    /// `refused`. `Unsupported` before version 3.
+    pub fn move_to(&self, units: &[UnitRef], province: i32, queue: bool) -> Result<Posted> {
+        self.need_version_3("move")?;
+        let flags = if queue { ANVIL_GAME_COMMAND_QUEUE } else { 0 };
+        self.post_with(ANVIL_GAME_COMMAND_MOVE, flags, units, 0, province, "move")
+    }
+
+    fn need_version_3(&self, what: &str) -> Result<()> {
+        if self.version < 3 {
+            return Err(crate::Error::new(
+                crate::ErrorCode::Unsupported,
+                format!("commands {what}: anvil-game.commands before version 3"),
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// What [`Commands::explore`] asks of the units.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Explore {
+    /// Units that explore (land, sea or a circumnavigation) stop.
+    Stop,
+    /// Armies explore the land around them.
+    Land,
+    /// Fleets sail around the world.
+    Circumnavigate,
 }

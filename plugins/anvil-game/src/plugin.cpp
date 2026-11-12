@@ -1638,6 +1638,13 @@ struct CommandsLayout {
     std::uint32_t speed = 0;       // root: int32, the game speed, 0 = the bar's 1
     std::uint32_t menu = 0;        // idler: the in-game menu window
     std::uint32_t menu_shown = 0;  // that window: byte, shown
+    // EXPLORE and MOVE (version 3): 0 when absent on this build.
+    sym::Types::explore_command::Pointer explore = nullptr;
+    std::uint32_t explore_size = 0;
+    std::uint8_t explore_reason = 0;
+    sym::Types::move_command::Pointer move = nullptr;
+    std::uint32_t move_size = 0;
+    std::uint32_t move_is_valid = 0;  // the command's vtable: byte offset of IsValid
 };
 
 CommandsLayout g_commands;
@@ -1821,6 +1828,8 @@ public:
         case ANVIL_GAME_COMMAND_MERGE: return g_commands.merge != nullptr;
         case ANVIL_GAME_COMMAND_EVENT_OPTION: return g_commands.option_selected != nullptr;
         case ANVIL_GAME_COMMAND_SPEED: return g_commands.speed_up != nullptr;
+        case ANVIL_GAME_COMMAND_EXPLORE: return g_commands.explore != nullptr;
+        case ANVIL_GAME_COMMAND_MOVE: return g_commands.move != nullptr;
         }
         return false;
     }
@@ -1849,6 +1858,7 @@ public:
         out.location = unit.location;
         out.drilling = unit.mission == ANVIL_GAME_MISSION_DRILL;
         out.subunits = unit.subunits;
+        out.mission = unit.mission;
         return ANVIL_OK;
     }
     void* make_drill(const anvil_game::CommandUnit& unit) override {
@@ -1894,6 +1904,24 @@ public:
         // The buttons' own order: the menu first, then the admin rights.
         buttons_act = !menu_shown && g_commands.speed_admin(reinterpret_cast<void*>(idler));
         return true;
+    }
+    void* make_explore(const anvil_game::CommandUnit& unit, std::int32_t mission, std::int32_t target) override {
+        void* command = g_commands.allocate(g_commands.explore_size);
+        if (command == nullptr) return nullptr;
+        return g_commands.explore(command, reinterpret_cast<const void*>(unit.object), g_commands.explore_reason, target,
+                                  mission);
+    }
+    void* make_move(const anvil_game::CommandUnit& unit, std::int32_t province, bool clear_previous) override {
+        void* command = g_commands.allocate(g_commands.move_size);
+        if (command == nullptr) return nullptr;
+        // A right-click's plain move: no safe move, the automatic transport cancelled.
+        return g_commands.move(command, reinterpret_cast<const void*>(unit.object), province, clear_previous, false,
+                               true, false);
+    }
+    bool valid(void* command) override {
+        using IsValid = bool (*)(void*);
+        const auto* vtable = *static_cast<const IsValid* const*>(command);
+        return vtable[g_commands.move_is_valid / sizeof(void*)](command);
     }
     void* make_speed_step(bool up) override {
         void* command = g_commands.allocate(up ? g_commands.speed_up_size : g_commands.speed_down_size);
@@ -1986,15 +2014,31 @@ void load_commands(anvil::Host& host) {
             host.warn("the speed buttons reach the session another way than the unit panel: no SPEED");
         }
     }
+    if (host.present(sym::explore_command) && host.present(sym::explore_land_reason) &&
+        host.present(sym::explore_button)) {
+        if (host.value(sym::explore_button, "game") == c.game) {
+            c.explore = host.function(sym::explore_command);
+            c.explore_size = static_cast<std::uint32_t>(host.value(sym::explore_button, "size"));
+            c.explore_reason = static_cast<std::uint8_t>(host.value(sym::explore_land_reason, "reason"));
+        } else {
+            host.warn("the explore button reaches the session another way than the unit panel: no EXPLORE");
+        }
+    }
+    if (host.present(sym::move_command) && host.present(sym::move_site)) {
+        c.move = host.function(sym::move_command);
+        c.move_size = static_cast<std::uint32_t>(host.value(sym::move_site, "size"));
+        c.move_is_valid = static_cast<std::uint32_t>(host.value(sym::move_site, "is_valid"));
+    }
     g_commands = c;
     // Each version only appends types and fields, so older callers get the same table.
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 1, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, 2, kCommandsService);
     host.register_service(ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, kCommandsService);
-    host.info("service {} v1 to v{}: drill {}, merge {}, split {}, event option {}, speed {}",
+    host.info("service {} v1 to v{}: drill {}, merge {}, split {}, event option {}, speed {}, explore {}, move {}",
               ANVIL_GAME_COMMANDS_SERVICE, ANVIL_GAME_COMMANDS_SERVICE_VERSION, c.drill != nullptr ? "yes" : "absent",
               c.merge != nullptr ? "yes" : "absent", c.split != nullptr ? "yes" : "absent",
-              c.option_selected != nullptr ? "yes" : "absent", c.speed_up != nullptr ? "yes" : "absent");
+              c.option_selected != nullptr ? "yes" : "absent", c.speed_up != nullptr ? "yes" : "absent",
+              c.explore != nullptr ? "yes" : "absent", c.move != nullptr ? "yes" : "absent");
 }
 
 struct AnvilGame : anvil::Plugin {
