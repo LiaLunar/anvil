@@ -46,6 +46,8 @@ extern const Translation kSimplifiedChinese[] = {
      "正在运行启动基准测试：EU4 会自行启动和退出。在测试结束前，其他标签页已锁定。"},
     {"About",
      "关于"},
+    {"Acting because you allowed it: {0}",
+     "因你允许而运行：{0}"},
     {"Add to the Start menu",
      "添加到开始菜单"},
     {"Allow in ironman",

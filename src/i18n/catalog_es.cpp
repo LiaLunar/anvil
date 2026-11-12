@@ -45,6 +45,8 @@ extern const Translation kSpanish[] = {
      "Hay una serie de medición del inicio en curso: EU4 se inicia y se cierra solo. Las demás pestañas están bloqueadas hasta que termine la serie."},
     {"About",
      "Acerca de"},
+    {"Acting because you allowed it: {0}",
+     "Activos porque lo permitiste: {0}"},
     {"Add to the Start menu",
      "Añadir al menú Inicio"},
     {"Allow in ironman",

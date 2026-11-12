@@ -400,6 +400,15 @@ void build_session_notices() {
     facts.multiplayer = status.multiplayer != 0;
     facts.gameplay_active = status.gameplay_active;
     facts.gameplay_hash = status.gameplay_hash;
+    // Who acts: the loaded gameplay plugins and modules the session did not
+    // suspend (in ironman, the ones the player allowed).
+    for (const PluginRow& p : shared().control.plugins()) {
+        if (p.state != "loaded") continue;
+        if (p.gameplay && !p.suspended) facts.acting.push_back(p.id);
+        for (const ModuleRow& m : p.modules) {
+            if (m.gameplay && m.enabled && !m.suspended) facts.acting.push_back(m.key);
+        }
+    }
     ui().session = session_notices(facts);
     ui().session_closed.assign(ui().session.size(), false);  // a new session shows them again
 }
@@ -899,6 +908,7 @@ const char* state_word(const std::string& state) {
     if (state == "failed") return tr("failed");
     if (state == "skipped") return tr("skipped");
     if (state == "pending") return tr("pending");
+    if (state == "disabled") return tr("disabled");
     return state.c_str();
 }
 
@@ -966,6 +976,29 @@ void draw_status() {
                 weak(tr("disabled"));
             } else if (ImGui::SmallButton(tr("Disable at next start"))) {
                 disable_plugin(p.id);
+            }
+            // Its modules (ADR 0011), one row each, under the plugin. The
+            // Manager switches them; here they show what this start does.
+            for (const ModuleRow& m : p.modules) {
+                ImGui::TableNextRow();
+                ImGui::TableNextColumn();
+                ImGui::Indent();
+                ImGui::TextUnformatted(m.key.c_str());
+                if (!m.name.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", m.name.c_str());
+                ImGui::Unindent();
+                ImGui::TableNextColumn();
+                ImGui::TableNextColumn();
+                if (m.state == "disabled") {
+                    weak(state_word(m.state));
+                } else {
+                    colored(m.state == "loaded" ? kGreen : m.state == "failed" ? kRed : kAmber, state_word(m.state));
+                }
+                ImGui::TableNextColumn();
+                std::string module_details;
+                if (m.suspended) module_details = tr("suspended in this game");
+                if (m.gameplay) module_details += (module_details.empty() ? "" : "; ") + std::string(tr("changes the game"));
+                wrapped(module_details);
+                ImGui::TableNextColumn();
             }
             ImGui::PopID();
         }

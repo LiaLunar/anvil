@@ -72,6 +72,9 @@ struct SessionFacts {
     bool multiplayer = false;
     uint32_t gameplay_active = 0;
     std::string gameplay_hash;
+    // The gameplay plugins and modules ("<plugin>.<module>") that act now, for
+    // the ironman notice to name them.
+    std::vector<std::string> acting;
 };
 std::vector<Notice> session_notices(const SessionFacts& facts);
 

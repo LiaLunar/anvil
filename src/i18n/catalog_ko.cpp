@@ -46,6 +46,8 @@ extern const Translation kKorean[] = {
      "시작 벤치마크 시리즈가 실행 중입니다. EU4가 스스로 시작하고 종료합니다. 시리즈가 끝날 때까지 다른 탭은 잠깁니다."},
     {"About",
      "정보"},
+    {"Acting because you allowed it: {0}",
+     "허용하여 동작 중: {0}"},
     {"Add to the Start menu",
      "시작 메뉴에 추가"},
     {"Allow in ironman",

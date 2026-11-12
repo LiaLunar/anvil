@@ -380,6 +380,14 @@ int main() {
         auto notices = session_notices(facts);
         CHECK(notices.size() == 1 && notices[0].id == "ironman" && notices[0].lasting);
         CHECK(!notices[0].closable);  // §13: permanent while a gameplay plugin acts by opt-in
+        CHECK(notices[0].lines.size() == 1);  // a core that names no one: the count only
+        facts.acting = {"tongs", "smithy.drill_all"};  // a plugin and a module (ADR 0011)
+        facts.gameplay_active = 2;
+        notices = session_notices(facts);
+        CHECK(notices.size() == 1 && notices[0].lines.size() == 2 &&
+              notices[0].lines[1] == "Acting because you allowed it: tongs, smithy.drill_all");
+        facts.acting.clear();
+        facts.gameplay_active = 1;
         facts.ironman = false;
         facts.multiplayer = true;
         facts.gameplay_hash = "ABCD-EF01-2345-6789";

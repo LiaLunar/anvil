@@ -46,6 +46,8 @@ extern const Translation kTraditionalChinese[] = {
      "正在執行啟動基準測試：EU4 會自行啟動和結束。在測試結束前，其他分頁已鎖定。"},
     {"About",
      "關於"},
+    {"Acting because you allowed it: {0}",
+     "因你允許而執行：{0}"},
     {"Add to the Start menu",
      "加入開始選單"},
     {"Allow in ironman",

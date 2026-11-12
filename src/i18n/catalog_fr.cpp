@@ -45,6 +45,8 @@ extern const Translation kFrench[] = {
      "Une série de mesure du démarrage est en cours : EU4 démarre et se ferme tout seul. Les autres onglets sont verrouillés jusqu'à la fin de la série."},
     {"About",
      "À propos"},
+    {"Acting because you allowed it: {0}",
+     "Actifs parce que vous l'avez autorisé : {0}"},
     {"Add to the Start menu",
      "Ajouter au menu Démarrer"},
     {"Allow in ironman",

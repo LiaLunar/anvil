@@ -46,6 +46,8 @@ extern const Translation kPolish[] = {
      "Trwa seria testu uruchamiania: EU4 uruchamia się i zamyka sam. Pozostałe zakładki są zablokowane do końca serii."},
     {"About",
      "O programie"},
+    {"Acting because you allowed it: {0}",
+     "Działają za twoją zgodą: {0}"},
     {"Add to the Start menu",
      "Dodaj do menu Start"},
     {"Allow in ironman",

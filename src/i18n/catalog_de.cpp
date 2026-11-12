@@ -45,6 +45,8 @@ extern const Translation kGerman[] = {
      "Eine Startzeit-Messreihe läuft: EU4 startet und beendet sich selbst. Die anderen Tabs sind gesperrt, bis die Serie endet."},
     {"About",
      "Über"},
+    {"Acting because you allowed it: {0}",
+     "Aktiv, weil du es erlaubt hast: {0}"},
     {"Add to the Start menu",
      "Zum Startmenü hinzufügen"},
     {"Allow in ironman",

@@ -46,6 +46,9 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   Plugins that change the simulation need it: in ironman and multiplayer games
   Anvil takes their changes out unless the player allows them in
   `anvil/anvil.toml`.
+  From Anvil 1.22 a plugin can split its features into modules, each with its
+  own switch in the Manager and its own gameplay flag, so Anvil takes out only
+  the modules that change the game ([ADR 0011](docs/adr/0011-plugin-modules.md)).
 - Anvil also ships `anvil-overlay` (`anvil/plugins/anvil-overlay/`): in-game
   notices about plugins that were not loaded, the previous crash and safe
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next

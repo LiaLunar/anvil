@@ -46,6 +46,8 @@ extern const Translation kJapanese[] = {
      "起動ベンチマークのシリーズを実行中です。EU4 は自動で起動・終了します。シリーズが終わるまで他のタブはロックされます。"},
     {"About",
      "情報"},
+    {"Acting because you allowed it: {0}",
+     "許可したため動作中：{0}"},
     {"Add to the Start menu",
      "スタートメニューに追加"},
     {"Allow in ironman",

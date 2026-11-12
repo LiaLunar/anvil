@@ -237,6 +237,11 @@ std::vector<Notice> session_notices(const SessionFacts& facts) {
                                        "it. Achievements stay enabled, but such plugins may break Paradox's rules for "
                                        "them."),
                               {std::to_string(facts.gameplay_active)}));
+        if (!facts.acting.empty()) {
+            std::string names;
+            for (const std::string& id : facts.acting) names += (names.empty() ? "" : ", ") + id;
+            n.lines.push_back(trf("Acting because you allowed it: {0}", {names}));
+        }
         notices.push_back(std::move(n));
     }
     if (facts.multiplayer) {
