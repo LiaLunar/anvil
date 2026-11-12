@@ -627,7 +627,11 @@ int main(int argc, char** argv) {
         CHECK(_wsystem((L"icacls " + folder + L" /deny *S-1-1-0:(AD) >nul").c_str()) == 0);
         const PluginInstallResult installed = install_plugin_zip(*zip, check, game);
         _wsystem((L"icacls " + folder + L" /remove:d *S-1-1-0 >nul").c_str());
-        CHECK(!installed.ok && installed.access_denied);
+        if (under_wine()) {
+            wine_skip("an ACL that denies writing is enforced (Wine does not enforce ACLs)");
+        } else {
+            CHECK(!installed.ok && installed.access_denied);
+        }
     });
 
     run("plugin zip: checked against eu4.exe before anything is copied", [&] {
@@ -716,7 +720,9 @@ int main(int argc, char** argv) {
 
     run("start menu: a shortcut to the copy in the game folder, read back and removed", [] {
         CHECK(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED) >= 0);
-        const fs::path folder = fs::temp_directory_path() / L"anvil-start-menu-test \u0105\u0107";
+        // Wine stores a link's target in the ANSI code page, so a non-ASCII folder comes back folded
+        // ("\u0105\u0107" becomes "ac"); Windows keeps it.
+        const fs::path folder = fs::temp_directory_path() / (under_wine() ? L"anvil-start-menu-test" : L"anvil-start-menu-test \u0105\u0107");
         std::error_code ec;
         fs::remove_all(folder, ec);
         fs::create_directories(folder, ec);

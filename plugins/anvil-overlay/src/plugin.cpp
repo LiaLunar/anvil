@@ -58,16 +58,16 @@ constexpr size_t kReset = 16;           // IDirect3DDevice9
 constexpr size_t kEndScene = 42;
 constexpr size_t kResetEx = 132;  // IDirect3DDevice9Ex
 
-using Create9Fn = IDirect3D9*(WINAPI)(UINT);
-using Create9ExFn = HRESULT(WINAPI)(UINT, IDirect3D9Ex**);
-using CreateDeviceFn = HRESULT(STDMETHODCALLTYPE)(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*,
+using Create9Fn = IDirect3D9* WINAPI(UINT);
+using Create9ExFn = HRESULT WINAPI(UINT, IDirect3D9Ex**);
+using CreateDeviceFn = HRESULT STDMETHODCALLTYPE(IDirect3D9*, UINT, D3DDEVTYPE, HWND, DWORD, D3DPRESENT_PARAMETERS*,
                                                   IDirect3DDevice9**);
-using CreateDeviceExFn = HRESULT(STDMETHODCALLTYPE)(IDirect3D9Ex*, UINT, D3DDEVTYPE, HWND, DWORD,
+using CreateDeviceExFn = HRESULT STDMETHODCALLTYPE(IDirect3D9Ex*, UINT, D3DDEVTYPE, HWND, DWORD,
                                                     D3DPRESENT_PARAMETERS*, D3DDISPLAYMODEEX*, IDirect3DDevice9Ex**);
-using EndSceneFn = HRESULT(STDMETHODCALLTYPE)(IDirect3DDevice9*);
-using ResetFn = HRESULT(STDMETHODCALLTYPE)(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
-using ResetExFn = HRESULT(STDMETHODCALLTYPE)(IDirect3DDevice9Ex*, D3DPRESENT_PARAMETERS*, D3DDISPLAYMODEEX*);
-using KeyStateFn = SHORT(WINAPI)(int);
+using EndSceneFn = HRESULT STDMETHODCALLTYPE(IDirect3DDevice9*);
+using ResetFn = HRESULT STDMETHODCALLTYPE(IDirect3DDevice9*, D3DPRESENT_PARAMETERS*);
+using ResetExFn = HRESULT STDMETHODCALLTYPE(IDirect3DDevice9Ex*, D3DPRESENT_PARAMETERS*, D3DDISPLAYMODEEX*);
+using KeyStateFn = SHORT WINAPI(int);
 
 // A function hook placed once, at the first object's method; another object
 // of the same class shares it. An object whose method lies elsewhere (another

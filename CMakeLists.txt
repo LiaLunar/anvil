@@ -335,6 +335,13 @@ if(ANVIL_BUILD_TESTS)
     if(CMAKE_GENERATOR_PLATFORM)
         list(APPEND sdk_cxx_only_args -A "${CMAKE_GENERATOR_PLATFORM}")
     endif()
+    # A cross build (clang-cl on Linux) configures the nested project with the same toolchain and build type.
+    if(CMAKE_TOOLCHAIN_FILE)
+        list(APPEND sdk_cxx_only_args -DCMAKE_TOOLCHAIN_FILE=${CMAKE_TOOLCHAIN_FILE})
+    endif()
+    if(CMAKE_BUILD_TYPE)
+        list(APPEND sdk_cxx_only_args -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE})
+    endif()
     add_test(NAME anvil_sdk_cxx_only
         COMMAND ${CMAKE_COMMAND} ${sdk_cxx_only_args} -S ${CMAKE_CURRENT_SOURCE_DIR}/tests/sdk/cxx-only
             -B ${CMAKE_CURRENT_BINARY_DIR}/sdk-cxx-only -DANVIL_ROOT=${CMAKE_CURRENT_SOURCE_DIR})
@@ -563,6 +570,8 @@ install(FILES include/anvil/anvil_plugin.h include/anvil/anvil_panel.h include/a
 install(TARGETS anvil RUNTIME DESTINATION bin COMPONENT sdk)
 install(FILES sdk/cmake/AnvilPluginConfig.cmake ${CMAKE_CURRENT_BINARY_DIR}/sdk/AnvilPluginConfigVersion.cmake
     DESTINATION cmake COMPONENT sdk)
+# The Linux cross toolchain, so plugin repositories build with the same -DCMAKE_TOOLCHAIN_FILE.
+install(DIRECTORY sdk/cmake/toolchains DESTINATION cmake COMPONENT sdk USE_SOURCE_PERMISSIONS)
 install(FILES sdk/CMakeLists.txt sdk/README.md version.txt LICENSE DESTINATION . COMPONENT sdk)
 install(FILES ${tomlplusplus_SOURCE_DIR}/LICENSE DESTINATION third-party RENAME tomlplusplus-LICENSE.txt COMPONENT sdk)
 install(FILES ${zydis_SOURCE_DIR}/LICENSE DESTINATION third-party RENAME zydis-LICENSE.txt COMPONENT sdk)

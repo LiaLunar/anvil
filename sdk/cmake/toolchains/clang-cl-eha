@@ -1,0 +1,22 @@
+#!/bin/bash
+# clang-cl wrapper for cross-building MSVC code on Linux.
+#
+# Without /EHa, clang-cl drops MSVC-style __try/__except protection for bodies that contain no calls,
+# so a guarded read of bad memory faults unhandled (MSVC always honors __try). With /EHa, however,
+# catch(...) also swallows hardware faults, which MSVC's /EHsc never does. So /EHa is added ONLY when
+# a source file being compiled uses __try/__except/__finally, as the LAST /EH option (the last one
+# wins; CMake and projects add /EHsc themselves). Everything else compiles exactly as given.
+args=()
+need=0
+for a in "$@"; do
+  case "$a" in
+    *.cpp|*.cc|*.cxx|*.c) if [ -f "$a" ] && grep -qE '__try|__except|__finally' "$a" 2>/dev/null; then need=1; fi ;;
+  esac
+done
+added=0
+for a in "$@"; do
+  if [ "$a" = "--" ] && [ $added = 0 ] && [ $need = 1 ]; then args+=("/EHa"); added=1; fi
+  args+=("$a")
+done
+[ $need = 1 ] && [ $added = 0 ] && args+=("/EHa")
+exec clang-cl "${args[@]}"

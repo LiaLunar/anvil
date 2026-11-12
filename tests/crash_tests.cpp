@@ -889,9 +889,13 @@ int main(int argc, char** argv) {
         CHECK(on_thread(256 * 1024, [](LPVOID) -> DWORD {
                   return crash::guard_thread(20 * 1024) ? current_guarantee() : 0;
               }) >= 20 * 1024);
-        CHECK(on_thread(128 * 1024, [](LPVOID) -> DWORD {
-                  return crash::guard_thread(20 * 1024) ? 1 : current_guarantee() < 20 * 1024 ? 2 : 3;
-              }) == 2);
+        if (under_wine()) {
+            wine_skip("a thread of 128 KB keeps the default guarantee (Wine gives every thread at least 1 MB)");
+        } else {
+            CHECK(on_thread(128 * 1024, [](LPVOID) -> DWORD {
+                      return crash::guard_thread(20 * 1024) ? 1 : current_guarantee() < 20 * 1024 ? 2 : 3;
+                  }) == 2);
+        }
         CHECK(on_thread(1024 * 1024, [](LPVOID) -> DWORD {
                   return crash::guard_thread(0) ? 1 : current_guarantee() < 20 * 1024 ? 2 : 3;
               }) == 2);
@@ -914,7 +918,8 @@ int main(int argc, char** argv) {
                         exception_context_bytes(), guarantee / 1024);
         }
         const ChildResult r = run_child("overflow", root / "overflow");
-        CHECK(r.exit == 0xC0DE || r.exit == EXCEPTION_STACK_OVERFLOW);
+        // Wine ends the process with its own status once the filter returns; the report and dump are still checked.
+        CHECK(under_wine() ? r.exit != 0 : (r.exit == 0xC0DE || r.exit == EXCEPTION_STACK_OVERFLOW));
         CHECK(Json::valid(r.json));
         CHECK(contains(r.json, "\"code\": \"0xC00000FD\""));
         CHECK(contains(r.json, "\"level\": \"in_plugin_code\""));

@@ -3,9 +3,27 @@
 
 #include "core/manifest.hpp"
 
+#include <windows.h>
+
 #include <cstdio>
 #include <functional>
 #include <string>
+
+// True when the tests run under Wine or Proton (Linux). It reads Wine's own registry hive, so it does not
+// depend on the code under test (which has its own detect_wine()). Windows runs are unaffected.
+inline bool under_wine() {
+    static const bool wine = [] {
+        HKEY key = nullptr;
+        if (RegOpenKeyExW(HKEY_CURRENT_USER, L"Software\\Wine", 0, KEY_READ, &key) != ERROR_SUCCESS) return false;
+        RegCloseKey(key);
+        return true;
+    }();
+    return wine;
+}
+
+// Names a check that Wine cannot run, so the log says what was skipped and why. Every use is tied to a
+// behavior that was probed on its own (see tests/wine.md).
+inline void wine_skip(const char* what) { std::printf("  skipped under Wine: %s\n", what); }
 
 inline int g_failures = 0;
 inline int g_checks = 0;
@@ -23,6 +41,7 @@ inline void run(const char* name, const std::function<void()>& body) {
     const int before = g_failures;
     body();
     std::printf("%s %s\n", g_failures == before ? "ok  " : "FAIL", name);
+    std::fflush(stdout);
 }
 
 inline anvil::Manifest manifest(const std::string& toml) {

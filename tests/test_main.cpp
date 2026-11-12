@@ -274,7 +274,8 @@ int main(int argc, char** argv) {
             const VersionResource r = module_version_resource(data);
             CHECK(r.strings.count("CompanyName") == 1 && r.strings.at("CompanyName").rfind("Microsoft", 0) == 0);
             CHECK(r.strings.count("ProductName") == 1);
-            CHECK(r.file_version.rfind("10.0.", 0) == 0);
+            // Wine's own d3d9.dll carries Wine's version, not Windows 10's.
+            CHECK(under_wine() ? !r.file_version.empty() : r.file_version.rfind("10.0.", 0) == 0);
             FreeLibrary(data);
         }
         // The real d3d9.dll, loaded: on Windows the system one, no DXVK scan.
@@ -297,8 +298,8 @@ int main(int argc, char** argv) {
         CHECK(parse_version_resource(nullptr, 0).strings.empty());
         const uint8_t junk[8] = {0xFF, 0xFF, 0, 0, 0, 0, 0, 0};
         CHECK(parse_version_resource(junk, sizeof(junk)).strings.empty());
-        // The Wine lines: these tests run on Windows.
-        CHECK(!detect_wine());
+        // The Wine lines: the detection agrees with Wine's registry hive (false on Windows).
+        CHECK(detect_wine().has_value() == under_wine());
         CHECK(wine_log_line(std::nullopt) == "Wine: not detected");
         CHECK(wine_log_line(WineInfo{"11.0", "wine-11.0 (Proton-11.0-2e)", "Linux", "6.11.11-valve19"}) ==
               "Wine: 11.0 (build wine-11.0 (Proton-11.0-2e), host Linux 6.11.11-valve19)");

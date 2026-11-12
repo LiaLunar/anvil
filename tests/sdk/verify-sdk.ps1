@@ -3,6 +3,9 @@
 # the unpacked archive (hello-c). Checks the archive's contents and what the
 # package lays out and adds (<target>-check, <target>-deploy).
 #   tests/sdk/verify-sdk.ps1 -Archive dist/anvil-sdk-windows-x64.zip [-Work work/sdk-verify]
+# Cross build on Linux: set ANVIL_VERIFY_CMAKE_ARGS to the generator and toolchain
+# ("-G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=<clang-cl-xwin.cmake> -DXWIN_DIR=<xwin>") and
+# ANVIL_WINE to the command that runs a Windows .exe (wine); without them the Visual Studio 2022 generator is used.
 param(
     [Parameter(Mandatory)][string]$Archive,
     [string]$Work = 'sdk-verify'
@@ -14,6 +17,14 @@ Remove-Item $Work -Recurse -Force -ErrorAction SilentlyContinue
 New-Item -ItemType Directory $Work | Out-Null
 $work = (Resolve-Path $Work).Path
 $examples = Join-Path $root 'examples'
+
+$onWindows = [Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT
+# anvil.exe, run through the emulator when this is not Windows.
+function Invoke-Anvil([string]$Exe, [string[]]$Arguments) {
+    if ($onWindows) { & $Exe @Arguments }
+    elseif ($env:ANVIL_WINE) { & $env:ANVIL_WINE $Exe @Arguments }
+    else { throw 'anvil.exe needs Windows or ANVIL_WINE' }
+}
 
 function Run([string]$what, [scriptblock]$command) {
     & $command
@@ -33,11 +44,12 @@ foreach ($file in 'include/anvil/anvil_plugin.h', 'include/anvil/anvil.hpp', 'in
                   'CMakeLists.txt', 'README.md', 'LICENSE', 'version.txt') {
     Assert (Test-Path (Join-Path $sdk $file)) "the SDK archive lacks $file"
 }
-Run 'anvil.exe --version' { & (Join-Path $sdk 'bin/anvil.exe') --version }
+Run 'anvil.exe --version' { Invoke-Anvil (Join-Path $sdk 'bin/anvil.exe') '--version' }
 
 $hash = (Get-FileHash $archive -Algorithm SHA256).Hash.ToLower()
 $game = Join-Path $work 'game'
-$configure = @('-G', 'Visual Studio 17 2022', '-A', 'x64', '-DCMAKE_COMPILE_WARNING_AS_ERROR=ON', "-DEU4_DIR=$game")
+$generator = if ($env:ANVIL_VERIFY_CMAKE_ARGS) { @($env:ANVIL_VERIFY_CMAKE_ARGS -split '\s+' | Where-Object { $_ }) } else { @('-G', 'Visual Studio 17 2022', '-A', 'x64') }
+$configure = $generator + @('-DCMAKE_COMPILE_WARNING_AS_ERROR=ON', "-DEU4_DIR=$game")
 
 # 2. FetchContent of the archive .
 $fetch = Join-Path $work 'fetch'
@@ -69,7 +81,7 @@ foreach ($case in @{ build = $fetch; id = 'hello-cpp'; files = 'hello_cpp.dll', 
 $stale = Join-Path $work 'stale'
 Copy-Item (Join-Path $examples 'hello-c') $stale -Recurse
 Add-Content (Join-Path $stale 'symbols.toml') "`n# changed"
-& (Join-Path $sdk 'bin/anvil.exe') check $stale | Out-Null
+Invoke-Anvil (Join-Path $sdk 'bin/anvil.exe') @('check', $stale) | Out-Null
 Assert ($LASTEXITCODE -eq 1) "anvil check accepted a stale symbols.lock (exit $LASTEXITCODE)"
 
 Write-Host "SDK archive OK: $archive"

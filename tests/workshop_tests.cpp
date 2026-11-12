@@ -268,7 +268,11 @@ int main() {
         CHECK(w == INVALID_HANDLE_VALUE);
         if (w != INVALID_HANDLE_VALUE) CloseHandle(w);
         CHECK(!DeleteFileW((folder / "x.dll").c_str()));
-        CHECK(!MoveFileExW(folder.c_str(), (g.root / "moved").c_str(), 0));
+        if (under_wine()) {
+            wine_skip("a folder that holds a locked file cannot be renamed (Wine renames it)");
+        } else {
+            CHECK(!MoveFileExW(folder.c_str(), (g.root / "moved").c_str(), 0));
+        }
         // Reading (as LoadLibrary does) still works.
         const HANDLE r = CreateFileW((folder / "x.dll").c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING, 0, nullptr);
         CHECK(r != INVALID_HANDLE_VALUE);
