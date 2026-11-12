@@ -49,6 +49,8 @@ const char* kind_text(OwnerKind kind) {
     case OwnerKind::country_modifier: return N_("Triggered modifier");
     case OwnerKind::province_modifier: return N_("Province triggered modifier");
     case OwnerKind::mission: return N_("Mission");
+    case OwnerKind::church_aspect: return N_("Church aspect");
+    case OwnerKind::scripted_trigger: return N_("Scripted trigger");
     case OwnerKind::none: break;
     }
     return N_("No owner found");
@@ -76,24 +78,27 @@ Report make_report(const Snapshot& snapshot, Resolver& resolver, const Span& spa
     report.span = span;
     report.nested_triggers = snapshot.nested_triggers;
     report.nested_effects = snapshot.nested_effects;
+    report.nested_scripted = snapshot.nested_scripted;
     report.dropped_calls = snapshot.dropped_calls;
     report.threads = snapshot.threads;
-    // (effect, owner object or caller, role) -> row
-    std::map<std::tuple<bool, const void*, std::uintptr_t, std::string>, Row> merged;
+    // (list, owner object or caller, role, name) -> row; a scripted trigger merges by its name,
+    // since each use of one in a script is an object of its own.
+    std::map<std::tuple<Kind, const void*, std::uintptr_t, std::string, std::string>, Row> merged;
     for (const RootStat& r : snapshot.roots) {
         report.root_calls += r.calls;
-        const Owner& o = resolver.owner_of(r.block, r.effect, read_memory);
+        const Owner& o = resolver.owner_of(r.block, r.kind, read_memory);
         const bool owned = o.kind != OwnerKind::none;
         const std::uintptr_t by_caller = !owned && split_unowned ? r.caller : 0;
-        auto [it, fresh] = merged.try_emplace({r.effect, owned ? o.object : nullptr, by_caller, owned ? o.role : ""});
+        const void* object = owned && o.kind != OwnerKind::scripted_trigger ? o.object : nullptr;
+        auto [it, fresh] = merged.try_emplace({r.kind, object, by_caller, owned ? o.role : "", owned ? o.name : ""});
         Row& row = it->second;
         if (fresh) {
-            row.effect = r.effect;
+            row.list = r.kind;
             row.kind = o.kind;
             row.object = o.object;
             row.name = o.name;
             row.option = o.option;
-            row.role = owned ? o.role : (r.effect ? "effect" : "trigger");
+            row.role = owned ? o.role : (r.kind == Kind::effect ? "effect" : "trigger");
             row.caller = owned ? 0 : r.caller;
         }
         row.calls += r.calls;
@@ -101,12 +106,16 @@ Report make_report(const Snapshot& snapshot, Resolver& resolver, const Span& spa
         row.main_ticks += r.main_ticks;
         row.max = std::max(row.max, r.max);
     }
-    for (auto& [key, row] : merged) (row.effect ? report.effects : report.triggers).push_back(std::move(row));
+    for (auto& [key, row] : merged) {
+        (row.list == Kind::effect ? report.effects : row.list == Kind::scripted ? report.scripted : report.triggers)
+            .push_back(std::move(row));
+    }
     const auto longest = [](const Row& a, const Row& b) {
         return a.ticks != b.ticks ? a.ticks > b.ticks : a.calls > b.calls;
     };
     std::sort(report.triggers.begin(), report.triggers.end(), longest);
     std::sort(report.effects.begin(), report.effects.end(), longest);
+    std::sort(report.scripted.begin(), report.scripted.end(), longest);
     return report;
 }
 
@@ -125,25 +134,28 @@ std::string csv(const Report& r) {
     std::snprintf(buf, sizeof(buf),
                   "# format=1 plugin=anvil-script-profiler version=%s build=%s status=%s started=%s first_day=%s "
                   "last_day=%s days=%u wall_s=%.3f threads=%u root_calls=%llu nested_triggers=%llu "
-                  "nested_effects=%llu dropped_calls=%llu multiplayer=%d ironman=%d\n",
+                  "nested_effects=%llu nested_scripted_triggers=%llu dropped_calls=%llu multiplayer=%d ironman=%d\n",
                   s.anvil_version.c_str(), s.game_build.c_str(), ending_key(s.ending), s.started_at.c_str(),
                   s.first_date.c_str(), s.last_date.c_str(), s.days, s.seconds, r.threads,
                   static_cast<unsigned long long>(r.root_calls), static_cast<unsigned long long>(r.nested_triggers),
-                  static_cast<unsigned long long>(r.nested_effects), static_cast<unsigned long long>(r.dropped_calls),
+                  static_cast<unsigned long long>(r.nested_effects), static_cast<unsigned long long>(r.nested_scripted),
+                  static_cast<unsigned long long>(r.dropped_calls),
                   s.multiplayer ? 1 : 0, s.ironman ? 1 : 0);
     out += buf;
     out += "# Root blocks only (the outermost block on a thread), merged by owner and role; times summed over all "
            "threads, main_thread_ms is the part on the game's main thread. A trigger root inside an effect counts in "
-           "both lists. caller_rva: for blocks without an owner, where eu4.exe called them.\n";
+           "both lists. scripted_trigger rows: every call of a scripted trigger by name, the outermost on its thread, also "
+           "inside other blocks, so their time is in the trigger list too. caller_rva: for blocks without an owner, "
+           "where eu4.exe called them.\n";
     out += "list,rank,owner,name,option,role,calls,total_ms,mean_us,max_us,main_thread_ms,caller_rva\n";
-    for (const std::vector<Row>* list : {&r.triggers, &r.effects}) {
+    for (const std::vector<Row>* list : {&r.triggers, &r.effects, &r.scripted}) {
         std::size_t rank = 0;
         for (const Row& row : *list) {
             const double ms = ms_of(row.ticks, f);
             char rva[16] = "";
             if (row.kind == OwnerKind::none) std::snprintf(rva, sizeof(rva), "0x%X", row.caller);
             std::snprintf(buf, sizeof(buf), "%s,%zu,%s,%s,%s,%s,%llu,%.4f,%.3f,%.3f,%.4f,%s\n",
-                          row.effect ? "effect" : "trigger", ++rank, kind_key(row.kind), csv_field(row.name).c_str(),
+                          row.list == Kind::effect ? "effect" : row.list == Kind::scripted ? "scripted_trigger" : "trigger", ++rank, kind_key(row.kind), csv_field(row.name).c_str(),
                           row.option > 0 ? std::to_string(row.option).c_str() : "", csv_field(row.role).c_str(),
                           static_cast<unsigned long long>(row.calls), ms,
                           row.calls ? 1000.0 * ms / static_cast<double>(row.calls) : 0.0,
@@ -217,15 +229,17 @@ std::vector<PanelRow> panel_rows(const PanelState& st, const Report* last, const
         text(st.csv_failed ? t.f("Could not write {0}", {st.csv_path}) : t.f("Saved to {0}", {st.csv_path}));
     }
     const double f = s.ticks_per_second;
-    for (const std::vector<Row>* list : {&last->triggers, &last->effects}) {
+    for (const std::vector<Row>* list : {&last->triggers, &last->scripted, &last->effects}) {
         const bool effects = list == &last->effects;
+        const bool scripted = list == &last->scripted;
+        if (scripted && list->empty()) continue;
         std::uint64_t ticks = 0, calls = 0;
         for (const Row& r : *list) {
             ticks += r.ticks;
             calls += r.calls;
         }
         separator();
-        text(effects ? t("Effects") : t("Triggers"),
+        text(effects ? t("Effects") : scripted ? t("Scripted triggers") : t("Triggers"),
              t.f("{0} in {1} calls", {format_ms(ms_of(ticks, f)), format_count(calls)}));
         const std::size_t n = std::min(list->size(), st.top);
         for (std::size_t i = 0; i < n; ++i) {
@@ -235,7 +249,7 @@ std::vector<PanelRow> panel_rows(const PanelState& st, const Report* last, const
                 label += " " + (r.name.empty() ? std::string("?") : r.name);
                 if (r.option > 0) label += " #" + std::to_string(r.option);
             }
-            label += " \xC2\xB7 " + r.role;
+            if (!r.role.empty()) label += " \xC2\xB7 " + r.role;
             const double ms = ms_of(r.ticks, f);
             text(std::move(label),
                  t.f("{0}, {1} calls, mean {2}, max {3}",

@@ -27,11 +27,12 @@ void ThreadTable::clear() noexcept {
         s.ticks.store(0, std::memory_order_relaxed);
         s.max.store(0, std::memory_order_relaxed);
         s.caller.store(0, std::memory_order_relaxed);
-        s.effect.store(0, std::memory_order_relaxed);
+        s.kind.store(0, std::memory_order_relaxed);
     }
     used_.store(0, std::memory_order_release);
     nested_triggers_.store(0, std::memory_order_relaxed);
     nested_effects_.store(0, std::memory_order_relaxed);
+    nested_scripted_.store(0, std::memory_order_relaxed);
     dropped_calls_.store(0, std::memory_order_relaxed);
     dropped_ticks_.store(0, std::memory_order_relaxed);
 }
@@ -84,7 +85,7 @@ Snapshot collect(std::uint32_t main_thread_id) {
             if (fresh) {
                 RootStat r;
                 r.block = block;
-                r.effect = s.effect.load(std::memory_order_relaxed) != 0;
+                r.kind = static_cast<Kind>(s.kind.load(std::memory_order_relaxed));
                 r.caller = s.caller.load(std::memory_order_relaxed);
                 out.roots.push_back(r);
             }
@@ -97,6 +98,7 @@ Snapshot collect(std::uint32_t main_thread_id) {
         }
         out.nested_triggers += table.nested_triggers();
         out.nested_effects += table.nested_effects();
+        out.nested_scripted += table.nested_scripted();
         out.dropped_calls += table.dropped_calls();
         out.dropped_ticks += table.dropped_ticks();
     }

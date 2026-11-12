@@ -143,7 +143,7 @@ The outermost script block of its kind running on a thread: the only one the pro
 _Avoid_: top-level block, parent
 
 **Owner**:
-The event, event option, decision, on_action, casus belli, triggered modifier or mission a root block belongs to, with the block's role there (`trigger`, `potential`, `effect`...). The profiler's rows are owners with their roles; a block whose owner it cannot tell is "no owner found".
+The event, event option, decision, on_action, casus belli, triggered modifier, mission, church aspect or scripted trigger a root block belongs to, with the block's role there (`trigger`, `potential`, `effect`...). The profiler's rows are owners with their roles; a block whose owner it cannot tell is "no owner found".
 _Avoid_: source, parent object, definition
 
 **Profiling span**:

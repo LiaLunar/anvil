@@ -25,6 +25,23 @@ build."eu4-1.37.5.2-gog-win64" = { rva = 0x5ED2D0 }   # CEffect::Execute(CEventS
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x5ED2D0 }
 note = "CEffect::Execute, 119 B: runs the children of an effect block (CArray<CEffect*> at +0x10) through their own Execute"
 
+[symbol.scripted_trigger_evaluate]
+bytes = "40 53 48 83 EC 20 48 8B D9"
+memory = "code"
+signature = "bool (void* trigger, void* scope)"
+build."eu4-1.37.5-steam-win64" = { rva = 0xB99B30 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0xB982E0 }   # CScriptedTrigger::Evaluate(CEventScope&)
+build."eu4-1.37.5.0-gog-win64" = { rva = 0xB982E0 }
+note = "CScriptedTrigger::Evaluate, 29 B (v1.1): a use of a scripted trigger; push rbx, sub rsp 20h, mov rbx,rcx, then calls CAndTrigger::Evaluate on itself and compares with _bWantedResult (+0xA0)"
+
+[symbol.church_aspect_db_site]
+memory = "code"
+values.aspect_db = { at = 3, rip_relative = 7, type = "uintptr_t" }
+build."eu4-1.37.5-steam-win64" = { rva = 0x7F6EFF, bytes = "48 8B 05 B2 4D C3 01 48 85 C0 0F 85 07 01 00 00" }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x7F626F, bytes = "48 8B 05 BA 98 C1 01 48 85 C0 0F 85 07 01 00 00" }   # CChurchAspectDatabase::AccessInstance+0xF
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x7F626F, bytes = "48 8B 05 BA 98 C1 01 48 85 C0 0F 85 07 01 00 00" }
+note = "v1.1: mov rax,[CChurchAspectDatabase::_pDB] (Steam 0x242BCB8, GOG 0x240FB30), the database of church aspects; its _AspectList (+16) lists every aspect"
+
 # The owner classes' vtables: slot 0 (the deleting destructor) is checked.
 
 [symbol.event_vtable]
@@ -75,3 +92,17 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x1CC21C8, points_to = 0x8D4CE0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CAAC80, points_to = 0x8D3F10 }   # CMission::`vftable'
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x1CAAC80, points_to = 0x8D3F10 }
 note = "CMission: trigger +112, effect +232, ai_weight +320, provinces_to_highlight +384, name +16"
+
+[symbol.church_aspect_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1CB5C40, points_to = 0x7F64C0 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1C9E7E8, points_to = 0x7F5830 }   # CChurchAspect::`vftable'
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1C9E7E8, points_to = 0x7F5830 }
+note = "CChurchAspect (v1.1): effect +464, trigger +520, potential +640, ai_will_do +760, key +16"
+
+[symbol.scripted_trigger_vtable]
+memory = "read"
+build."eu4-1.37.5-steam-win64" = { rva = 0x1D07670, points_to = 0xB99730 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x1CF01B0, points_to = 0xB97EE0 }   # CScriptedTrigger::`vftable' (the first)
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x1CF01B0, points_to = 0xB97EE0 }
+note = "CScriptedTrigger (v1.1): an AND block itself, key +104; a scripted trigger evaluated as a root block is its own owner"

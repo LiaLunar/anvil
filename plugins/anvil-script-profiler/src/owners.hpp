@@ -16,6 +16,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include "recorder.hpp"
+
 namespace script_profiler {
 
 enum class OwnerKind : std::uint8_t {
@@ -28,6 +30,8 @@ enum class OwnerKind : std::uint8_t {
     country_modifier,   // triggered_modifier (CTriggeredModifier)
     province_modifier,  // province_triggered_modifier (CProvinceTriggeredModifier)
     mission,
+    church_aspect,     // CChurchAspect (v1.1)
+    scripted_trigger,  // a call of a scripted trigger, by its name (v1.1)
 };
 
 const char* kind_key(OwnerKind kind);  // "event", "event_option", ...: the CSV's words
@@ -42,6 +46,8 @@ struct Vtables {
     std::uintptr_t country_modifier = 0;
     std::uintptr_t province_modifier = 0;
     std::uintptr_t mission = 0;
+    std::uintptr_t church_aspect = 0;
+    std::uintptr_t scripted_trigger = 0;
 };
 
 struct Owner {
@@ -59,17 +65,22 @@ public:
     // The owner of a root block, cached. Reading game memory finds new owners;
     // without it (when the game may have freed its data) only blocks of owners
     // already found are named.
-    const Owner& owner_of(const void* block, bool effect, bool read_memory = true);
+    const Owner& owner_of(const void* block, Kind kind, bool read_memory = true);
     // Forgets blocks that had no owner, so that the next owner_of tries again
     // (after more owners were found).
     void retry_unowned();
+    // Every church aspect of the game's database (CChurchAspectDatabase, its address): the children of an
+    // aspect's trigger and potential are root blocks of their own, since CChurch::FindCheapestAspect
+    // evaluates them one by one. Once per process is enough: the aspects never change.
+    void add_church_aspects(std::uintptr_t database);
     void clear();
 
 private:
-    Owner find(const void* block, bool effect);
+    Owner find(const void* block, Kind kind);
     void expand(const Owner& owner);
     void add(const void* block, const Owner& owner, const char* role, int option = 0);
     void add_modifiers(std::uintptr_t mtth, const Owner& owner, const char* role, int option = 0);
+    void add_children(std::uintptr_t block, const Owner& owner, const char* role);
 
     Vtables vtables_;
     std::unordered_map<const void*, Owner> cache_;

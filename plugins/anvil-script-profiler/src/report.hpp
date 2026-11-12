@@ -1,6 +1,6 @@
 // A finished profiling span as rankings (docs/script-profiler.md): the root
 // blocks of the snapshot merged by owner and role, one list of triggers and
-// one of effects, and the CSV and panel rows made from them.
+// one of effects and one of scripted trigger calls (v1.1), and the CSV and panel rows made from them.
 #pragma once
 
 #include <cstdint>
@@ -14,7 +14,7 @@
 namespace script_profiler {
 
 struct Row {
-    bool effect = false;
+    Kind list = Kind::trigger;
     OwnerKind kind = OwnerKind::none;
     const void* object = nullptr;
     std::string name;
@@ -48,9 +48,11 @@ struct Report {
     Span span;
     std::vector<Row> triggers;  // by total time, longest first
     std::vector<Row> effects;
+    std::vector<Row> scripted;  // every call of a scripted trigger, by name
     std::uint64_t root_calls = 0;
     std::uint64_t nested_triggers = 0;
     std::uint64_t nested_effects = 0;
+    std::uint64_t nested_scripted = 0;
     std::uint64_t dropped_calls = 0;
     std::uint32_t threads = 0;
 };

@@ -16,13 +16,17 @@
 
 namespace script_profiler {
 
+// What a root block is: a trigger (AND) block, a block of effects, or a call of a scripted trigger
+// (every call, also inside other blocks: its time is in the trigger list too).
+enum class Kind : std::uint32_t { trigger = 0, effect = 1, scripted = 2 };
+
 struct Slot {
     std::atomic<std::uintptr_t> key{0};  // the block's address; 0: free
     std::atomic<std::uint64_t> calls{0};
     std::atomic<std::uint64_t> ticks{0};  // rdtsc ticks inside the block, summed
     std::atomic<std::uint64_t> max{0};    // the longest single run, in ticks
     std::atomic<std::uint32_t> caller{0};  // RVA of the first call's return address in eu4.exe
-    std::atomic<std::uint32_t> effect{0};  // 1: an effect block, 0: a trigger block
+    std::atomic<std::uint32_t> kind{0};    // Kind
 };
 
 class ThreadTable {
@@ -34,7 +38,7 @@ public:
     static constexpr std::uint32_t kLimit = kSlots / 4 * 3;
 
     // The owner thread only.
-    void record(const void* block, bool effect, std::uint64_t ticks, std::uint32_t caller) noexcept {
+    void record(const void* block, Kind kind, std::uint64_t ticks, std::uint32_t caller) noexcept {
         const auto key = reinterpret_cast<std::uintptr_t>(block);
         std::uint32_t i = slot_of(key);
         for (;;) {
@@ -57,7 +61,7 @@ public:
                 s.ticks.store(ticks, std::memory_order_relaxed);
                 s.max.store(ticks, std::memory_order_relaxed);
                 s.caller.store(caller, std::memory_order_relaxed);
-                s.effect.store(effect ? 1 : 0, std::memory_order_relaxed);
+                s.kind.store(static_cast<std::uint32_t>(kind), std::memory_order_relaxed);
                 s.key.store(key, std::memory_order_release);
                 order_[n] = i;
                 used_.store(n + 1, std::memory_order_release);
@@ -66,7 +70,9 @@ public:
             i = (i + 1) & (kSlots - 1);
         }
     }
-    void nested(bool effect) noexcept { add(effect ? nested_effects_ : nested_triggers_, 1); }
+    void nested(Kind kind) noexcept {
+        add(kind == Kind::effect ? nested_effects_ : kind == Kind::scripted ? nested_scripted_ : nested_triggers_, 1);
+    }
 
     // Any thread.
     std::uint32_t used() const noexcept { return used_.load(std::memory_order_acquire); }
@@ -74,6 +80,7 @@ public:
     const Slot& nth(std::uint32_t n) const noexcept { return slots_[order_[n]]; }
     std::uint64_t nested_triggers() const noexcept { return nested_triggers_.load(std::memory_order_relaxed); }
     std::uint64_t nested_effects() const noexcept { return nested_effects_.load(std::memory_order_relaxed); }
+    std::uint64_t nested_scripted() const noexcept { return nested_scripted_.load(std::memory_order_relaxed); }
     std::uint64_t dropped_calls() const noexcept { return dropped_calls_.load(std::memory_order_relaxed); }
     std::uint64_t dropped_ticks() const noexcept { return dropped_ticks_.load(std::memory_order_relaxed); }
 
@@ -93,6 +100,7 @@ private:
     std::atomic<std::uint32_t> used_{0};
     std::atomic<std::uint64_t> nested_triggers_{0};
     std::atomic<std::uint64_t> nested_effects_{0};
+    std::atomic<std::uint64_t> nested_scripted_{0};
     std::atomic<std::uint64_t> dropped_calls_{0};
     std::atomic<std::uint64_t> dropped_ticks_{0};
 };
@@ -104,6 +112,7 @@ struct Thread {
     std::uint32_t thread_id = 0;
     int trigger_depth = 0;
     int effect_depth = 0;
+    int scripted_depth = 0;
 };
 
 // The calling thread's state, made on its first block; nullptr when it cannot
@@ -122,7 +131,7 @@ void clear_all() noexcept;
 // One root block summed over every thread.
 struct RootStat {
     const void* block = nullptr;
-    bool effect = false;
+    Kind kind = Kind::trigger;
     std::uint64_t calls = 0;
     std::uint64_t ticks = 0;
     std::uint64_t max = 0;
@@ -134,6 +143,7 @@ struct Snapshot {
     std::vector<RootStat> roots;  // in no order
     std::uint64_t nested_triggers = 0;
     std::uint64_t nested_effects = 0;
+    std::uint64_t nested_scripted = 0;
     std::uint64_t dropped_calls = 0;
     std::uint64_t dropped_ticks = 0;
     std::uint32_t threads = 0;  // threads that recorded a block

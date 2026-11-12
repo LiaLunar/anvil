@@ -91,8 +91,17 @@ struct World {
     std::uint8_t* mtth = object(240);
     std::uint8_t* decision = object(616);
     std::uint8_t* loose = object(120);  // a trigger block of no known owner
+    std::uint8_t* scripted = object(176);   // two uses of the scripted trigger "my_scripted"
+    std::uint8_t* scripted2 = object(176);
+    std::uint8_t* aspect = object(864);     // the church aspect "organised_through_bishops"
+    std::uint8_t* aspect_child = object(120);  // an AND block inside the aspect's trigger
+    std::uint8_t* aspect_children = object(8);
+    std::uint8_t* aspect_list = object(8);
+    std::uint8_t* aspect_db = object(96);   // CChurchAspectDatabase
+    std::uint8_t* scripted_template = object(136);
 
-    World(std::uintptr_t event_vtable, std::uintptr_t decision_vtable) {
+    World(std::uintptr_t event_vtable, std::uintptr_t decision_vtable, std::uintptr_t aspect_vtable = 0,
+          std::uintptr_t scripted_vtable = 0) {
         put_pointer(event, event_vtable);
         put_string(event + 32, "test_events.1");
         put_pointer(options, reinterpret_cast<std::uintptr_t>(option[0]));
@@ -102,6 +111,19 @@ struct World {
         put_string(option[1] + 136, "test_events.1.b");
         put_pointer(decision, decision_vtable);
         put_string(decision + 16, "my_decision_with_a_long_name");
+        put_string(scripted_template + 16, "my_scripted");
+        put_pointer(scripted, scripted_vtable);
+        put_pointer(scripted + 168, reinterpret_cast<std::uintptr_t>(scripted_template));
+        put_pointer(scripted2, scripted_vtable);
+        put_pointer(scripted2 + 168, reinterpret_cast<std::uintptr_t>(scripted_template));
+        put_pointer(aspect, aspect_vtable);
+        put_string(aspect + 16, "organised_through_bishops");
+        put_pointer(aspect_children, reinterpret_cast<std::uintptr_t>(aspect_child));
+        put_pointer(aspect + 520 + 8, reinterpret_cast<std::uintptr_t>(aspect_children));
+        const std::int32_t one = 1;
+        std::memcpy(aspect + 520 + 0x14, &one, sizeof(one));
+        put_pointer(aspect_list, reinterpret_cast<std::uintptr_t>(aspect));
+        put_vector(aspect_db + 16, aspect_list, 1, 8);
     }
     void* trigger() const { return event + 64; }
     void* immediate() const { return event + 304 + 80; }
@@ -109,6 +131,7 @@ struct World {
     void* mtth_block() const { return mtth; }
     void* mtth_potential() const { return mtth + 112; }
     void* potential() const { return decision + 48; }
+    void* aspect_trigger() const { return aspect + 520; }
 };
 
 // ---- the synthetic eu4.exe -----------------------------------------------------
@@ -121,6 +144,7 @@ std::map<const void*, void*> g_limits;
 using EvaluateFn = bool(void* trigger, void* scope);
 using ExecuteFn = void(void* effect, void* scope, int flags);
 EvaluateFn* g_evaluate = nullptr;
+EvaluateFn* g_scripted_evaluate = nullptr;
 ExecuteFn* g_execute = nullptr;
 int g_evaluated = 0, g_executed = 0;
 
@@ -129,6 +153,8 @@ bool fake_evaluate(void* trigger, void* scope) {
     if (const auto it = g_children.find(trigger); it != g_children.end()) g_evaluate(it->second, scope);
     return true;
 }
+// A use of a scripted trigger evaluates itself as an AND block.
+bool fake_scripted(void* trigger, void* scope) { return g_evaluate(trigger, scope); }
 void fake_execute(void* effect, void* scope, int) {
     ++g_executed;
     if (const auto it = g_limits.find(effect); it != g_limits.end()) g_evaluate(it->second, scope);
@@ -141,14 +167,18 @@ struct FakeEu4 {
     };
     static constexpr Vtable kVtables[] = {
         {0x1CAB3A8, 0x6EDB00}, {0x1C66920, 0x4879D0}, {0x1C663B0, 0x47A5C0}, {0x1C455F8, 0x1F6BB0},
-        {0x1D19CA0, 0xD2F260}, {0x1D21D00, 0xDB28A0}, {0x1CC21C8, 0x8D4CE0},
+        {0x1D19CA0, 0xD2F260}, {0x1D21D00, 0xDB28A0}, {0x1CC21C8, 0x8D4CE0}, {0x1CB5C40, 0x7F64C0},
+        {0x1D07670, 0xB99730},
     };
     uint8_t* base = nullptr;
 
     FakeEu4() {
         base = static_cast<uint8_t*>(VirtualAlloc(nullptr, kSize, MEM_RESERVE, PAGE_NOACCESS));
         commit(0x0, PAGE_READWRITE);
-        for (uint32_t page : {0xB98000u, 0x5ED000u}) commit(page, PAGE_EXECUTE_READWRITE);
+        for (uint32_t page : {0xB98000u, 0x5ED000u, 0xB99000u, 0x7F6000u}) commit(page, PAGE_EXECUTE_READWRITE);
+        // CChurchAspectDatabase::AccessInstance+0xF: mov rax,[_pDB] (0x242BCB8); not run.
+        commit(0x242B000, PAGE_READWRITE);
+        put(0x7F6EFF, {0x48, 0x8B, 0x05, 0xB2, 0x4D, 0xC3, 0x01, 0x48, 0x85, 0xC0, 0x0F, 0x85, 0x07, 0x01, 0x00, 0x00});
         write_headers();
         // CAndTrigger::Evaluate: its declared bytes, then add rsp,20h; pop rdi; restore rsi and rbx.
         put(0xB98200, {0x48, 0x89, 0x5C, 0x24, 0x08, 0x48, 0x89, 0x74, 0x24, 0x10, 0x57, 0x48, 0x83, 0xEC, 0x20, 0x48,
@@ -160,6 +190,10 @@ struct FakeEu4 {
                        0x56, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x83, 0xC4, 0x20, 0x41, 0x5E, 0x48, 0x8B, 0x7C, 0x24, 0x20,
                        0x48, 0x8B, 0x74, 0x24, 0x18, 0x48, 0x8B, 0x6C, 0x24, 0x10});
         jump(0x5ED800 + 42, &fake_execute);
+        // CScriptedTrigger::Evaluate: its declared bytes, then add rsp,20h; pop rbx.
+        put(0xB99B30, {0x40, 0x53, 0x48, 0x83, 0xEC, 0x20, 0x48, 0x8B, 0xD9, 0x48, 0x83, 0xC4, 0x20, 0x5B});
+        jump(0xB99B30 + 14, &fake_scripted);
+        g_scripted_evaluate = reinterpret_cast<EvaluateFn*>(address(0xB99B30));
         g_evaluate = reinterpret_cast<EvaluateFn*>(address(0xB98200));
         g_execute = reinterpret_cast<ExecuteFn*>(address(0x5ED800));
         // The owner classes' vtables, slot 0 pointing to a ret.
@@ -338,26 +372,28 @@ void recorder_tests() {
         CHECK(t != nullptr && sp::this_thread() == t && t->thread_id == GetCurrentThreadId());
         if (t == nullptr) return;
         int a = 0, b = 0;
-        t->table.record(&a, false, 100, 0x10);
-        t->table.record(&a, false, 300, 0x20);
-        t->table.record(&b, true, 50, 0x30);
-        t->table.nested(false);
-        t->table.nested(true);
-        t->table.nested(true);
-        CHECK(t->table.used() == 2 && t->table.nested_triggers() == 1 && t->table.nested_effects() == 2);
+        t->table.record(&a, sp::Kind::trigger, 100, 0x10);
+        t->table.record(&a, sp::Kind::trigger, 300, 0x20);
+        t->table.record(&b, sp::Kind::effect, 50, 0x30);
+        t->table.nested(sp::Kind::trigger);
+        t->table.nested(sp::Kind::effect);
+        t->table.nested(sp::Kind::effect);
+        t->table.nested(sp::Kind::scripted);
+        CHECK(t->table.used() == 2 && t->table.nested_triggers() == 1 && t->table.nested_effects() == 2 &&
+              t->table.nested_scripted() == 1);
         const sp::Slot& s = t->table.nth(0);
         CHECK(s.key.load() == reinterpret_cast<std::uintptr_t>(&a) && s.calls.load() == 2 && s.ticks.load() == 400 &&
-              s.max.load() == 300 && s.caller.load() == 0x10 && s.effect.load() == 0);
+              s.max.load() == 300 && s.caller.load() == 0x10 && s.kind.load() == 0);
         // Another thread's table, summed by collect; main_ticks only from the main thread.
         std::thread([&] {
             sp::Thread* other = sp::this_thread();
-            if (other != nullptr) other->table.record(&a, false, 1000, 0x40);
+            if (other != nullptr) other->table.record(&a, sp::Kind::trigger, 1000, 0x40);
         }).join();
         const sp::Snapshot snap = sp::collect(GetCurrentThreadId());
         CHECK(snap.threads == 2 && snap.roots.size() == 2 && snap.nested_effects == 2);
         for (const sp::RootStat& r : snap.roots) {
-            if (r.block == &a) CHECK(r.calls == 3 && r.ticks == 1400 && r.max == 1000 && r.main_ticks == 400 && !r.effect);
-            if (r.block == &b) CHECK(r.calls == 1 && r.effect && r.caller == 0x30);
+            if (r.block == &a) CHECK(r.calls == 3 && r.ticks == 1400 && r.max == 1000 && r.main_ticks == 400 && r.kind == sp::Kind::trigger);
+            if (r.block == &b) CHECK(r.calls == 1 && r.kind == sp::Kind::effect && r.caller == 0x30);
         }
         sp::clear_all();
         CHECK(t->table.used() == 0 && t->table.nested_effects() == 0 && sp::collect(0).roots.empty());
@@ -366,10 +402,10 @@ void recorder_tests() {
         sp::Thread* t = sp::this_thread();
         if (t == nullptr) return;
         static char blocks[sp::ThreadTable::kLimit + 10];
-        for (std::uint32_t i = 0; i < sp::ThreadTable::kLimit + 10; ++i) t->table.record(&blocks[i], false, 2, 0);
+        for (std::uint32_t i = 0; i < sp::ThreadTable::kLimit + 10; ++i) t->table.record(&blocks[i], sp::Kind::trigger, 2, 0);
         CHECK(t->table.used() == sp::ThreadTable::kLimit && t->table.dropped_calls() == 10 &&
               t->table.dropped_ticks() == 20);
-        t->table.record(&blocks[0], false, 2, 0);  // one it has still counts
+        t->table.record(&blocks[0], sp::Kind::trigger, 2, 0);  // one it has still counts
         CHECK(t->table.nth(0).calls.load() == 2);
         sp::clear_all();
     });
@@ -382,50 +418,70 @@ void owner_tests() {
     sp::Vtables v;
     v.event = kEventVtable;
     v.decision = kDecisionVtable;
-    const World w(kEventVtable, kDecisionVtable);
+    v.church_aspect = 0x1400003000;
+    v.scripted_trigger = 0x1400004000;
+    const World w(kEventVtable, kDecisionVtable, v.church_aspect, v.scripted_trigger);
     run("owners: an event's trigger and immediate, a decision's potential, nothing for a stranger", [&] {
         sp::Resolver r(v);
-        const sp::Owner& t = r.owner_of(w.trigger(), false);
+        const sp::Owner& t = r.owner_of(w.trigger(), sp::Kind::trigger);
         CHECK(t.kind == sp::OwnerKind::event && t.name == "test_events.1" && std::string(t.role) == "trigger" &&
               t.object == w.event);
-        const sp::Owner& i = r.owner_of(w.immediate(), true);
+        const sp::Owner& i = r.owner_of(w.immediate(), sp::Kind::effect);
         CHECK(i.kind == sp::OwnerKind::event && std::string(i.role) == "immediate");
-        CHECK(r.owner_of(w.trigger(), true).kind == sp::OwnerKind::event);  // cached by address
-        const sp::Owner& d = r.owner_of(w.potential(), false);
+        CHECK(r.owner_of(w.trigger(), sp::Kind::effect).kind == sp::OwnerKind::event);  // cached by address
+        const sp::Owner& d = r.owner_of(w.potential(), sp::Kind::trigger);
         CHECK(d.kind == sp::OwnerKind::decision && d.name == "my_decision_with_a_long_name" &&
               std::string(d.role) == "potential");
-        CHECK(r.owner_of(w.loose, false).kind == sp::OwnerKind::none);
-        CHECK(r.owner_of(reinterpret_cast<void*>(0x20), false).kind == sp::OwnerKind::none);  // unreadable
+        CHECK(r.owner_of(w.loose, sp::Kind::trigger).kind == sp::OwnerKind::none);
+        const sp::Owner& a = r.owner_of(w.aspect_trigger(), sp::Kind::trigger);
+        CHECK(a.kind == sp::OwnerKind::church_aspect && a.name == "organised_through_bishops" && std::string(a.role) == "trigger");
+        // A scripted trigger as a root AND block, and a call of one through its own hook (address + 1).
+        const sp::Owner& st = r.owner_of(w.scripted, sp::Kind::trigger);
+        CHECK(st.kind == sp::OwnerKind::scripted_trigger && st.name == "my_scripted" && std::string(st.role) == "trigger");
+        // From the database, before any of the aspect's own blocks was seen.
+        sp::Resolver fresh(v);
+        CHECK(fresh.owner_of(w.aspect_child, sp::Kind::trigger).kind == sp::OwnerKind::none);
+        fresh.retry_unowned();
+        fresh.add_church_aspects(reinterpret_cast<std::uintptr_t>(w.aspect_db));
+        const sp::Owner& child = fresh.owner_of(w.aspect_child, sp::Kind::trigger);
+        CHECK(child.kind == sp::OwnerKind::church_aspect && child.name == "organised_through_bishops" &&
+              std::string(child.role) == "trigger");
+        const sp::Owner& call = r.owner_of(w.scripted + 1, sp::Kind::scripted);
+        CHECK(call.kind == sp::OwnerKind::scripted_trigger && call.name == "my_scripted" && call.object == w.scripted &&
+              std::string(call.role).empty());
+        CHECK(r.owner_of(reinterpret_cast<void*>(0x20), sp::Kind::trigger).kind == sp::OwnerKind::none);  // unreadable
         sp::Resolver absent(sp::Vtables{});
-        CHECK(absent.owner_of(w.trigger(), false).kind == sp::OwnerKind::none);
+        CHECK(absent.owner_of(w.trigger(), sp::Kind::trigger).kind == sp::OwnerKind::none);
     });
     run("owners: an option and the mean_time_to_happen are found once their event is", [&] {
         sp::Resolver r(v);
-        CHECK(r.owner_of(w.option_effect(1), true).kind == sp::OwnerKind::none);
-        CHECK(r.owner_of(w.trigger(), false).kind == sp::OwnerKind::event);
-        CHECK(r.owner_of(w.option_effect(1), true).kind == sp::OwnerKind::none);  // still the cached answer
+        CHECK(r.owner_of(w.option_effect(1), sp::Kind::effect).kind == sp::OwnerKind::none);
+        CHECK(r.owner_of(w.trigger(), sp::Kind::trigger).kind == sp::OwnerKind::event);
+        CHECK(r.owner_of(w.option_effect(1), sp::Kind::effect).kind == sp::OwnerKind::none);  // still the cached answer
         r.retry_unowned();
-        const sp::Owner& o = r.owner_of(w.option_effect(1), true);
+        const sp::Owner& o = r.owner_of(w.option_effect(1), sp::Kind::effect);
         CHECK(o.kind == sp::OwnerKind::event_option && o.option == 2 && o.name == "test_events.1" &&
               std::string(o.role) == "effect" && o.object == w.option[1]);
-        CHECK(std::string(r.owner_of(w.mtth_block(), false).role) == "mean_time_to_happen" &&
-              std::string(r.owner_of(w.mtth_potential(), false).role) == "mean_time_to_happen");
+        CHECK(std::string(r.owner_of(w.mtth_block(), sp::Kind::trigger).role) == "mean_time_to_happen" &&
+              std::string(r.owner_of(w.mtth_potential(), sp::Kind::trigger).role) == "mean_time_to_happen");
         // Without reading memory only what is known is named.
         sp::Resolver cold(v);
-        CHECK(cold.owner_of(w.trigger(), false, false).kind == sp::OwnerKind::none);
+        CHECK(cold.owner_of(w.trigger(), sp::Kind::trigger, false).kind == sp::OwnerKind::none);
     });
     run("report: blocks merge by owner and role; blocks without an owner by caller in the CSV only", [&] {
         sp::Resolver r(v);
-        r.owner_of(w.trigger(), false);
+        r.owner_of(w.trigger(), sp::Kind::trigger);
         sp::Snapshot snap;
         snap.threads = 1;
         snap.roots = {
-            {w.trigger(), false, 10, 3000, 900, 3000, 0x111},
-            {w.mtth_block(), false, 4, 1000, 300, 0, 0x222},
-            {w.mtth_potential(), false, 4, 500, 200, 0, 0x222},
-            {w.loose, false, 2, 6000, 5000, 6000, 0xABC},
-            {w.loose + 8, false, 1, 100, 100, 0, 0xDEF},
-            {w.immediate(), true, 1, 3000000, 3000000, 3000000, 0x333},
+            {w.trigger(), sp::Kind::trigger, 10, 3000, 900, 3000, 0x111},
+            {w.mtth_block(), sp::Kind::trigger, 4, 1000, 300, 0, 0x222},
+            {w.mtth_potential(), sp::Kind::trigger, 4, 500, 200, 0, 0x222},
+            {w.loose, sp::Kind::trigger, 2, 6000, 5000, 6000, 0xABC},
+            {w.loose + 8, sp::Kind::trigger, 1, 100, 100, 0, 0xDEF},
+            {w.immediate(), sp::Kind::effect, 1, 3000000, 3000000, 3000000, 0x333},
+            {w.scripted + 1, sp::Kind::scripted, 2, 700, 400, 700, 0x444},
+            {w.scripted2 + 1, sp::Kind::scripted, 1, 300, 300, 0, 0x445},
         };
         sp::Span span;
         span.ending = sp::Ending::complete;
@@ -436,7 +492,10 @@ void owner_tests() {
         span.anvil_version = "1.22.0";
         span.game_build = kBuild;
         const sp::Report split = sp::make_report(snap, r, span, true);
-        CHECK(split.triggers.size() == 4 && split.effects.size() == 1 && split.root_calls == 22);
+        CHECK(split.triggers.size() == 4 && split.effects.size() == 1 && split.root_calls == 25);
+        // Two uses of one scripted trigger are one row, by its name.
+        CHECK(split.scripted.size() == 1 && split.scripted[0].name == "my_scripted" && split.scripted[0].calls == 3 &&
+              split.scripted[0].ticks == 1000 && split.scripted[0].kind == sp::OwnerKind::scripted_trigger);
         const sp::Report merged = sp::make_report(snap, r, span, false);
         CHECK(merged.triggers.size() == 3);
         if (merged.triggers.size() != 3) return;
@@ -454,6 +513,8 @@ void owner_tests() {
         CHECK(text.find("\ntrigger,1,none,,,trigger,2,0.0060,3.000,5.000,0.0060,0xABC\n") != std::string::npos);
         CHECK(text.find("\ntrigger,2,event,test_events.1,,trigger,10,0.0030,0.300,0.900,0.0030,\n") != std::string::npos);
         CHECK(text.find("\neffect,1,event,test_events.1,,immediate,1,3.0000,3000.000,3000.000,3.0000,\n") !=
+              std::string::npos);
+        CHECK(text.find("\nscripted_trigger,1,scripted_trigger,my_scripted,,,3,0.0010,0.333,0.400,0.0007,\n") !=
               std::string::npos);
         CHECK(sp::csv_name(2026, 11, 12, 8, 5, 9) == "script_profile_2026-11-12_080509.csv");
 
@@ -473,7 +534,8 @@ void owner_tests() {
         CHECK(has("Triggers", "11 \xC2\xB5s in 21 calls") && has("Effects", "3.00 ms in 1 calls"));
         CHECK(has("No owner found \xC2\xB7 trigger", "6.10 \xC2\xB5s, 3 calls, mean 2.03 \xC2\xB5s, max 5.00 \xC2\xB5s"));
         CHECK(has("Event test_events.1 \xC2\xB7 trigger") && !has("Event test_events.1 \xC2\xB7 mean_time_to_happen"));
-        CHECK(has("Event test_events.1 \xC2\xB7 immediate"));
+        CHECK(has("Event test_events.1 \xC2\xB7 immediate") && has("Scripted triggers", "1.00 \xC2\xB5s in 3 calls") &&
+              has("Scripted trigger my_scripted"));
         st.measuring = true;
         st.multiplayer = true;
         st.days_so_far = 4;
@@ -591,7 +653,7 @@ int main(int argc, char** argv) {
         const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
                                                                           image.address(0), &verified, &declared));
         if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 9);
+        CHECK(reason.empty() && verified.symbols.size() == 13);
         if (!reason.empty()) return;
         auto* p = new AnvilPlugin;
         p->context = &context;
@@ -614,7 +676,7 @@ int main(int argc, char** argv) {
         CHECK(outcome.result == ANVIL_OK && outcome.staged == 0 && changes.count(p->owner) == 0);
         CHECK(g_title == "Script profiler" && g_shown == 0 && g_click != nullptr);
         CHECK(row_labelled("Load a game to measure.") != nullptr && button("Start") == 0);
-        CHECK(contains(log, "anvil-script-profiler: idle: no hooks until a profiling span starts in the panel (7 owner "
+        CHECK(contains(log, "anvil-script-profiler: idle: no hooks until a profiling span starts in the panel (9 owner "
                             "classes known)"));
         plugin = p;
     });
@@ -652,7 +714,9 @@ int main(int argc, char** argv) {
         CHECK(id != 0);
         if (id != 0) g_click(g_click_context, id);
     };
-    const World& w = *new World(image.address(0x1CAB3A8), image.address(0x1C66920));
+    const World& w = *new World(image.address(0x1CAB3A8), image.address(0x1C66920), image.address(0x1CB5C40),
+                                image.address(0x1D07670));
+    image.put_pointer(0x242BCB8, reinterpret_cast<std::uintptr_t>(w.aspect_db));
     // The event's trigger evaluates a nested AND; its immediate a limit, a root trigger of its own.
     g_children[w.trigger()] = w.loose + 16;
     g_limits[w.immediate()] = w.loose;
@@ -661,6 +725,8 @@ int main(int argc, char** argv) {
         for (int i = 0; i < 5; ++i) g_evaluate(w.trigger(), &scope);
         g_evaluate(w.potential(), &scope);
         g_execute(w.immediate(), &scope, 0);
+        g_scripted_evaluate(w.scripted, &scope);
+        g_evaluate(w.aspect_child, &scope);
         std::thread([&] {
             int s = 0;
             g_evaluate(w.potential(), &s);
@@ -681,12 +747,12 @@ int main(int argc, char** argv) {
         play();  // before the span: nothing is hooked, nothing recorded
         CHECK(changes.count(plugin->owner) == 0);
         click("Start");
-        CHECK(changes.count(plugin->owner) == 2 && button("Stop") != 0);
-        CHECK(contains(log, "anvil-script-profiler: profiling span started: hooks on CAndTrigger::Evaluate and "
-                            "CEffect::Execute"));
+        CHECK(changes.count(plugin->owner) == 3 && button("Stop") != 0);
+        CHECK(contains(log, "anvil-script-profiler: profiling span started: hooks on CAndTrigger::Evaluate, "
+                            "CEffect::Execute and CScriptedTrigger::Evaluate"));
         g_evaluated = g_executed = 0;
         play();
-        CHECK(g_evaluated == 13 && g_executed == 1);  // 5 x (trigger + nested), 2 potentials, the limit
+        CHECK(g_evaluated == 15 && g_executed == 1);  // 5 x (trigger + nested), 2 potentials, the limit, the scripted, the aspect
         day();
         day();
         click("Stop");
@@ -703,25 +769,28 @@ int main(int argc, char** argv) {
         CHECK(text.find(",decision,my_decision_with_a_long_name,,potential,2,") != std::string::npos);
         CHECK(text.find("effect,1,event,test_events.1,,immediate,1,") != std::string::npos);
         CHECK(text.find(",none,,,trigger,1,") != std::string::npos);  // the limit inside the effect
+        CHECK(text.find(",scripted_trigger,my_scripted,,trigger,1,") != std::string::npos);
+        CHECK(text.find(",church_aspect,organised_through_bishops,,trigger,1,") != std::string::npos);
+        CHECK(text.find("\nscripted_trigger,1,scripted_trigger,my_scripted,,,1,") != std::string::npos);
         CHECK(row_labelled("Event test_events.1 \xC2\xB7 trigger") != nullptr &&
               row_labelled("Decision my_decision_with_a_long_name \xC2\xB7 potential") != nullptr);
         const PanelRowCopy* saved = row_labelled("Saved to logs");
         CHECK(saved != nullptr);
         g_evaluated = 0;
         play();
-        CHECK(g_evaluated == 13);  // the game's code runs as before
+        CHECK(g_evaluated == 15);  // the game's code runs as before
     });
 
     run("profiler plugin: Measure N days stops by itself; the setting changes N", [&] {
         CHECK(plugin->settings.set_text(0, "3").applied);
         run_work();
         click("Measure 3 days");
-        CHECK(changes.count(plugin->owner) == 2 && row_labelled("State") != nullptr &&
+        CHECK(changes.count(plugin->owner) == 3 && row_labelled("State") != nullptr &&
               row_labelled("State")->value.rfind("Measuring: 0 of 3 days", 0) == 0);
         play();
         day();
         day();
-        CHECK(changes.count(plugin->owner) == 2);
+        CHECK(changes.count(plugin->owner) == 3);
         day();
         CHECK(changes.count(plugin->owner) == 0 && button("Measure 3 days") != 0);
         CHECK(csv_files().size() == 2);  // a second file, even within the same second

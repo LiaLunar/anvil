@@ -5,7 +5,8 @@
 // Loaded and idle by default: no hook and no thread until the modder starts a
 // profiling span in its panel. A span hooks the trigger gate
 // CAndTrigger::Evaluate (every AND block: the root of each trigger, each limit)
-// and CEffect::Execute (every effect block); each game thread times only its
+// and CEffect::Execute (every effect block), and from v1.1 CScriptedTrigger::Evaluate
+// (every call of a scripted trigger); each game thread times only its
 // outermost block of each kind, its root, in a table of its own
 // (recorder.hpp). Stop, the end of "Measure N days", a load, leaving to the
 // menu or a normal exit ends the span: the hooks go, the tables are summed,
@@ -48,6 +49,7 @@ namespace {
 
 anvil::HookOf<sym::and_trigger_evaluate> g_and;
 anvil::HookOf<sym::effect_execute> g_effect;
+anvil::HookOf<sym::scripted_trigger_evaluate> g_scripted;
 std::uintptr_t g_base = 0;
 
 std::uint32_t rva_of(void* return_address) {
@@ -59,7 +61,7 @@ bool on_and(void* trigger, void* scope) noexcept {
     if (t == nullptr) return g_and.next(trigger, scope);
     if (t->trigger_depth != 0) {
         ++t->trigger_depth;
-        t->table.nested(false);
+        t->table.nested(sp::Kind::trigger);
         const bool r = g_and.next(trigger, scope);
         --t->trigger_depth;
         return r;
@@ -70,7 +72,7 @@ bool on_and(void* trigger, void* scope) noexcept {
     const bool r = g_and.next(trigger, scope);
     const std::uint64_t ticks = __rdtsc() - start;
     t->trigger_depth = 0;
-    t->table.record(trigger, false, ticks, caller);
+    t->table.record(trigger, sp::Kind::trigger, ticks, caller);
     return r;
 }
 
@@ -79,7 +81,7 @@ void on_effect(void* effect, void* scope, std::int32_t flags) noexcept {
     if (t == nullptr) return g_effect.next(effect, scope, flags);
     if (t->effect_depth != 0) {
         ++t->effect_depth;
-        t->table.nested(true);
+        t->table.nested(sp::Kind::effect);
         g_effect.next(effect, scope, flags);
         --t->effect_depth;
         return;
@@ -95,7 +97,30 @@ void on_effect(void* effect, void* scope, std::int32_t flags) noexcept {
     const std::uint64_t ticks = __rdtsc() - start;
     t->trigger_depth = trigger_depth;
     t->effect_depth = 0;
-    t->table.record(effect, true, ticks, caller);
+    t->table.record(effect, sp::Kind::effect, ticks, caller);
+}
+
+// Every call of a scripted trigger, also inside another block: only the outermost scripted
+// trigger on the thread is timed. The CScriptedTrigger is also an AND block that the gate
+// sees, so its row here is kept at its address + 1.
+bool on_scripted(void* trigger, void* scope) noexcept {
+    sp::Thread* t = sp::this_thread();
+    if (t == nullptr) return g_scripted.next(trigger, scope);
+    if (t->scripted_depth != 0) {
+        ++t->scripted_depth;
+        t->table.nested(sp::Kind::scripted);
+        const bool r = g_scripted.next(trigger, scope);
+        --t->scripted_depth;
+        return r;
+    }
+    const std::uint32_t caller = rva_of(_ReturnAddress());
+    t->scripted_depth = 1;
+    const std::uint64_t start = __rdtsc();
+    const bool r = g_scripted.next(trigger, scope);
+    const std::uint64_t ticks = __rdtsc() - start;
+    t->scripted_depth = 0;
+    t->table.record(static_cast<const char*>(trigger) + 1, sp::Kind::scripted, ticks, caller);
+    return r;
 }
 
 // ---- the span (the game's main thread) ---------------------------------------
@@ -199,9 +224,19 @@ void publish_locked() {
     g_state.published_ms = GetTickCount64();
 }
 
+std::uintptr_t* g_aspect_db = nullptr;  // where the game keeps CChurchAspectDatabase*
+bool g_aspects_added = false;
+
 // Gives the blocks recorded since the last call their owner while the game's
 // data is certainly alive (a day's end, the end of a span). Under g_mutex.
 void name_new_blocks_locked() {
+    if (!g_aspects_added && g_aspect_db != nullptr) {
+        std::uintptr_t db = 0;
+        if (sp::read_memory(reinterpret_cast<std::uintptr_t>(g_aspect_db), &db, sizeof(db)) && db != 0) {
+            g_resolver->add_church_aspects(db);
+            g_aspects_added = true;
+        }
+    }
     const std::size_t n = sp::thread_count();
     if (g_state.cursors.size() < n) g_state.cursors.resize(n, 0);
     for (std::size_t i = 0; i < n; ++i) {
@@ -210,7 +245,9 @@ void name_new_blocks_locked() {
         for (std::uint32_t k = g_state.cursors[i]; k < used; ++k) {
             const sp::Slot& s = table.nth(k);
             const auto* block = reinterpret_cast<const void*>(s.key.load(std::memory_order_acquire));
-            if (block != nullptr) g_resolver->owner_of(block, s.effect.load(std::memory_order_relaxed) != 0);
+            if (block != nullptr) {
+                g_resolver->owner_of(block, static_cast<sp::Kind>(s.kind.load(std::memory_order_relaxed)));
+            }
         }
         g_state.cursors[i] = used;
     }
@@ -238,6 +275,7 @@ void stop_locked(sp::Ending ending, bool exiting) {
     if (!exiting) {
         g_and.remove();
         g_effect.remove();
+        g_scripted.remove();
     }
     const std::uint64_t tsc1 = __rdtsc();
     const double seconds = seconds_since(g_state.qpc0);
@@ -303,6 +341,9 @@ void start_locked(std::uint32_t days) {
         host.group([&] {
             host.hook(g_and, sym::and_trigger_evaluate, on_and);
             host.hook(g_effect, sym::effect_execute, on_effect);
+            if (host.present(sym::scripted_trigger_evaluate)) {
+                host.hook(g_scripted, sym::scripted_trigger_evaluate, on_scripted);
+            }
         });
     } catch (const std::exception& e) {
         host.warn("profiling span not started: {}", e.what());
@@ -312,9 +353,12 @@ void start_locked(std::uint32_t days) {
     g_state.qpc0 = qpc();
     g_state.measuring = true;
     if (days > 0) {
-        host.info("profiling span started for {} days: hooks on CAndTrigger::Evaluate and CEffect::Execute", days);
+        host.info("profiling span started for {} days: hooks on CAndTrigger::Evaluate, CEffect::Execute and "
+                  "CScriptedTrigger::Evaluate",
+                  days);
     } else {
-        host.info("profiling span started: hooks on CAndTrigger::Evaluate and CEffect::Execute");
+        host.info("profiling span started: hooks on CAndTrigger::Evaluate, CEffect::Execute and "
+                  "CScriptedTrigger::Evaluate");
     }
     publish_locked();
 }
@@ -451,7 +495,10 @@ struct ScriptProfiler : anvil::Plugin {
         v.country_modifier = vtable(host, sym::triggered_modifier_vtable);
         v.province_modifier = vtable(host, sym::province_triggered_modifier_vtable);
         v.mission = vtable(host, sym::mission_vtable);
+        v.church_aspect = vtable(host, sym::church_aspect_vtable);
+        v.scripted_trigger = vtable(host, sym::scripted_trigger_vtable);
         g_resolver = std::make_unique<sp::Resolver>(v);
+        if (host.present(sym::church_aspect_db_site)) g_aspect_db = host.data(sym::aspect_db);
         g_measure_days = cfg::days.get();
         g_top = cfg::rows.get();
         g_game = host.service<AnvilGameService>(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION);
@@ -485,7 +532,8 @@ struct ScriptProfiler : anvil::Plugin {
         }
         host.info("idle: no hooks until a profiling span starts in the panel ({} owner classes known)",
                   (v.event != 0) + (v.decision != 0) + (v.on_action != 0) + (v.casus_belli != 0) +
-                      (v.country_modifier != 0) + (v.province_modifier != 0) + (v.mission != 0));
+                      (v.country_modifier != 0) + (v.province_modifier != 0) + (v.mission != 0) +
+                      (v.church_aspect != 0) + (v.scripted_trigger != 0));
     }
 };
 
