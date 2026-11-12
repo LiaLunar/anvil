@@ -110,6 +110,24 @@ typedef struct AnvilControlModPlugin {
     const char *reason_message;
 } AnvilControlModPlugin;
 
+/* A module of a plugin (ADR 0011, appended in 1.22). Strings are valid for the
+ * process. */
+typedef struct AnvilControlModule {
+    uint32_t size;
+    const char *key;         /* "<plugin>.<module>", as anvil.toml and the log name it */
+    const char *id;          /* the [[modules]] id */
+    const char *name;
+    const char *description; /* may be "" */
+    int affects_gameplay;
+    int offers_ironman;      /* allow_ironman = "opt-in" */
+    int offers_multiplayer;  /* allow_multiplayer = "opt-in" */
+    int on_by_default;       /* `default` */
+    /* A resolved plugin's module at this start; for a plugin in a mod all 0/"". */
+    const char *state;       /* "pending" | "loaded" | "failed" | "disabled" (off by the player) */
+    int enabled;             /* on at this start (anvil.toml, `default`) */
+    int suspended;           /* taken out of the current session (design §13) */
+} AnvilControlModule;
+
 enum {
     ANVIL_CONTROL_SETTING_BOOL = 0,
     ANVIL_CONTROL_SETTING_INT = 1,
@@ -255,6 +273,17 @@ typedef struct AnvilControlService {
      * mod_plugin_text for the plugin in a mod by its mod_plugin index. */
     const char *(*plugin_text)(const char *plugin_id, const char *english);
     const char *(*mod_plugin_text)(uint32_t index, const char *english);
+
+    /* --- plugin modules (appended in 1.22, working number; ADR 0011) --- */
+    /* The [[modules]] of a resolved plugin by id, in plugin.toml order; 0 for
+     * an unknown id or a plugin without modules. Their names and descriptions
+     * go through plugin_text like the plugin's own. */
+    uint32_t (*module_count)(const char *plugin_id);
+    int (*module)(const char *plugin_id, uint32_t index, AnvilControlModule *out);
+    /* The same for the plugin in a mod by its mod_plugin index, as its
+     * plugin.toml declares them (for the approval prompt); `state` is "". */
+    uint32_t (*mod_plugin_module_count)(uint32_t index);
+    int (*mod_plugin_module)(uint32_t index, uint32_t module, AnvilControlModule *out);
 } AnvilControlService;
 
 #ifdef __cplusplus

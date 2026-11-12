@@ -138,6 +138,31 @@ void weak_wrapped(const std::string& text) {
     ImGui::PopStyleColor();
 }
 
+// What a module (ADR 0011) does to the game and which opt-ins it offers.
+std::string module_summary(const ModuleRow& m) {
+    const std::string name = m.name.empty() ? m.key : m.name + " (" + m.key + ")";
+    if (!m.gameplay) return trf("{0}: does not change the game.", {name});
+    if (m.offers_ironman && m.offers_multiplayer) {
+        return trf("{0}: changes the game; you can allow it in ironman and multiplayer.", {name});
+    }
+    if (m.offers_ironman) return trf("{0}: changes the game; you can allow it in ironman, not in multiplayer.", {name});
+    if (m.offers_multiplayer) return trf("{0}: changes the game; you can allow it in multiplayer, not in ironman.", {name});
+    return trf("{0}: changes the game; suspended in ironman and multiplayer.", {name});
+}
+
+// A plugin's modules as its plugin.toml declares them, for the approval.
+void declared_modules(const std::vector<ModuleRow>& modules) {
+    if (modules.empty()) return;
+    wrapped(trf("Modules ({0}); one approval covers all of them:", {std::to_string(modules.size())}));
+    ImGui::Indent();
+    for (const ModuleRow& mod : modules) {
+        ImGui::Bullet();
+        ImGui::SameLine();
+        wrapped(module_summary(mod) + (mod.on_by_default ? "" : " " + std::string(tr("Off until you turn it on."))));
+    }
+    ImGui::Unindent();
+}
+
 void copy_to_clipboard(const std::string& text) {
     Ui& u = ui();
     u.copy = text;
@@ -1031,13 +1056,16 @@ void draw_mods() {
                 if (!m.name.empty()) line(trf("Name: {0}", {m.name}));
                 if (!m.authors.empty()) wrapped(trf("Authors: {0}", {m.authors}));
                 if (!m.description.empty()) wrapped(m.description);
-                if (m.gameplay) {
+                const bool module_gameplay =
+                    std::any_of(m.modules.begin(), m.modules.end(), [](const ModuleRow& mod) { return mod.gameplay; });
+                if (m.gameplay || module_gameplay) {
                     ImGui::PushStyleColor(ImGuiCol_Text, kAmber);
                     wrapped(tr("Changes the game (affects_gameplay): suspended in ironman and multiplayer unless you allow it."));
                     ImGui::PopStyleColor();
                 } else {
                     wrapped(tr("Does not change the game's simulation (affects_gameplay = false)."));
                 }
+                declared_modules(m.modules);
                 line(trf("Game addresses (symbols): {0}", {std::to_string(m.symbols)}));
                 wrapped(trf("Hash: {0}", {m.hash.empty() ? "-" : m.hash}));
                 if (!m.repository.empty()) wrapped(trf("Source: {0}", {m.repository}));

@@ -877,6 +877,18 @@ std::string mod_state_text(const cli::GameModPlugin& p) {
     return tr("cannot be approved: does not load");
 }
 
+// What a module (ADR 0011) does to the game and which opt-ins it offers; the
+// overlay's Mods tab says the same.
+std::string module_summary(const Manifest& plugin, const Module& m, const std::string& name) {
+    const std::string label = name.empty() ? module_key(plugin, m) : name + " (" + module_key(plugin, m) + ")";
+    if (!m.affects_gameplay) return trf("{0}: does not change the game.", {label});
+    const bool ironman = m.allow_ironman == Allow::OptIn, multiplayer = m.allow_multiplayer == Allow::OptIn;
+    if (ironman && multiplayer) return trf("{0}: changes the game; you can allow it in ironman and multiplayer.", {label});
+    if (ironman) return trf("{0}: changes the game; you can allow it in ironman, not in multiplayer.", {label});
+    if (multiplayer) return trf("{0}: changes the game; you can allow it in multiplayer, not in ironman.", {label});
+    return trf("{0}: changes the game; suspended in ironman and multiplayer.", {label});
+}
+
 }  // namespace
 
 void ManagerApp::draw_mods_tab() {
@@ -965,10 +977,21 @@ void ManagerApp::draw_approve_modal() {
     ImGui::Spacing();
     colored_wrapped(kWarn, tr("A plugin is native code: it runs inside the game with your rights, like any program. "
                               "Approve plugins only from authors you trust."));
-    if (m.affects_gameplay) {
+    const bool module_gameplay =
+        std::any_of(m.modules.begin(), m.modules.end(), [](const Module& mod) { return mod.affects_gameplay; });
+    if (m.affects_gameplay || module_gameplay) {
         bullet(tr("It changes the game. Anvil keeps it out of ironman and multiplayer games unless you allow it there."));
     } else {
         bullet(tr("It says it does not change the game (affects_gameplay = false)."));
+    }
+    if (!m.modules.empty()) {
+        bullet(trf("Modules ({0}); one approval covers all of them:", {std::to_string(m.modules.size())}));
+        ImGui::Indent();
+        for (const Module& mod : m.modules) {
+            const std::string text = module_summary(m, mod, plugin_text(m.folder, mod.name));
+            bullet(mod.enabled_by_default ? text : text + " " + tr("Off until you turn it on."));
+        }
+        ImGui::Unindent();
     }
     bullet(offered.has_symbols ? trf("{0} game address(es) declared in symbols.toml", {std::to_string(offered.symbols)})
                                : std::string(tr("It declares no game addresses (no symbols.toml).")));

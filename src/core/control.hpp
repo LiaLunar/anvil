@@ -97,6 +97,13 @@ public:
     AnvilResult approve_mod_plugin(uint32_t index, std::string_view hash, std::string& error);
     AnvilResult revoke_mod_plugin(uint32_t index, std::string& error);
 
+    // Modules (ADR 0011): of a resolved plugin by id, with their state at this
+    // start, and of a plugin in a mod by its index, as declared.
+    uint32_t module_count(std::string_view plugin_id) const;
+    bool module(std::string_view plugin_id, uint32_t index, AnvilControlModule& out) const;
+    uint32_t mod_plugin_module_count(uint32_t index) const;
+    bool mod_plugin_module(uint32_t index, uint32_t module, AnvilControlModule& out) const;
+
 private:
     struct CrashCache {
         CrashSummary summary;
@@ -124,6 +131,7 @@ private:
         std::string approved_version, approved_hash, approved_date;
         std::string reason_message;
         uint32_t symbols = 0;
+        std::vector<std::string> module_keys;  // "<plugin>.<module>", in plugin.toml order
     };
     // Which mod and hash trust.toml binds an id to now ("" mod: none).
     struct Binding {

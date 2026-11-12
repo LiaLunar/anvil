@@ -12,6 +12,18 @@
 
 namespace overlay {
 
+// A module of a plugin (ADR 0011), as anvil.control reports it (Anvil 1.22).
+struct ModuleRow {
+    std::string key, name, description;  // name and description in the player's language
+    std::string state;                    // resolved plugins: "loaded", "disabled", ...; "" in a mod
+    bool gameplay = false;
+    bool offers_ironman = false;
+    bool offers_multiplayer = false;
+    bool on_by_default = true;
+    bool enabled = false;  // on at this start (resolved plugins)
+    bool suspended = false;
+};
+
 struct PluginRow {
     std::string id, name, version, state, reason, issues;
     bool early = false;
@@ -23,6 +35,7 @@ struct PluginRow {
     std::string mod;                 // a plugin from a mod: the mod's name
     bool awaiting_approval = false;  // skipped until the player approves it
     anvil::i18n::Message why;        // `reason` by code; empty from a core before 1.7
+    std::vector<ModuleRow> modules;  // [[modules]], in plugin.toml order
 
     // The reason in the player's language.
     std::string reason_text() const { return why.empty() ? reason : anvil::i18n::text(why); }
@@ -41,6 +54,7 @@ struct ModRow {
     bool can_revoke = false;
     bool approved_next = false;  // approved in this game; loads from the next start
     bool revoked_next = false;
+    std::vector<ModuleRow> modules;  // as its plugin.toml declares them
     anvil::i18n::Message why;    // `reason` by code; empty from a core before 1.7
 
     std::string reason_text() const { return why.empty() ? reason : anvil::i18n::text(why); }

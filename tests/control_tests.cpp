@@ -538,6 +538,18 @@ default = false
         CHECK(svc.plugin_of(reinterpret_cast<const AnvilPlugin*>(&other), &p) == 0);
         // The modules are not plugins of their own in the list.
         CHECK(status.plugins == 2);
+
+        // Their entries for the overlay (module_count, module).
+        CHECK(svc.module_count("smithy") == 3 && svc.module_count("tongs") == 0 && svc.module_count("nope") == 0);
+        AnvilControlModule entry{};
+        entry.size = sizeof(entry);
+        CHECK(svc.module("smithy", 1, &entry) == 1 && std::string(entry.key) == "smithy.drill_all" &&
+              std::string(entry.id) == "drill_all" && std::string(entry.name) == "Drill");
+        CHECK(entry.affects_gameplay == 1 && entry.offers_ironman == 0 && entry.on_by_default == 1 && entry.enabled == 1 &&
+              std::string(entry.state) == "loaded" && entry.suspended == 0);
+        CHECK(svc.module("smithy", 2, &entry) == 1 && entry.on_by_default == 0 && entry.enabled == 0 &&
+              std::string(entry.state) == "disabled");
+        CHECK(svc.module("smithy", 3, &entry) == 0 && svc.module("tongs", 0, &entry) == 0 && svc.module(nullptr, 0, &entry) == 0);
         fs::remove_all(dir);
     });
 
@@ -547,7 +559,10 @@ default = false
         const fs::path user = dir / "user";
         const fs::path mod = user / "mod" / "probe-mod";
         write_file(mod / "anvil" / "probe" / "plugin.toml",
-                   plugin_toml("probe", "symbols = \"symbols.toml\"\nauthors = [\"A\", \"B\"]\nrepository = \"https://example.org/p\"\n"));
+                   plugin_toml("probe", "symbols = \"symbols.toml\"\nauthors = [\"A\", \"B\"]\nrepository = \"https://example.org/p\"\n"
+                                        "\n[[modules]]\nid = \"look\"\nname = \"Look\"\naffects_gameplay = false\n"
+                                        "\n[[modules]]\nid = \"act\"\nname = \"Act\"\ndescription = \"Posts commands\"\n"
+                                        "affects_gameplay = true\nallow_ironman = \"opt-in\"\ndefault = false\n"));
         write_file(mod / "anvil" / "probe" / "symbols.toml",
                    "build = \"b\"\n\n[symbol.one]\nrva = 0x1000\nbytes = \"C3\"\nmemory = \"code\"\n\n"
                    "[symbol.two]\nrva = 0x1010\nbytes = \"C3\"\nmemory = \"code\"\n");
@@ -578,6 +593,16 @@ default = false
             CHECK(std::string(m.repository) == "https://example.org/p" && m.symbols == 2 && m.affects_gameplay == 0);
             CHECK(std::string(m.hash).size() == 64 && m.can_approve == 1 && m.can_revoke == 0 && m.loaded == 0);
             CHECK(std::string(m.approved_hash).empty() && svc.mod_plugin(1, &m) == 0);
+            // Its modules, as plugin.toml declares them, for the approval prompt.
+            CHECK(svc.mod_plugin_module_count(0) == 2 && svc.mod_plugin_module_count(1) == 0);
+            AnvilControlModule entry{};
+            entry.size = sizeof(entry);
+            CHECK(svc.mod_plugin_module(0, 1, &entry) == 1 && std::string(entry.key) == "probe.act" &&
+                  std::string(entry.name) == "Act" && std::string(entry.description) == "Posts commands");
+            CHECK(entry.affects_gameplay == 1 && entry.offers_ironman == 1 && entry.offers_multiplayer == 0 &&
+                  entry.on_by_default == 0 && std::string(entry.state).empty() && entry.enabled == 0);
+            CHECK(svc.mod_plugin_module(0, 0, &entry) == 1 && std::string(entry.key) == "probe.look" && entry.on_by_default == 1);
+            CHECK(svc.mod_plugin_module(0, 2, &entry) == 0 && svc.mod_plugin_module(1, 0, &entry) == 0);
             hash = m.hash;
             AnvilControlPlugin p{};
             p.size = sizeof(p);

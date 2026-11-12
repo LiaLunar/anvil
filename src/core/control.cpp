@@ -251,6 +251,23 @@ const char* svc_mod_plugin_text(uint32_t index, const char* english) {
     return g_control != nullptr ? g_control->mod_plugin_text(index, english) : english;
 }
 
+uint32_t svc_module_count(const char* plugin_id) {
+    return g_control != nullptr && plugin_id != nullptr ? g_control->module_count(plugin_id) : 0;
+}
+
+int svc_module(const char* plugin_id, uint32_t index, AnvilControlModule* out) {
+    if (plugin_id == nullptr) return 0;
+    return fill_sized(out, [&](AnvilControlModule& full) { return g_control->module(plugin_id, index, full); });
+}
+
+uint32_t svc_mod_plugin_module_count(uint32_t index) {
+    return g_control != nullptr ? g_control->mod_plugin_module_count(index) : 0;
+}
+
+int svc_mod_plugin_module(uint32_t index, uint32_t module, AnvilControlModule* out) {
+    return fill_sized(out, [&](AnvilControlModule& full) { return g_control->mod_plugin_module(index, module, full); });
+}
+
 const AnvilControlService kService{
     sizeof(AnvilControlService),
     svc_status,
@@ -275,6 +292,10 @@ const AnvilControlService kService{
     svc_plugin_of,
     svc_plugin_text,
     svc_mod_plugin_text,
+    svc_module_count,
+    svc_module,
+    svc_mod_plugin_module_count,
+    svc_mod_plugin_module,
 };
 
 const char* skipped_state(const Skipped&) { return "skipped"; }
@@ -324,6 +345,7 @@ Control::Control(ControlSources sources) : sources_(std::move(sources)) {
                 v.description = m.description;
                 v.repository = m.repository;
                 v.issues = m.issues;
+                for (const Module& mod : m.modules) v.module_keys.push_back(module_key(m, mod));
                 if (!m.symbols.empty()) {
                     const SymbolFileResult symbols = load_symbols(p.folder / m.symbols);
                     if (symbols.file) v.symbols = static_cast<uint32_t>(symbols.file->symbols.size());
@@ -623,6 +645,64 @@ bool Control::mod_plugin(uint32_t index, AnvilControlModPlugin& out) const {
     const bool approvable = p.problem.empty() && !p.hash.empty() && p.manifest && p.state != ModPluginState::Shadowed;
     out.can_approve = approvable && !(bound_now && it->second.hash == p.hash) ? 1 : 0;
     out.can_revoke = bound_now ? 1 : 0;
+    return true;
+}
+
+// ---- modules (ADR 0011) ------------------------------------------------------------
+
+namespace {
+
+void fill_declared(const Module& m, const char* key, AnvilControlModule& out) {
+    out = AnvilControlModule{};
+    out.size = sizeof(out);
+    out.key = key;
+    out.id = m.id.c_str();
+    out.name = m.name.c_str();
+    out.description = m.description.c_str();
+    out.affects_gameplay = m.affects_gameplay ? 1 : 0;
+    out.offers_ironman = m.allow_ironman == Allow::OptIn ? 1 : 0;
+    out.offers_multiplayer = m.allow_multiplayer == Allow::OptIn ? 1 : 0;
+    out.on_by_default = m.enabled_by_default ? 1 : 0;
+    out.state = "";
+}
+
+}  // namespace
+
+uint32_t Control::module_count(std::string_view plugin_id) const {
+    if (sources_.plugins == nullptr) return 0;
+    for (const auto& p : *sources_.plugins) {
+        if (p->manifest.id == plugin_id) return static_cast<uint32_t>(p->modules.size());
+    }
+    return 0;
+}
+
+bool Control::module(std::string_view plugin_id, uint32_t index, AnvilControlModule& out) const {
+    if (sources_.plugins == nullptr) return false;
+    for (const auto& p : *sources_.plugins) {
+        if (p->manifest.id != plugin_id) continue;
+        if (index >= p->modules.size() || index >= p->manifest.modules.size()) return false;
+        const AnvilPlugin& handle = *p->modules[index];
+        fill_declared(p->manifest.modules[index], handle.manifest.id.c_str(), out);
+        out.enabled = handle.enabled ? 1 : 0;
+        out.state = loading_done_.load(std::memory_order_acquire) ? handle.state.c_str()
+                    : handle.enabled                               ? "pending"
+                                                                   : "disabled";
+        out.suspended = sources_.policy != nullptr && handle.enabled && sources_.policy->suspended(handle.owner) ? 1 : 0;
+        return true;
+    }
+    return false;
+}
+
+uint32_t Control::mod_plugin_module_count(uint32_t index) const {
+    if (index >= mod_plugin_count()) return 0;
+    const ModPlugin& p = sources_.mods->plugins[index];
+    return p.manifest ? static_cast<uint32_t>(p.manifest->modules.size()) : 0;
+}
+
+bool Control::mod_plugin_module(uint32_t index, uint32_t module, AnvilControlModule& out) const {
+    if (module >= mod_plugin_module_count(index)) return false;
+    fill_declared(sources_.mods->plugins[index].manifest->modules[module],
+                  mod_views_[index].module_keys[module].c_str(), out);
     return true;
 }
 

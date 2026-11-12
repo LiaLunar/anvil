@@ -16,6 +16,11 @@ std::string text_or_empty(const char* text) { return text != nullptr ? std::stri
 
 std::atomic<bool> g_translated_cjk{false};
 
+// The core has the functions of 1.22 (modules, appended to the table).
+bool has_modules(const AnvilControlService* service) {
+    return service != nullptr && service->size >= offsetof(AnvilControlService, mod_plugin_module) + sizeof(void*);
+}
+
 // The core has the functions of 1.20 (appended to the table).
 bool has_plugin_text(const AnvilControlService* service) {
     return service != nullptr && service->size >= offsetof(AnvilControlService, mod_plugin_text) + sizeof(void*);
@@ -27,6 +32,22 @@ const char* noted(const char* english, const char* text) {
         g_translated_cjk.store(true, std::memory_order_release);
     }
     return text;
+}
+
+// A module's entry; `text` gives a plugin text in the player's language.
+template <typename Text> ModuleRow module_row(const AnvilControlModule& m, Text&& text) {
+    ModuleRow row;
+    row.key = text_or_empty(m.key);
+    row.name = text_or_empty(text(m.name));
+    row.description = text_or_empty(text(m.description));
+    row.state = text_or_empty(m.state);
+    row.gameplay = m.affects_gameplay != 0;
+    row.offers_ironman = m.offers_ironman != 0;
+    row.offers_multiplayer = m.offers_multiplayer != 0;
+    row.on_by_default = m.on_by_default != 0;
+    row.enabled = m.enabled != 0;
+    row.suspended = m.suspended != 0;
+    return row;
 }
 
 std::string result_text(AnvilResult result, const AnvilControlResult& out) {
@@ -76,6 +97,15 @@ std::vector<PluginRow> ControlClient::plugins() const {
             row.awaiting_approval = p.awaiting_approval != 0;
         }
         if (p.size > offsetof(AnvilControlPlugin, reason_message)) row.why = anvil::i18n::parse(text_or_empty(p.reason_message));
+        if (has_modules(service_)) {
+            const uint32_t count = service_->module_count(row.id.c_str());
+            for (uint32_t k = 0; k < count; ++k) {
+                AnvilControlModule m{};
+                m.size = sizeof(m);
+                if (service_->module(row.id.c_str(), k, &m) == 0) break;
+                row.modules.push_back(module_row(m, [&](const char* english) { return plugin_text(row.id, english); }));
+            }
+        }
         rows.push_back(std::move(row));
     }
     return rows;
@@ -238,6 +268,19 @@ std::vector<ModRow> ControlClient::mod_plugins() const {
         row.approved_next = m.approved_next_start != 0;
         row.revoked_next = m.revoked_next_start != 0;
         if (m.size > offsetof(AnvilControlModPlugin, reason_message)) row.why = anvil::i18n::parse(text_or_empty(m.reason_message));
+        if (has_modules(service_)) {
+            const uint32_t modules = service_->mod_plugin_module_count(i);
+            for (uint32_t k = 0; k < modules; ++k) {
+                AnvilControlModule mod{};
+                mod.size = sizeof(mod);
+                if (service_->mod_plugin_module(i, k, &mod) == 0) break;
+                row.modules.push_back(module_row(mod, [&](const char* english) {
+                    return english != nullptr && english[0] != '\0' && has_plugin_text(service_)
+                               ? noted(english, service_->mod_plugin_text(i, english))
+                               : english;
+                }));
+            }
+        }
         rows.push_back(std::move(row));
     }
     return rows;
