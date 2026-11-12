@@ -65,6 +65,7 @@ constexpr const char* result_name(AnvilResult result) noexcept {
     case ANVIL_ERROR_ALREADY_EXISTS: return "already exists";
     case ANVIL_ERROR_SUSPENDED: return "suspended in this session";
     case ANVIL_ERROR_LIMIT: return "over the limit";
+    case ANVIL_ERROR_DISABLED: return "turned off by the player";
     }
     return "unknown result";
 }
