@@ -13,8 +13,10 @@
 
 #include <atomic>
 #include <functional>
+#include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace anvil {
 struct HostContext;
@@ -39,6 +41,18 @@ struct AnvilPlugin {
     anvil::i18n::Message why;
     // Inside anvil_plugin_load the load itself is the plugin's group.
     std::atomic<bool> loading{false};
+
+    // --- modules (ADR 0011) ---
+    // A module's handle: `parent` is its plugin, whose symbols, settings,
+    // folders and names it uses; its own are `owner` (the registry and the
+    // gameplay policy) and `manifest`, which is module_manifest() of the
+    // plugin's, so the log, the bus and anvil.toml name it "<plugin>.<module>".
+    AnvilPlugin* parent = nullptr;
+    std::string module_id;  // the [[modules]] id; "" for a plugin's own handle
+    bool enabled = true;    // a module: on at this start (anvil.toml, `default`)
+    // A plugin's modules in plugin.toml order, made with the plugin, before any
+    // plugin loads, so their owners follow the plugin's in load order.
+    std::vector<std::unique_ptr<AnvilPlugin>> modules;
 };
 
 namespace anvil {
@@ -56,6 +70,13 @@ struct HostContext {
 // The API 2 host table: every field filled, `game` as given. The functions
 // reach their context through `self`, so one table serves every plugin.
 AnvilHost make_host(const AnvilGameInfo* game);
+
+// The handles of `plugin`'s modules (ADR 0011), one per [[modules]] entry in
+// file order: each gets its own owner in `changes`, right after the plugin's,
+// and is on when `enabled(module key, default)` says so. Call it once, before
+// the next plugin's owner is added.
+using ModuleEnabled = std::function<bool(const std::string& key, bool enabled_by_default)>;
+void add_modules(AnvilPlugin& plugin, ChangeRegistry& changes, const ModuleEnabled& enabled);
 
 AnvilResult to_result(ChangeStatus status);
 const char* result_name(AnvilResult result);

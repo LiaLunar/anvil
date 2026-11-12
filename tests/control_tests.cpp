@@ -480,6 +480,66 @@ void control_tests() {
         fs::remove_all(dir);
     });
 
+    run("control: modules in the plugin-set hash and plugin_of (ADR 0011)", [] {
+        const fs::path dir = fresh_dir("anvil-control-modules");
+        static uint8_t image[0x100];
+        ChangeRegistry changes(reinterpret_cast<uintptr_t>(image), sizeof(image));
+        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
+        plugins.push_back(make_plugin("smithy", "loaded", R"([[modules]]
+id = "ui_fix"
+name = "UI fix"
+affects_gameplay = false
+
+[[modules]]
+id = "drill_all"
+name = "Drill"
+affects_gameplay = true
+
+[[modules]]
+id = "chase"
+name = "Chase"
+affects_gameplay = true
+default = false
+)",
+                                      dir / "data"));
+        AnvilPlugin& smithy = *plugins.back();
+        smithy.owner = changes.add_owner("smithy");
+        add_modules(smithy, changes, {});
+        for (const auto& m : smithy.modules) {
+            if (m->enabled) m->state = "loaded";
+        }
+        plugins.push_back(make_plugin("tongs", "loaded", "", dir / "data"));
+        plugins.back()->manifest.affects_gameplay = true;
+        std::vector<Skipped> skipped;
+        ControlSources sources;
+        sources.anvil_dir = dir / "anvil";
+        sources.plugins = &plugins;
+        sources.skipped = &skipped;
+        Control control(sources);
+        control.loading_done();
+        const AnvilControlService& svc = *control.service();
+
+        // The plugin's own handle does not affect gameplay; drill_all does and
+        // is on; chase is off by default; tongs is a whole gameplay plugin.
+        AnvilControlStatus status{};
+        svc.status(&status);
+        CHECK(status.gameplay_active == 2 &&
+              std::string(status.gameplay_hash) == plugin_set_hash({"smithy.drill_all 1.2.3", "tongs 1.2.3"}));
+        CHECK(std::string(status.gameplay_hash) != plugin_set_hash({"smithy 1.2.3", "tongs 1.2.3"}));
+
+        AnvilControlPlugin p{};
+        p.size = sizeof(p);
+        CHECK(svc.plugin_of(&smithy, &p) == 1 && std::string(p.id) == "smithy" && p.affects_gameplay == 0);
+        CHECK(svc.plugin_of(smithy.modules[1].get(), &p) == 1 && std::string(p.id) == "smithy.drill_all" &&
+              p.affects_gameplay == 1 && p.suspended == 0 && std::string(p.state) == "loaded" && p.early == 0);
+        CHECK(svc.plugin_of(smithy.modules[0].get(), &p) == 1 && p.affects_gameplay == 0);
+        CHECK(svc.plugin_of(smithy.modules[2].get(), &p) == 1 && std::string(p.state) == "disabled");
+        int other = 0;
+        CHECK(svc.plugin_of(reinterpret_cast<const AnvilPlugin*>(&other), &p) == 0);
+        // The modules are not plugins of their own in the list.
+        CHECK(status.plugins == 2);
+        fs::remove_all(dir);
+    });
 
     run("control: plugins in mods, approved and revoked for the next start", [] {
         const fs::path dir = fresh_dir("anvil-control-mods");

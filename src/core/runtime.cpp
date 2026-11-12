@@ -282,6 +282,12 @@ i18n::Message failed_dependency(const AnvilPlugin& plugin) {
     return {};
 }
 
+// The plugin and its modules leave the gameplay policy (a failed load).
+void forget_in_policy(const AnvilPlugin& plugin) {
+    g_runtime->policy->forget(plugin.owner);
+    for (const auto& m : plugin.modules) g_runtime->policy->forget(m->owner);
+}
+
 void set_failed(AnvilPlugin& plugin, i18n::Message why) {
     plugin.reason = i18n::english(why);
     plugin.why = std::move(why);
@@ -294,7 +300,7 @@ void load_plugin(AnvilPlugin& plugin) {
     const std::string label = plugin.manifest.id + " " + plugin.manifest.version.to_string();
     if (i18n::Message reason = failed_dependency(plugin); !reason.empty()) {
         set_failed(plugin, std::move(reason));
-        g_runtime->policy->forget(plugin.owner);
+        forget_in_policy(plugin);
         log_error(label + ": not loaded; " + plugin.reason);
         return;
     }
@@ -308,7 +314,7 @@ void load_plugin(AnvilPlugin& plugin) {
             set_failed(plugin, i18n::Message("copy_changed", {now.error.empty() ? i18n::Message("hash", {short_hash(now.sha256)})
                                                                                 : i18n::Message(now.error),
                                                               short_hash(plugin.approved_hash)}));
-            g_runtime->policy->forget(plugin.owner);
+            forget_in_policy(plugin);
             log_error(label + ": not loaded; " + plugin.reason);
             return;
         }
@@ -319,14 +325,14 @@ void load_plugin(AnvilPlugin& plugin) {
     if (plugin.module == nullptr) {
         const DWORD error = GetLastError();
         set_failed(plugin, i18n::Message("load_error", {plugin.manifest.entry, std::to_string(error)}));
-        g_runtime->policy->forget(plugin.owner);
+        forget_in_policy(plugin);
         log_error(label + ": cannot load " + narrow(dll.wstring()) + " (error " + std::to_string(error) + ")");
         return;
     }
     const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(plugin.module, "anvil_plugin_load"));
     if (fn == nullptr) {
         set_failed(plugin, i18n::Message("no_load_export", {}));
-        g_runtime->policy->forget(plugin.owner);
+        forget_in_policy(plugin);
         log_error(label + ": entry DLL does not export anvil_plugin_load");
         FreeLibrary(plugin.module);
         plugin.module = nullptr;
@@ -344,7 +350,7 @@ void load_plugin(AnvilPlugin& plugin) {
         if (outcome.exception != 0) std::snprintf(code, sizeof(code), "0x%08lX", outcome.exception);
         set_failed(plugin, outcome.exception != 0 ? i18n::Message("load_exception", {code})
                                                   : i18n::Message("load_returned", {result_name(outcome.result)}));
-        g_runtime->policy->forget(plugin.owner);
+        forget_in_policy(plugin);
         g_runtime->benchmark->forget(&plugin);
         log_error(label + ": " + plugin.reason + "; " + std::to_string(outcome.staged) +
                   " change(s) rolled back; plugin stays inactive");
@@ -359,6 +365,14 @@ void load_plugin(AnvilPlugin& plugin) {
     log_info(summary);
     for (const auto& line : changes.describe(plugin.owner)) {
         Log::instance().write(ANVIL_LOG_DEBUG, plugin.manifest.id, line);
+    }
+    for (const auto& m : plugin.modules) {
+        if (!m->enabled) continue;
+        log_info(m->manifest.id + ": module " + std::to_string(changes.count(m->owner)) + " change(s)" +
+                 (m->manifest.affects_gameplay ? " — declares gameplay changes" : ""));
+        for (const auto& line : changes.describe(m->owner)) {
+            Log::instance().write(ANVIL_LOG_DEBUG, m->manifest.id, line);
+        }
     }
 }
 
@@ -755,6 +769,18 @@ void startup_impl(const std::filesystem::path& game_dir) {
         }
         plugin->manifest = std::move(m);
         g_runtime->policy->add(plugin->manifest, plugin->owner);
+        // Its modules (ADR 0011): owners right after the plugin's, and a
+        // policy entry for each module that is on at this start.
+        add_modules(*plugin, *g_runtime->changes, [&](const std::string& key, bool by_default) {
+            return module_enabled(settings, key, by_default);
+        });
+        for (const auto& mod : plugin->modules) {
+            if (mod->enabled) {
+                g_runtime->policy->add(mod->manifest, mod->owner);
+            } else {
+                log_info(mod->manifest.id + ": module off at this start (anvil.toml)");
+            }
+        }
         g_runtime->plugins.push_back(std::move(plugin));
     }
     // The core's own changes: its owner comes after every plugin's, so each

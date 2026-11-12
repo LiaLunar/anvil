@@ -231,8 +231,9 @@ ResolveResult resolve(const ResolveInput& input) {
         }
         Manifest& added = candidates.emplace(m.id, m).first->second;
         // Only anvil-game reports ironman and multiplayer sessions, so a
-        // plugin that affects gameplay cannot run without it (design §13).
-        if (m.affects_gameplay && m.id != ANVIL_GAME_ID &&
+        // plugin that affects gameplay, itself or in a module (ADR 0011),
+        // cannot run without it (design §13).
+        if (affects_gameplay_anywhere(m) && m.id != ANVIL_GAME_ID &&
             std::none_of(m.dependencies.begin(), m.dependencies.end(),
                          [](const Dependency& d) { return d.id == ANVIL_GAME_ID; })) {
             added.dependencies.push_back({ANVIL_GAME_ID, *VersionRange::parse("*"), false, true});

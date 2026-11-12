@@ -148,6 +148,7 @@ pub const ANVIL_ERROR_NOT_FOUND: AnvilResult = 11;
 pub const ANVIL_ERROR_ALREADY_EXISTS: AnvilResult = 12;
 pub const ANVIL_ERROR_SUSPENDED: AnvilResult = 13;
 pub const ANVIL_ERROR_LIMIT: AnvilResult = 14;
+pub const ANVIL_ERROR_DISABLED: AnvilResult = 15;
 pub type AnvilResult = core::ffi::c_int;
 pub const ANVIL_LOG_DEBUG: AnvilLogLevel = 0;
 pub const ANVIL_LOG_INFO: AnvilLogLevel = 1;
@@ -509,10 +510,17 @@ pub struct AnvilHost {
             payload: *const core::ffi::c_void,
         ) -> AnvilResult,
     >,
+    pub module: ::core::option::Option<
+        unsafe extern "C" fn(
+            self_: *mut AnvilPlugin,
+            module: *const core::ffi::c_char,
+            out: *mut *mut AnvilPlugin,
+        ) -> AnvilResult,
+    >,
 }
 #[allow(clippy::unnecessary_operation, clippy::identity_op)]
 const _: () = {
-    ["Size of AnvilHost"][::core::mem::size_of::<AnvilHost>() - 240usize];
+    ["Size of AnvilHost"][::core::mem::size_of::<AnvilHost>() - 248usize];
     ["Alignment of AnvilHost"][::core::mem::align_of::<AnvilHost>() - 8usize];
     [
         "Offset of field: AnvilHost::size",
@@ -607,6 +615,9 @@ const _: () = {
     [
         "Offset of field: AnvilHost::publish",
     ][::core::mem::offset_of!(AnvilHost, publish) - 232usize];
+    [
+        "Offset of field: AnvilHost::module",
+    ][::core::mem::offset_of!(AnvilHost, module) - 240usize];
 };
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]

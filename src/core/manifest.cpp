@@ -19,9 +19,20 @@ namespace {
 const std::set<std::string> kKnownKeys = {
     "id", "name", "version", "authors", "description", "api", "anvil", "entry", "phase", "symbols", "settings",
     "affects_gameplay", "allow_ironman", "allow_multiplayer", "load_after", "issues", "repository",
-    "dependencies", "conflicts",
+    "dependencies", "conflicts", "modules",
 };
 const std::set<std::string> kKnownDependencyKeys = {"id", "version", "optional"};
+const std::set<std::string> kKnownModuleKeys = {"id",           "name",           "description",      "affects_gameplay",
+                                                "allow_ironman", "allow_multiplayer", "default"};
+
+// A module id: [a-z][a-z0-9_]*, at most 32 characters (ADR 0011).
+bool is_valid_module_id(std::string_view id) {
+    if (id.empty() || id.size() > 32 || id.front() < 'a' || id.front() > 'z') return false;
+    for (char c : id) {
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_')) return false;
+    }
+    return true;
+}
 const std::set<std::string> kKnownConflictKeys = {"id", "version"};
 
 // A schema error and the line of plugin.toml it is about (0 = the whole file).
@@ -196,6 +207,25 @@ bool read_string_array(const toml::node* node, std::vector<std::string>& out, Er
 
 }  // namespace
 
+bool affects_gameplay_anywhere(const Manifest& manifest) {
+    return manifest.affects_gameplay || std::any_of(manifest.modules.begin(), manifest.modules.end(),
+                                                    [](const Module& m) { return m.affects_gameplay; });
+}
+
+std::string module_key(const Manifest& manifest, const Module& module) { return manifest.id + "." + module.id; }
+
+Manifest module_manifest(const Manifest& manifest, const Module& module) {
+    Manifest m = manifest;
+    m.id = module_key(manifest, module);
+    m.name = manifest.name + ": " + module.name;
+    if (!module.description.empty()) m.description = module.description;
+    m.affects_gameplay = module.affects_gameplay;
+    m.allow_ironman = module.allow_ironman;
+    m.allow_multiplayer = module.allow_multiplayer;
+    m.modules.clear();
+    return m;
+}
+
 bool is_valid_plugin_id(std::string_view id) {
     if (id.empty() || id.size() > 64 || id.front() == '-' || id.back() == '-') return false;
     for (char c : id) {
@@ -363,6 +393,50 @@ ManifestResult parse_manifest(std::string_view text, const std::filesystem::path
             if (!read_plugin_ref(node, kKnownConflictKeys, c.id, c.range, error)) return fail(label + error.text, error.line);
             if (c.id == m.id) return fail(label + "a plugin cannot conflict with itself", line_of(node.as_table()->get("id")));
             m.conflicts.push_back(std::move(c));
+        }
+    }
+    if (table.contains("modules")) {
+        const auto* list = table.get_as<toml::array>("modules");
+        if (list == nullptr || list->empty()) {
+            return fail("modules must be a non-empty array of tables ([[modules]])", line_of(table.get("modules")));
+        }
+        if (list->size() > kMaxModules) {
+            return fail("more than " + std::to_string(kMaxModules) + " [[modules]]", line_of(table.get("modules")));
+        }
+        for (const auto& node : *list) {
+            const std::string label = "[[modules]] #" + std::to_string(m.modules.size() + 1) + ": ";
+            const auto* entry = node.as_table();
+            if (entry == nullptr) return fail(label + "must be a table", line_of(&node));
+            if (error = unknown_key(*entry, kKnownModuleKeys); !error.empty()) return fail(label + error.text, error.line);
+            for (const auto* key : {"id", "name", "affects_gameplay"}) {
+                if (!entry->contains(key)) return fail(label + "missing '" + std::string(key) + "'", line_of(&node));
+            }
+            Module mod;
+            if (!read_string(*entry, "id", mod.id, error) || !read_string(*entry, "name", mod.name, error) ||
+                !read_string(*entry, "description", mod.description, error) ||
+                !read_bool(*entry, "affects_gameplay", mod.affects_gameplay, error) ||
+                !read_allow(*entry, "allow_ironman", mod.allow_ironman, error) ||
+                !read_allow(*entry, "allow_multiplayer", mod.allow_multiplayer, error) ||
+                !read_bool(*entry, "default", mod.enabled_by_default, error)) {
+                return fail(label + error.text, error.line);
+            }
+            if (!is_valid_module_id(mod.id)) {
+                return fail(label + "id '" + mod.id + "' must match [a-z][a-z0-9_]* (max 32 characters)",
+                            line_of(entry->get("id")));
+            }
+            if (mod.name.empty()) return fail(label + "name must not be empty", line_of(entry->get("name")));
+            if (std::any_of(m.modules.begin(), m.modules.end(), [&](const Module& o) { return o.id == mod.id; })) {
+                return fail(label + "module '" + mod.id + "' is declared twice", line_of(entry->get("id")));
+            }
+            // An opt-in lets the player keep a module active where the core
+            // would suspend it; a module that is never suspended has nothing
+            // to opt in to, and saying so would mislead the player.
+            if (!mod.affects_gameplay && (mod.allow_ironman == Allow::OptIn || mod.allow_multiplayer == Allow::OptIn)) {
+                return fail(label + "a module with affects_gameplay = false is never suspended; remove its opt-in",
+                            line_of(entry->contains("allow_ironman") ? entry->get("allow_ironman")
+                                                                     : entry->get("allow_multiplayer")));
+            }
+            m.modules.push_back(std::move(mod));
         }
     }
     result.manifest = std::move(m);

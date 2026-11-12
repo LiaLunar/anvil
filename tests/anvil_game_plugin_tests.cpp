@@ -1535,8 +1535,8 @@ int main(int argc, char** argv) {
         CHECK((heard.events == std::vector<std::string>{"session ended 1 im=0 mp=0", "session started 2 im=1 mp=0",
                                                         "frame 14"}));
         CHECK(changes.suspended(gp) && image.base[0x205000] != 0x90 && policy.suspended(gp));
-        CHECK(contains(log, "anvil: game session started (ironman): 1 gameplay plugin(s) suspended, 0 allowed by the "
-                            "player"));
+        CHECK(contains(log, "anvil: game session started (ironman): 1 gameplay plugin(s) or module(s) suspended, "
+                            "0 allowed by the player"));
         CHECK(service->date(&d) == 1 && d.year == 1719 && d.day == 17 && d.session == 2);
 
         // Multiplayer as well (the game's own check through vtable slot 0x318).

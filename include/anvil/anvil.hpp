@@ -37,6 +37,7 @@
 #include <format>
 #include <initializer_list>
 #include <new>
+#include <optional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -370,13 +371,34 @@ template <class T> struct Setting {
     }
 };
 
-// The host, as a stateless value: copy it, capture it, or write anvil::Host{}
-// anywhere once the plugin is loading. Every change call throws anvil::Error
-// when Anvil refuses it; logging never throws.
+// The host, as a value: copy it, capture it, or write anvil::Host{} (the
+// plugin's own handle) anywhere once the plugin is loading; module() gives the
+// host of one of its modules. Every change call throws anvil::Error when Anvil
+// refuses it; logging never throws.
 class Host {
 public:
     const AnvilHost& c_api() const { return detail::host(); }
-    AnvilPlugin* self() const noexcept { return detail::self(); }
+    AnvilPlugin* self() const noexcept { return handle_ != nullptr ? handle_ : detail::self(); }
+
+    // The host of module `id`, which plugin.toml declares in [[modules]]
+    // (Anvil 1.22.0, working number; ADR 0011): every call on it acts for the
+    // module, which Anvil suspends by its own affects_gameplay and opt-ins.
+    // std::nullopt when the player turned the module off (its code should not
+    // run then); anvil::Error for an undeclared module or an Anvil without
+    // modules (ANVIL_ERROR_UNSUPPORTED).
+    std::optional<Host> module(const char* id) const {
+        const AnvilHost& h = c_api();
+        if (!ANVIL_HOST_HAS(&h, module) || h.module == nullptr) {
+            throw Error(ANVIL_ERROR_UNSUPPORTED, "module: this Anvil has no modules (1.22.0 or newer needed)");
+        }
+        AnvilPlugin* out = nullptr;
+        const AnvilResult r = h.module(self(), id, &out);
+        if (r == ANVIL_ERROR_DISABLED) return std::nullopt;
+        detail::check(r, "module", id);
+        Host module_host;
+        module_host.handle_ = out;
+        return module_host;
+    }
 
     const AnvilGameInfo& game() const { return *c_api().game; }
     std::string_view anvil_version() const { return c_api().anvil_version; }
@@ -386,7 +408,7 @@ public:
     // --- log ---------------------------------------------------------------
     void log(AnvilLogLevel level, std::string_view text) const noexcept {
         try {
-            detail::log(level, std::string(text).c_str());
+            emit(level, std::string(text).c_str());
         } catch (...) {
         }
     }
@@ -684,12 +706,20 @@ public:
     }
 
 private:
+    // A module's handle (module()); null: the plugin's own.
+    AnvilPlugin* handle_ = nullptr;
+
+    // The log under this host's handle: a module's lines carry its key.
+    void emit(AnvilLogLevel level, const char* text) const noexcept {
+        if (const AnvilHost* h = detail::g_host.load(std::memory_order_acquire)) h->log(self(), level, text);
+    }
+
     template <class... Args> void write(AnvilLogLevel level, std::format_string<Args...> f, Args&&... args) const noexcept {
         try {
             const std::string text = std::format(f, std::forward<Args>(args)...);
-            detail::log(level, text.c_str());
+            emit(level, text.c_str());
         } catch (...) {
-            detail::log(level, "(a log line could not be formatted)");
+            emit(level, "(a log line could not be formatted)");
         }
     }
 

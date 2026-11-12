@@ -4,6 +4,7 @@
 #include "core/changes.hpp"
 #include "core/discovery.hpp"
 #include "core/gameplay_policy.hpp"
+#include "core/host.hpp"
 #include "core/resolver.hpp"
 #include "core/services.hpp"
 #include "test_support.hpp"
@@ -191,7 +192,7 @@ void gameplay_tests() {
         // Single player: nothing changes.
         w.session(ANVIL_GAME_SESSION_STARTED, false, false);
         CHECK(w.patched(0x100) && w.patched(0x200) && w.patched(0x300) && w.events.empty());
-        CHECK(w.logged("anvil: game session started (neither ironman nor multiplayer): 0 gameplay plugin(s) suspended"));
+        CHECK(w.logged("anvil: game session started (neither ironman nor multiplayer): 0 gameplay plugin(s) or module(s) suspended"));
         w.session(ANVIL_GAME_SESSION_ENDED, false, false);
 
         // Ironman: gp out, optin allowed by the player, plain untouched.
@@ -202,7 +203,7 @@ void gameplay_tests() {
         CHECK(w.logged("gp: suspended: affects gameplay and its plugin.toml does not offer allow_ironman = \"opt-in\" "
                        "(ironman); 1 change(s) out of the game"));
         CHECK(w.logged("optin: stays active: the player allows it in ironman"));
-        CHECK(w.logged("anvil: game session started (ironman): 1 gameplay plugin(s) suspended, 1 allowed by the player"));
+        CHECK(w.logged("anvil: game session started (ironman): 1 gameplay plugin(s) or module(s) suspended, 1 allowed by the player"));
         w.session(ANVIL_GAME_SESSION_ENDED, true, false);
         CHECK(w.patched(0x100) && !w.changes->suspended(gp) && !policy.session());
         CHECK((w.events == std::vector<std::string>{"gp:anvil.suspended", "gp:anvil.resumed"}));
@@ -263,5 +264,135 @@ void gameplay_tests() {
         CHECK(!policy.session());
         CHECK(w.logged("anvil: anvil-game.session without a valid payload: ignored"));
         CHECK(w.logged("anvil: anvil-game.session with unknown change 7: ignored"));
+    });
+
+    run("gameplay: modules are suspended by their own flags (ADR 0011)", [] {
+        World w;
+        const Manifest smithy = manifest(plugin_toml("smithy", R"([[modules]]
+id = "ui_fix"
+name = "UI fix"
+affects_gameplay = false
+
+[[modules]]
+id = "drill_all"
+name = "Drill"
+affects_gameplay = true
+allow_ironman = "opt-in"
+allow_multiplayer = "opt-in"
+
+[[modules]]
+id = "chase"
+name = "Chase"
+affects_gameplay = true
+
+[[modules]]
+id = "explore"
+name = "Explore"
+affects_gameplay = true
+default = false
+)"));
+        HostContext context;
+        context.changes = w.changes;
+        context.bus = &w.bus;
+        std::vector<std::string> host_log;
+        context.log = [&](const AnvilPlugin& p, AnvilLogLevel, std::string_view m) {
+            host_log.push_back(p.manifest.id + ": " + std::string(m));
+        };
+        AnvilPlugin plugin;
+        plugin.context = &context;
+        plugin.manifest = smithy;
+        plugin.owner = w.changes->add_owner("smithy");
+        AnvilSettings player;
+        player.disabled_modules = {"smithy.chase", "other.ui_fix"};
+        add_modules(plugin, *w.changes,
+                    [&](const std::string& key, bool by_default) { return module_enabled(player, key, by_default); });
+        CHECK(plugin.modules.size() == 4);
+        if (plugin.modules.size() != 4) return;
+        CHECK(w.changes->owner_name(plugin.modules[1]->owner) == "smithy.drill_all");
+        CHECK(plugin.modules[0]->enabled && plugin.modules[1]->enabled && !plugin.modules[2]->enabled &&
+              !plugin.modules[3]->enabled && plugin.modules[2]->state == "disabled");
+        player.enabled_modules = {"smithy.explore", "smithy.chase"};
+        CHECK(module_enabled(player, "smithy.explore", false) && !module_enabled(player, "smithy.chase", true));
+
+        const AnvilHost host = make_host(nullptr);
+        CHECK(ANVIL_HOST_HAS(&host, module));
+        AnvilPlugin *ui = nullptr, *drill = nullptr, *chase = &plugin, *none = &plugin;
+        CHECK(host.module(&plugin, "ui_fix", &ui) == ANVIL_OK && ui == plugin.modules[0].get());
+        CHECK(host.module(&plugin, "drill_all", &drill) == ANVIL_OK && drill == plugin.modules[1].get());
+        CHECK(host.module(&plugin, "chase", &chase) == ANVIL_ERROR_DISABLED && chase == nullptr);
+        CHECK(host.module(&plugin, "nope", &none) == ANVIL_ERROR_NOT_DECLARED && none == nullptr);
+        CHECK(host.module(drill, "ui_fix", &none) == ANVIL_ERROR_NOT_DECLARED);
+        CHECK(host.module(&plugin, "ui_fix", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+        if (ui == nullptr || drill == nullptr) return;
+        // A module shares the plugin's folders and names, and logs under its key.
+        plugin.plugin_dir = L"C:\\plugins\\smithy";
+        CHECK(std::wstring(host.plugin_dir(drill)) == L"C:\\plugins\\smithy");
+        host.log(drill, ANVIL_LOG_INFO, "hello");
+        CHECK(!host_log.empty() && host_log.back() == "smithy.drill_all: hello");
+        static const uint32_t service[2] = {sizeof(service), 0};  // a table starts with its size
+        CHECK(host.register_service(drill, "smithy.api", 1, service) == ANVIL_OK);  // the plugin's name, not the module's
+        CHECK(host.publish(drill, "smithy.ready", nullptr) == ANVIL_OK);
+        CHECK(host.publish(drill, "smithy.drill_all.ready", nullptr) == ANVIL_OK);  // still the plugin's prefix
+        CHECK(host.publish(drill, "other.ready", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+        // One change per handle; each belongs to its owner.
+        const uint8_t patch[2] = {0x90, 0x90};
+        const auto at = [&](size_t offset) {
+            return ChangeTarget{reinterpret_cast<uintptr_t>(w.base) + offset, true, nullptr, nullptr, 0};
+        };
+        CHECK(w.changes->patch_bytes(plugin.owner, at(0x100), patch, 2) == ChangeStatus::Ok);
+        CHECK(w.changes->patch_bytes(ui->owner, at(0x200), patch, 2) == ChangeStatus::Ok);
+        CHECK(w.changes->patch_bytes(drill->owner, at(0x300), patch, 2) == ChangeStatus::Ok);
+        std::vector<std::string> heard;
+        const AnvilEventCallback record = [](const char* event, const void*, void* context) {
+            static_cast<std::vector<std::string>*>(context)->push_back(event);
+        };
+        CHECK(host.subscribe(drill, ANVIL_EVENT_SUSPENDED, record, &heard) == ANVIL_OK);
+        CHECK(host.subscribe(drill, ANVIL_EVENT_RESUMED, record, &heard) == ANVIL_OK);
+        std::vector<std::string> plugin_heard;
+        CHECK(host.subscribe(&plugin, ANVIL_EVENT_SUSPENDED, record, &plugin_heard) == ANVIL_OK);
+
+        GameplayPolicy policy(*w.changes, w.bus, GameplayOptIns{{"smithy.drill_all"}, {}}, w.sink());
+        policy.subscribe();
+        policy.add(plugin.manifest, plugin.owner);
+        for (const auto& m : plugin.modules) {
+            if (m->enabled) policy.add(m->manifest, m->owner);
+        }
+        // Ironman: drill_all is allowed by the player, the interface module never suspends.
+        w.session(ANVIL_GAME_SESSION_STARTED, true, false);
+        CHECK(w.patched(0x100) && w.patched(0x200) && w.patched(0x300) && heard.empty());
+        CHECK(w.logged("smithy.drill_all: stays active: the player allows it in ironman"));
+        w.session(ANVIL_GAME_SESSION_ENDED, true, false);
+        // Multiplayer without its opt-in: only the module goes, and only it hears so.
+        w.session(ANVIL_GAME_SESSION_STARTED, false, true);
+        CHECK(w.patched(0x100) && w.patched(0x200) && !w.patched(0x300));
+        CHECK(policy.suspended(drill->owner) && !policy.suspended(plugin.owner) && !policy.suspended(ui->owner));
+        CHECK((heard == std::vector<std::string>{ANVIL_EVENT_SUSPENDED}) && plugin_heard.empty());
+        CHECK(w.logged("smithy.drill_all: suspended: affects gameplay and is not allowed in multiplayer (add it to "
+                       "allow_multiplayer in anvil.toml); 1 change(s) out of the game"));
+        w.session(ANVIL_GAME_SESSION_ENDED, false, true);
+        CHECK(w.patched(0x300) && (heard == std::vector<std::string>{ANVIL_EVENT_SUSPENDED, ANVIL_EVENT_RESUMED}));
+
+        // The wrappers remove with the plugin's handle: a module's change goes too.
+        ChangeId id = 0;
+        CHECK(w.changes->patch_bytes(drill->owner, at(0x400), patch, 2, &id) == ChangeStatus::Ok);
+        auto* handle = reinterpret_cast<AnvilChange*>(static_cast<uintptr_t>(id));
+        CHECK(host.remove(&plugin, handle) == ANVIL_OK && !w.patched(0x400) && w.changes->count(drill->owner) == 1);
+        CHECK(host.remove(&plugin, handle) == ANVIL_ERROR_NOT_FOUND);
+        CHECK(w.changes->patch_bytes(plugin.owner, at(0x500), patch, 2, &id) == ChangeStatus::Ok);
+        CHECK(host.remove(ui, reinterpret_cast<AnvilChange*>(static_cast<uintptr_t>(id))) == ANVIL_OK);
+        if (g_failures != 0) w.dump();
+    });
+
+    run("gameplay: a module that affects gameplay needs anvil-game (ADR 0011)", [] {
+        ResolveInput input;
+        input.host_api = kManifestApi;
+        input.manifests = {manifest(plugin_toml("smithy", "[[modules]]\nid = \"drill_all\"\nname = \"Drill\"\n"
+                                                          "affects_gameplay = true\n"))};
+        const ResolveResult r = resolve(input);
+        CHECK(skipped_with(r, "smithy", "anvil-game"));
+        input.manifests = {manifest(plugin_toml("smithy", "[[modules]]\nid = \"ui_fix\"\nname = \"UI\"\n"
+                                                          "affects_gameplay = false\n"))};
+        CHECK(ids(resolve(input)) == std::vector<std::string>{"smithy"});
     });
 }

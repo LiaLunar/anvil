@@ -44,6 +44,10 @@ pub enum ErrorCode {
     /// `ANVIL_ERROR_LIMIT`: more than a service takes at once; nothing of the
     /// call was done. Since Anvil 1.17.0.
     Limit,
+    /// `ANVIL_ERROR_DISABLED`: the player turned this module off
+    /// ([`Host::module`](crate::Host::module)). Since Anvil 1.22.0 (working
+    /// number; ADR 0011).
+    Disabled,
     /// A result this crate does not know.
     Other(AnvilResult),
 }
@@ -67,6 +71,7 @@ impl ErrorCode {
             sys::ANVIL_ERROR_ALREADY_EXISTS => Self::AlreadyExists,
             sys::ANVIL_ERROR_SUSPENDED => Self::Suspended,
             sys::ANVIL_ERROR_LIMIT => Self::Limit,
+            sys::ANVIL_ERROR_DISABLED => Self::Disabled,
             other => Self::Other(other),
         })
     }
@@ -88,6 +93,7 @@ impl ErrorCode {
             Self::AlreadyExists => sys::ANVIL_ERROR_ALREADY_EXISTS,
             Self::Suspended => sys::ANVIL_ERROR_SUSPENDED,
             Self::Limit => sys::ANVIL_ERROR_LIMIT,
+            Self::Disabled => sys::ANVIL_ERROR_DISABLED,
             Self::Other(sys::ANVIL_OK) => sys::ANVIL_ERROR_INTERNAL,
             Self::Other(other) => other,
         }
@@ -110,6 +116,7 @@ impl ErrorCode {
             Self::AlreadyExists => "already exists",
             Self::Suspended => "suspended in this session",
             Self::Limit => "over the limit",
+            Self::Disabled => "turned off by the player",
             Self::Other(_) => "unknown result",
         }
     }
