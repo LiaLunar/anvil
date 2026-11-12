@@ -34,10 +34,6 @@ _Avoid_: cheat plugin, unsafe plugin
 A file of a plugin package, `translations/<code>.toml`, with one language's words for the plugin's texts the player reads in the overlay and the Manager: its description and its settings' labels, descriptions, groups and option labels, each found by its English words.
 _Avoid_: catalog (Anvil's own texts have catalogs; the Plugin catalog is the list of plugins), locale
 
-**Module**:
-A part of one plugin that `plugin.toml` declares with its own `affects_gameplay` and opt-ins, and that the player turns on or off by `<plugin>.<module>`; the plugin acts for it through the module's handle, so Anvil suspends it on its own (ADR 0011).
-_Avoid_: feature (the player's word for what a module does), sub-plugin, component
-
 **Plugin catalog**:
 The list of the team's plugins that the Manager offers to install, each pinned to one release zip by its size and SHA-256 (`catalog/plugins.json`).
 _Avoid_: store, marketplace, plugin registry

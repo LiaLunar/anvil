@@ -129,7 +129,7 @@ void GameplayPolicy::session_started(SessionMode mode) {
     }
     log_(ANVIL_LOG_INFO, "anvil",
          "game session started (" + mode_text(mode) + "): " + std::to_string(suspended) +
-             " gameplay plugin(s) or module(s) suspended, " + std::to_string(allowed) + " allowed by the player");
+             " gameplay plugin(s) suspended, " + std::to_string(allowed) + " allowed by the player");
 }
 
 void GameplayPolicy::session_ended() {

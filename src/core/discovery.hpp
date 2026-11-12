@@ -24,20 +24,11 @@ struct AnvilSettings {
     // only plugins whose plugin.toml offers "opt-in" for that mode can use it.
     std::vector<std::string> allow_ironman;
     std::vector<std::string> allow_multiplayer;
-    // Modules by "<plugin>.<module>" (ADR 0011): turned on although their
-    // `default` is false, and turned off. At the next start.
-    std::vector<std::string> enabled_modules;
-    std::vector<std::string> disabled_modules;
     std::string error;
     uint32_t line = 0;
 };
 
 AnvilSettings read_anvil_settings(const std::filesystem::path& file);
-
-// Whether module `key` ("<plugin>.<module>") is on at this start: listed in
-// disabled_modules is off, listed in enabled_modules is on, otherwise its
-// plugin.toml `default`. disabled_modules wins over enabled_modules.
-bool module_enabled(const AnvilSettings& settings, const std::string& key, bool enabled_by_default);
 
 // The plugin folders of anvil/plugins in the order the loader discovers them:
 // every sub-folder, sorted by path. A missing folder gives none.

@@ -136,18 +136,7 @@ optional = false
 [[conflicts]]                       # this plugin is skipped while a listed one is enabled
 id = "other-text-renderer"
 version = "<2"
-
-[[modules]]                         # optional, at most 32 (ADR 0011)
-id = "drill_all"                    # [a-z][a-z0-9_]*, max 32, unique in the plugin
-name = "Drill all selected armies"
-description = "..."                 # optional
-affects_gameplay = true             # REQUIRED, as for the plugin
-allow_ironman = "opt-in"            # false | "opt-in"; only with affects_gameplay = true
-allow_multiplayer = "opt-in"
-default = true                      # on until the player chooses (anvil.toml)
 ```
-
-**Modules** ([ADR 0011](adr/0011-plugin-modules.md)). A plugin that bundles features of different kinds declares each as a module and acts for it through `host->module(self, "<id>", &out)`, a handle with its own owner in the change registry; the plugin's own `affects_gameplay` covers what it does through `self`. §13 applies to each handle by its own flags, and anvil.toml names a module `<plugin>.<module>`.
 
 Unknown keys are errors ([Offline anvil check CLI and plugin CI](https://github.com/happy-dwarf-team/anvil/issues/23)). `game_builds` and `[[expect]]` are gone: a plugin without `symbols` runs on every build; with `symbols` it runs only on that file's `build`.
 
@@ -504,7 +493,6 @@ Decided in [Gameplay-affecting plugins in ironman, achievements and multiplayer]
 - **Achievements:** with an ironman opt-in active, the overlay shows a permanent notice that achievements stay enabled but may break Paradox's rules.
 - **Multiplayer:** the overlay shows a hash of the active gameplay plugin set for players to compare by hand.
 - **Without `anvil-game`** nothing would report sessions, so gameplay plugins depend on it implicitly (§10): they are skipped when it is missing, disabled or skipped, and not loaded when it fails to load.
-- **Modules** ([ADR 0011](adr/0011-plugin-modules.md)). Each module of §5.1 is an owner of its own: the policy holds an entry for the plugin's handle and one for each module that is on at this start, and suspends each by its own flags; `anvil.suspended` reaches what that handle subscribed. The player lists a module as `<plugin>.<module>` in `allow_ironman` and `allow_multiplayer`, and chooses modules for the next start with `enabled_modules` (one whose `default` is `false`) and `disabled_modules`, which wins; `module()` answers `ANVIL_ERROR_DISABLED` for a module that is off, so its code never runs. The hash has a line `<plugin>.<module> <version>` for each module that affects gameplay and acts in the session. `anvil.control`'s `plugin_of` answers for a module's handle with the module's key, flags and state, so `anvil-game.commands` and `anvil-script` gate the module. A plugin depends on `anvil-game` implicitly when it or any module affects gameplay.
 
 **How the core applies it** (`src/core/gameplay_policy.cpp`):
 - The core subscribes to `anvil-game.session` before any plugin loads, so it acts before plugins hear of a session. Only `anvil-game` can publish that name (§9).

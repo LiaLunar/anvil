@@ -208,67 +208,6 @@ id = "legacy"
         CHECK(load_manifest(folder).error == "plugin.toml not found");
     });
 
-    run("manifest v2: modules (ADR 0011)", [] {
-        const auto r = parse_manifest_text(plugin_toml("smithy", R"([[modules]]
-id = "ui_size_fix"
-name = "Country views at a raised GUI scale"
-affects_gameplay = false
-
-[[modules]]
-id = "drill_all"
-name = "Drill all selected armies"
-description = "One key drills every selected army."
-affects_gameplay = true
-allow_ironman = "opt-in"
-allow_multiplayer = "opt-in"
-default = false
-)"),
-                                           L"C:\\p");
-        CHECK(r.manifest.has_value());
-        if (!r.manifest) return;
-        const Manifest& m = *r.manifest;
-        CHECK(m.modules.size() == 2 && m.modules[0].id == "ui_size_fix" && m.modules[1].id == "drill_all");
-        CHECK(!m.modules[0].affects_gameplay && m.modules[0].enabled_by_default &&
-              m.modules[0].allow_ironman == Allow::No && m.modules[0].description.empty());
-        CHECK(m.modules[1].affects_gameplay && !m.modules[1].enabled_by_default &&
-              m.modules[1].allow_ironman == Allow::OptIn && m.modules[1].allow_multiplayer == Allow::OptIn);
-        CHECK(!m.affects_gameplay && affects_gameplay_anywhere(m));
-        CHECK(!affects_gameplay_anywhere(manifest(plugin_toml("plain"))));
-        const Manifest drill = module_manifest(m, m.modules[1]);
-        CHECK(module_key(m, m.modules[1]) == "smithy.drill_all" && drill.id == "smithy.drill_all");
-        CHECK(drill.name == "smithy: Drill all selected armies" && drill.description == "One key drills every selected army.");
-        CHECK(drill.affects_gameplay && drill.allow_ironman == Allow::OptIn && drill.modules.empty() &&
-              drill.version == m.version && drill.entry == m.entry);
-
-        const auto with = [](const std::string& body) { return plugin_toml("smithy", "[[modules]]\n" + body); };
-        CHECK(error_of(with("id = \"a\"\nname = \"A\"\n")) == "plugin.toml: [[modules]] #1: missing 'affects_gameplay'");
-        CHECK(error_of(with("name = \"A\"\naffects_gameplay = false\n")) == "plugin.toml: [[modules]] #1: missing 'id'");
-        CHECK(error_of(with("id = \"Drill\"\nname = \"A\"\naffects_gameplay = false\n")) ==
-              "plugin.toml: [[modules]] #1: id 'Drill' must match [a-z][a-z0-9_]* (max 32 characters)");
-        CHECK(fails(with("id = \"drill-all\"\nname = \"A\"\naffects_gameplay = false\n")));
-        CHECK(fails(with("id = \"1a\"\nname = \"A\"\naffects_gameplay = false\n")));
-        CHECK(fails(with("id = \"" + std::string(33, 'a') + "\"\nname = \"A\"\naffects_gameplay = false\n")));
-        CHECK(!fails(with("id = \"" + std::string(32, 'a') + "\"\nname = \"A\"\naffects_gameplay = false\n")));
-        CHECK(error_of(with("id = \"a\"\nname = \"\"\naffects_gameplay = false\n")) ==
-              "plugin.toml: [[modules]] #1: name must not be empty");
-        CHECK(error_of(with("id = \"a\"\nname = \"A\"\naffects_gameplay = false\nallow_ironman = \"opt-in\"\n")) ==
-              "plugin.toml: [[modules]] #1: a module with affects_gameplay = false is never suspended; remove its opt-in");
-        CHECK(error_of(with("id = \"a\"\nname = \"A\"\naffects_gameplay = true\nphase = \"early\"\n")) ==
-              "plugin.toml: [[modules]] #1: unknown key 'phase'");
-        CHECK(error_of(with("id = \"a\"\nname = \"A\"\naffects_gameplay = true\ndefault = \"on\"\n")) ==
-              "plugin.toml: [[modules]] #1: default must be true or false");
-        CHECK(error_of(with("id = \"a\"\nname = \"A\"\naffects_gameplay = false\n\n[[modules]]\nid = \"a\"\nname = \"B\"\n"
-                            "affects_gameplay = false\n")) ==
-              "plugin.toml: [[modules]] #2: module 'a' is declared twice");
-        CHECK(fails(plugin_toml("smithy", "modules = []\n")));
-        CHECK(fails(plugin_toml("smithy", "modules = \"a\"\n")));
-        std::string many;
-        for (int i = 0; i <= 32; ++i) {
-            many += "[[modules]]\nid = \"m" + std::to_string(i) + "\"\nname = \"M\"\naffects_gameplay = false\n";
-        }
-        CHECK(error_of(plugin_toml("smithy", many)) == "plugin.toml: more than 32 [[modules]]");
-    });
-
     run("manifest v2: the hello examples", [] {
         for (const char* id : {"hello-c", "hello-cpp"}) {
             const auto hello = load_manifest(std::filesystem::path(ANVIL_SOURCE_DIR) / "examples" / id);

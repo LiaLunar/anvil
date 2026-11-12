@@ -54,9 +54,7 @@ typedef enum AnvilResult {
     ANVIL_ERROR_ALREADY_EXISTS = 12, /* a service name and version registered twice */
     /* Since Anvil 1.17.0 */
     ANVIL_ERROR_SUSPENDED = 13,      /* the caller is suspended in this session (ironman, multiplayer; design §13) */
-    ANVIL_ERROR_LIMIT = 14,          /* more than a service takes at once; nothing of the call was done */
-    /* Since Anvil 1.21.0 (working number; ADR 0011) */
-    ANVIL_ERROR_DISABLED = 15        /* the player turned this module off (anvil.toml) */
+    ANVIL_ERROR_LIMIT = 14           /* more than a service takes at once; nothing of the call was done */
 } AnvilResult;
 
 typedef enum AnvilLogLevel {
@@ -212,19 +210,6 @@ typedef struct AnvilHost {
     AnvilResult (*publish)(AnvilPlugin *self, const char *event, const void *payload);
 
     /* --- end of API 2.0: fields added later go below, checked with ANVIL_HOST_HAS --- */
-
-    /* --- modules (appended in 1.21.0, working number; ADR 0011) ---
-     * The handle of a module the plugin declares in [[modules]] of plugin.toml.
-     * It is an AnvilPlugin * like `self` and every host call takes it: changes
-     * requested through it belong to the module, which the core suspends by
-     * the module's own affects_gameplay / allow_ironman / allow_multiplayer
-     * (design §13), and anvil.suspended / anvil.resumed reach the
-     * subscriptions made through it. Settings, symbols, folders, services and
-     * the names of events are the plugin's. The same handle for every call,
-     * valid for the process. NOT_DECLARED for a name plugin.toml does not
-     * declare (or a module handle as `self`), DISABLED for a module the player
-     * turned off: then *out is NULL and the module's code should not run. */
-    AnvilResult (*module)(AnvilPlugin *self, const char *module, AnvilPlugin **out);
 } AnvilHost;
 
 /* Nonzero when the host provides `field`. */
