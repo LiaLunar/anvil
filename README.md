@@ -73,7 +73,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   log. A mod whose script errors repeat hundreds of times a second no longer
   fills the log with hundreds of megabytes. Its settings (the overlay's panel)
   change the number of lines, the report interval and the logs, or write every
-  line.
+  line. From Anvil 1.20 its `panel` setting (off by default) opens a window of
+  the game's script errors for modders, grouped by kind with their counts
+  ([docs/script-errors-panel.md](docs/script-errors-panel.md)), and plugins read
+  the same table through `anvil-log-throttle.messages`
+  ([include/anvil/anvil_log_throttle.h](include/anvil/anvil_log_throttle.h)).
 - And `anvil-map` (`anvil/plugins/anvil-map/`, from Anvil 1.16): plugins can add
   map modes of their own, a button on the minimap's list with a colour for each
   province and lines in its tooltip

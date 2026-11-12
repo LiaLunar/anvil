@@ -14,6 +14,7 @@ MSVC (Visual Studio 2022) and CMake 3.25 or newer.
 | `include/anvil/anvil_input.h` | `anvil-overlay.input` v1, keys and mouse buttons for plugins (C11, Anvil 1.18 and later) |
 | `include/anvil/anvil_map.h` | `anvil-map.modes` v1, map modes of plugins, from the standard plugin `anvil-map` (C11, Anvil 1.16 and later) |
 | `include/anvil/anvil_script.h` | `anvil-script.effects` v1 (Anvil 1.16) and `anvil-script.day_end` v1 (Anvil 1.18), from the standard plugin `anvil-script` (C11) |
+| `include/anvil/anvil_log_throttle.h` | `anvil-log-throttle.messages` v1, the table of the throttled logs' messages with their counts, from the standard plugin `anvil-log-throttle` (C11, Anvil 1.20 and later) |
 | `include/anvil/anvil_benchmark.h` | `anvil.benchmark` v1, the core's service for plugin fields in the start-up benchmark (C11, Anvil 1.4 and later) |
 | `include/anvil/anvil_benchmark.hpp` | the C++20 wrapper over it |
 | `bin/anvil.exe` | `anvil gen`, `anvil check` and `anvil port` |

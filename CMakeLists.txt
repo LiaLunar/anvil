@@ -520,7 +520,7 @@ include(CMakePackageConfigHelpers)
 write_basic_package_version_file(${CMAKE_CURRENT_BINARY_DIR}/sdk/AnvilPluginConfigVersion.cmake
     VERSION ${PROJECT_VERSION} COMPATIBILITY SameMajorVersion ARCH_INDEPENDENT)
 install(FILES include/anvil/anvil_plugin.h include/anvil/anvil_panel.h include/anvil/anvil_input.h include/anvil/anvil.hpp include/anvil/anvil_symbols.hpp
-    include/anvil/anvil_game.h include/anvil/anvil_map.h include/anvil/anvil_script.h
+    include/anvil/anvil_game.h include/anvil/anvil_map.h include/anvil/anvil_script.h include/anvil/anvil_log_throttle.h
     include/anvil/anvil_benchmark.h include/anvil/anvil_benchmark.hpp
     DESTINATION include/anvil COMPONENT sdk)
 install(TARGETS anvil RUNTIME DESTINATION bin COMPONENT sdk)
