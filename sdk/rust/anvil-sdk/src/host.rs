@@ -273,7 +273,7 @@ impl Host {
     }
 
     /// The host of module `name`, which `plugin.toml` declares in
-    /// `[[modules]]` (Anvil 1.22.0, working number; ADR 0011). Every call on
+    /// `[[modules]]` (Anvil 1.22.0; ADR 0011). Every call on
     /// the returned `Host` acts for the module: Anvil suspends its changes by
     /// the module's own `affects_gameplay`, `allow_ironman` and
     /// `allow_multiplayer`, `anvil.suspended` reaches what it subscribes, and a

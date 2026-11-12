@@ -55,7 +55,7 @@ typedef enum AnvilResult {
     /* Since Anvil 1.17.0 */
     ANVIL_ERROR_SUSPENDED = 13,      /* the caller is suspended in this session (ironman, multiplayer; design §13) */
     ANVIL_ERROR_LIMIT = 14,          /* more than a service takes at once; nothing of the call was done */
-    /* Since Anvil 1.22.0 (working number; ADR 0011) */
+    /* Since Anvil 1.22.0 (ADR 0011) */
     ANVIL_ERROR_DISABLED = 15        /* the player turned this module off (anvil.toml) */
 } AnvilResult;
 
@@ -213,7 +213,7 @@ typedef struct AnvilHost {
 
     /* --- end of API 2.0: fields added later go below, checked with ANVIL_HOST_HAS --- */
 
-    /* --- modules (appended in 1.22.0, working number; ADR 0011) ---
+    /* --- modules (appended in 1.22.0; ADR 0011) ---
      * The handle of a module the plugin declares in [[modules]] of plugin.toml.
      * It is an AnvilPlugin * like `self` and every host call takes it: changes
      * requested through it belong to the module, which the core suspends by

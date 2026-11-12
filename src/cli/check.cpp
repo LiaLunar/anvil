@@ -233,8 +233,7 @@ void check_lock(const CheckOptions& options, const SymbolFile& file, const std::
     if (complete) report.lock = "matches";
 }
 
-// The first Anvil that reads [[modules]] (ADR 0011). A working number until the
-// release that ships modules: keep it equal to that release.
+// The first Anvil that reads [[modules]] (ADR 0011).
 constexpr const char* kFirstWithModules = "1.22.0";
 
 // A plugin with modules whose `anvil` range also admits an older Anvil: that

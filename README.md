@@ -41,8 +41,10 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
 - Anvil ships the standard plugin `anvil-game` (`anvil/plugins/anvil-game/`):
   game readiness, a frame event, work on the main thread, game sessions and
   the game date ([include/anvil/anvil_game.h](include/anvil/anvil_game.h)), reads of the
-  running campaign (`anvil-game.world`) and, from Anvil 1.17, the unit panel's
-  commands and an event's options for gameplay plugins (`anvil-game.commands`).
+  running campaign (`anvil-game.world`, from Anvil 1.22 also diplomacy and
+  opinions) and, from Anvil 1.17, the unit panel's commands and an event's
+  options for gameplay plugins (`anvil-game.commands`; from 1.22 also the game
+  speed, exploring and moving units).
   Plugins that change the simulation need it: in ironman and multiplayer games
   Anvil takes their changes out unless the player allows them in
   `anvil/anvil.toml`.
