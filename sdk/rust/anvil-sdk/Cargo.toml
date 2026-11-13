@@ -2,7 +2,7 @@
 name = "anvil-sdk"
 # Its own 0.x line (anvil#159): bump it in the pull request that changes the
 # crate. The release workflow publishes a version crates.io does not have yet.
-version = "0.1.10"
+version = "0.1.11"
 description = "Safe Rust API for plugins of Anvil, the plugin loader for Europa Universalis IV"
 readme = "README.md"
 keywords = ["anvil", "eu4", "plugin", "modding"]

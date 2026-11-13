@@ -13,7 +13,8 @@
 //   4. the work queued with run_on_main_thread;
 //   5. the date's, the player's and, on a new day, the wars' events, by comparing
 //      them with the last frame;
-//   6. the frame event.
+//   6. the frame event;
+//   7. a restart the service was asked for (restart.hpp, ADR 0012).
 // Frames drawn inside a game update or a save load (outer = 0) and frames on
 // any other thread are passed on untouched; anvil-game only counts the
 // nested ones that run, so the main menu is not reported over a loading
@@ -39,6 +40,7 @@
 
 #include "anvil_control.h"
 #include "commands.hpp"
+#include "restart.hpp"
 #include "session.hpp"
 #include "work_queue.hpp"
 #include "world.hpp"
@@ -90,6 +92,9 @@ struct Layout {
     std::uint32_t gui_text_receiver = 0;  // gui+: the focused text field's receiver, may be null
     std::uint32_t gui_shortcut_on = 0;    // gui+: byte, the shortcut editor is on
     std::uint32_t gui_shortcut_listeners = 0;  // gui+: qword, the size of its set of listeners
+    bool restart = false;                 // false when these symbols are absent on this build
+    std::uint32_t restart_flags = 0;      // app+: word, the exit and restart flags (0x0101 sets both)
+    std::uint32_t resign = 0;             // session+: byte, the in-game idler's _bResignGame
 };
 
 Layout g_layout;
@@ -113,6 +118,7 @@ PendingTracker g_pending;  // main thread only
 OosTracker g_oos;          // main thread only
 // The flags as the service reports them to any thread.
 std::atomic<std::uint32_t> g_oos_flags{0};
+anvil_game::RestartRequests g_restart;
 
 // The world: false when a symbol of it is absent on this build.
 WorldLayout g_world;
@@ -302,7 +308,9 @@ void publish_pending(std::uint64_t session) {
     for (const PendingKey& key : changes.added) tell(key, ANVIL_GAME_PENDING_ADDED);
 }
 
-void after_frame_body(std::uint64_t number) {
+void act_on_restart(std::uint8_t* app, const SessionView& view, std::int64_t front_end);
+
+void after_frame_body(std::uint8_t* app, std::uint64_t number) {
     const anvil::Host host;
     if (!g_ready.load(std::memory_order_relaxed) && *g_layout.ready_flag == 1) {
         g_ready.store(true, std::memory_order_release);
@@ -375,14 +383,16 @@ void after_frame_body(std::uint64_t number) {
     frame.size = sizeof(frame);
     frame.number = number;
     publish(ANVIL_GAME_EVENT_FRAME, &frame);
+    // Last, so that the whole frame was published before the game quits.
+    if (view.readable) act_on_restart(app, view, front_end);
 }
 
-void after_frame(std::uint64_t number) {
+void after_frame(std::uint8_t* app, std::uint64_t number) {
     struct Open {
         Open() { g_after_frame.store(true, std::memory_order_release); }
         ~Open() { g_after_frame.store(false, std::memory_order_release); }
     } open;
-    after_frame_body(number);
+    after_frame_body(app, number);
 }
 
 // A save loaded from the game menu puts the same session object back into
@@ -406,16 +416,87 @@ std::uintptr_t on_frame(void* app, std::uint8_t outer) noexcept {
     const std::uint32_t thread = GetCurrentThreadId();
     std::uint32_t expected = 0;
     if (!g_main_thread.compare_exchange_strong(expected, thread) && expected != thread) return result;
-    const auto* bytes = static_cast<const std::uint8_t*>(app);
+    auto* bytes = static_cast<std::uint8_t*>(app);
     if (bytes[g_layout.quit] != 0 || bytes[g_layout.quit_request] != 0) return result;
     std::uint64_t number = 0;
     std::memcpy(&number, bytes + g_layout.frame_counter, sizeof(number));
     try {
-        after_frame(number);
+        after_frame(bytes, number);
     } catch (...) {
         // Only a failed allocation can throw here; the next frame tries again.
     }
     return result;
+}
+
+// ---- the game's own restart (ADR 0012) --------------------------------------------
+
+// The state a restart is checked against, as of this frame.
+anvil_game::RestartState restart_state(const SessionView& view, std::int64_t front_end) {
+    anvil_game::RestartState s;
+    s.ready = g_ready.load(std::memory_order_relaxed);
+    s.session = view.running && g_tracker.active();
+    s.multiplayer = s.session && view.multiplayer;
+    s.number = g_tracker.current().number;
+    s.front_end = front_end >= 0;
+    s.main_menu = front_end == 0;
+    return s;
+}
+
+// No objects with destructors: the bodies run under __try.
+bool write_restart_flags(std::uint8_t* app) {
+    __try {
+        const std::uint16_t both = 0x0101;
+        std::memcpy(app + g_layout.restart_flags, &both, sizeof(both));
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
+// The in-game idler, which the session view verified by its vtable.
+bool write_resign(std::uintptr_t session, std::uint8_t value) {
+    __try {
+        if (*reinterpret_cast<const std::uintptr_t*>(session) != g_layout.session_vtable) return false;
+        *reinterpret_cast<volatile std::uint8_t*>(session + g_layout.resign) = value;
+        return true;
+    } __except (GetExceptionCode() == EXCEPTION_ACCESS_VIOLATION ? EXCEPTION_EXECUTE_HANDLER
+                                                                  : EXCEPTION_CONTINUE_SEARCH) {
+        return false;
+    }
+}
+
+void act_on_restart(std::uint8_t* app, const SessionView& view, std::int64_t front_end) {
+    if (!g_layout.restart || !g_restart.busy()) return;
+    const anvil_game::RestartStep step = g_restart.step(restart_state(view, front_end), GetTickCount64());
+    const anvil::Host host;
+    switch (step.action) {
+    case anvil_game::RestartAction::None:
+        return;
+    case anvil_game::RestartAction::ApplicationFlags:
+        if (write_restart_flags(app)) {
+            host.info("restart asked by {}: application flags set ({}); the game quits and starts again", step.caller,
+                      step.why);
+        } else {
+            host.warn("restart asked by {}: the application could not be written; no restart", step.caller);
+        }
+        return;
+    case anvil_game::RestartAction::Resign:
+        if (write_resign(view.session, 1)) {
+            host.info("restart asked by {}: {} (session {})", step.caller, step.why, g_tracker.current().number);
+        } else {
+            g_restart.cancel();
+            host.warn("restart asked by {}: the in-game idler could not be written; no restart", step.caller);
+        }
+        return;
+    case anvil_game::RestartAction::ClearResign:
+        write_resign(view.session, 0);
+        host.warn("restart asked by {}: {}; request dropped", step.caller, step.why);
+        return;
+    case anvil_game::RestartAction::Dropped:
+        host.warn("restart asked by {}: dropped, {}", step.caller, step.why);
+        return;
+    }
 }
 
 // ---- quitting a benchmark start ---------------------------------------------------
@@ -509,9 +590,41 @@ int service_keyboard(std::uint32_t* out) {
     return 1;
 }
 
+std::string caller_id(const AnvilPlugin* self);
+
+AnvilResult service_restart(AnvilPlugin* self, std::uint32_t flags) {
+    if (!g_layout.restart) return ANVIL_ERROR_UNSUPPORTED;
+    anvil_game::RestartState last;
+    last.ready = g_ready.load(std::memory_order_acquire);
+    {
+        std::lock_guard lock(g_session_mutex);
+        last.session = g_in_session;
+        last.multiplayer = g_in_session && g_session.multiplayer != 0;
+    }
+    const AnvilResult r = anvil_game::check_restart(last, flags);
+    const anvil::Host host;
+    try {
+        std::string caller = caller_id(self);
+        if (r == ANVIL_ERROR_WRONG_PHASE) {
+            host.info("restart asked by {}: refused, {}", caller,
+                      !last.ready         ? "the game is not ready"
+                      : last.multiplayer ? "a multiplayer session runs"
+                                         : "a campaign runs, and closing it was not asked for");
+        }
+        if (r != ANVIL_OK) return r;
+        host.info("restart asked by {}{}", caller,
+                  (flags & ANVIL_GAME_RESTART_CLOSE_CAMPAIGN) != 0 ? ", closing a campaign if one runs" : "");
+        g_restart.ask(flags, std::move(caller));
+    } catch (const std::bad_alloc&) {
+        return ANVIL_ERROR_OUT_OF_MEMORY;
+    }
+    return ANVIL_OK;
+}
+
 constexpr AnvilGameService kService = {
     sizeof(AnvilGameService), service_ready, service_main_thread_id, service_frame_number, service_run_on_main_thread,
     service_session,          service_date,  service_main_menu,    service_out_of_sync,  service_keyboard,
+    service_restart,
 };
 
 // ---- the world service ------------------------------------------------------
@@ -1805,23 +1918,36 @@ bool post_allowed_on(std::uintptr_t session) {
     }
 }
 
+// anvil.control with plugin_of, or null.
+const AnvilControlService* control() {
+    if (g_control == nullptr) {
+        const anvil::Host host;
+        const auto* found =
+            static_cast<const AnvilControlService*>(host.c_api().get_service(host.self(), ANVIL_CONTROL_SERVICE,
+                                                                             ANVIL_CONTROL_VERSION));
+        if (found == nullptr || found->size < offsetof(AnvilControlService, plugin_of) + sizeof(found->plugin_of)) {
+            return nullptr;
+        }
+        g_control = found;
+    }
+    return g_control;
+}
+
+std::string caller_id(const AnvilPlugin* self) {
+    AnvilControlPlugin info{};
+    info.size = sizeof(info);
+    if (self == nullptr || control() == nullptr || g_control->plugin_of(self, &info) == 0 || info.id == nullptr) {
+        return "an unknown caller";
+    }
+    return info.id;
+}
+
 class GameCommands final : public anvil_game::CommandBackend {
 public:
     bool caller(const AnvilPlugin* self, bool& affects_gameplay, bool& suspended) override {
-        if (g_control == nullptr) {
-            const anvil::Host host;
-            const auto* control =
-                static_cast<const AnvilControlService*>(host.c_api().get_service(host.self(), ANVIL_CONTROL_SERVICE,
-                                                                                 ANVIL_CONTROL_VERSION));
-            if (control == nullptr ||
-                control->size < offsetof(AnvilControlService, plugin_of) + sizeof(control->plugin_of)) {
-                return false;
-            }
-            g_control = control;
-        }
         AnvilControlPlugin info{};
         info.size = sizeof(info);
-        if (self == nullptr || g_control->plugin_of(self, &info) == 0) return false;
+        if (self == nullptr || control() == nullptr || g_control->plugin_of(self, &info) == 0) return false;
         affects_gameplay = info.affects_gameplay != 0;
         suspended = info.suspended != 0;
         return true;
@@ -2104,6 +2230,15 @@ struct AnvilGame : anvil::Plugin {
                 static_cast<std::uint32_t>(host.value(sym::gui_shortcut_pick, "listeners"));
         } else {
             host.info("the GUI's keyboard symbols are absent on this build: keyboard() answers 0");
+        }
+        // And for the restart: restart() then answers ANVIL_ERROR_UNSUPPORTED.
+        if (host.present(sym::restart_store) && host.present(sym::resign_check)) {
+            g_layout.restart_flags = sym::restart_store.flags;
+            // The idler is 0x10 bytes shorter before the flag in the GOG build.
+            g_layout.resign = static_cast<std::uint32_t>(host.value(sym::resign_check, "resign"));
+            g_layout.restart = true;
+        } else {
+            host.info("the restart symbols are absent on this build: restart() answers unsupported");
         }
 
         host.register_service(ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, kService);

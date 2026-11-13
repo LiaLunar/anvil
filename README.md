@@ -44,7 +44,8 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
   running campaign (`anvil-game.world`, from Anvil 1.22 also diplomacy and
   opinions) and, from Anvil 1.17, the unit panel's commands and an event's
   options for gameplay plugins (`anvil-game.commands`; from 1.22 also the game
-  speed, exploring and moving units).
+  speed, exploring and moving units). From Anvil 1.23 it also asks the game
+  for its own restart (`restart`, on the player's request).
   Plugins that change the simulation need it: in ironman and multiplayer games
   Anvil takes their changes out unless the player allows them in
   `anvil/anvil.toml`.
@@ -54,7 +55,11 @@ native plugins improve or extend the game **without modifying `eu4.exe`**.
 - Anvil also ships `anvil-overlay` (`anvil/plugins/anvil-overlay/`): in-game
   notices about plugins that were not loaded, the previous crash and safe
   mode, and a panel on `Ctrl+Shift+F12` with the status, "disable at the next
-  start", the crash report, the log and every plugin's settings. In the game's
+  start", the crash report, the log and every plugin's settings. From Anvil
+  1.23 its Status tab has "Restart game": after a confirmation the game
+  restarts through its own restart, with the same launch options and mods; a
+  campaign closes as at Exit to Menu (ironman is saved), and in multiplayer the
+  button is off ([ADR 0012](docs/adr/0012-game-restart.md)). In the game's
   main menu a small "Anvil x.y.z" badge on the left edge shows that
   Anvil runs; a click on it opens the panel (the overlay's setting "Show Anvil
   in the main menu" turns it off). From Anvil 1.14, if you agree (it asks once, or follows your

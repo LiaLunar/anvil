@@ -1,6 +1,8 @@
 // The ImGui side of anvil-overlay: the notices and the panel (design §15).
 // Everything here runs under Shared::mutex, in the EndScene hook or, for
 // input, in the window procedure.
+#include <anvil/anvil.hpp>
+
 #include "i18n/cjk_font.hpp"
 #include "notices.hpp"
 #include "overlay.hpp"
@@ -81,6 +83,7 @@ struct Ui {
     std::vector<PluginRow> plugins;
     std::vector<ModRow> mods;
     std::string confirm_approve;  // the mod plugin (id/mod) whose approval waits for a second click
+    bool confirm_restart = false;  // "Restart game..." was clicked; the confirmation is shown
     std::vector<std::string> warnings;
     bool crash_loaded = false;
     std::optional<CrashInfo> crash;
@@ -912,6 +915,53 @@ const char* state_word(const std::string& state) {
     return state.c_str();
 }
 
+// The game's own restart through anvil-game (ADR 0012), after a confirmation
+// that says what happens to a running campaign. Hidden with an anvil-game that
+// has no restart().
+void draw_restart() {
+    Ui& u = ui();
+    const AnvilGameService* game = shared().game_work;
+    if (game == nullptr || !ANVIL_GAME_HAS(game, restart)) return;
+    const AnvilControlStatus& s = u.status;
+    if (s.session && s.multiplayer) {
+        u.confirm_restart = false;
+        ImGui::BeginDisabled();
+        ImGui::Button(tr("Restart game..."));
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        weak(tr("Leave the multiplayer game first."));
+        return;
+    }
+    if (!u.confirm_restart) {
+        if (ImGui::Button(tr("Restart game..."))) u.confirm_restart = true;
+        return;
+    }
+    if (!s.session) {
+        wrapped(tr("The game closes and starts again, with the same mods and launch options."));
+    } else if (s.ironman) {
+        wrapped(tr("Your ironman campaign is saved, as at Exit to Menu, and the game starts again."));
+    } else {
+        // A long sentence: wrapped, unlike colored().
+        ImGui::PushStyleColor(ImGuiCol_Text, kAmber);
+        wrapped(tr("Your campaign closes as at Exit to Menu: progress since your last save is lost. To keep it, "
+                   "save first in the game's menu."));
+        ImGui::PopStyleColor();
+    }
+    if (ImGui::Button(tr("Restart now"))) {
+        u.confirm_restart = false;
+        // The confirmation said what happens to the campaign the panel shows;
+        // anvil-game refuses a campaign the request did not accept.
+        const AnvilResult r = game->restart(anvil::Host{}.self(), s.session ? ANVIL_GAME_RESTART_CLOSE_CAMPAIGN : 0);
+        if (r == ANVIL_OK) {
+            say(tr("The game restarts."), false);
+        } else {
+            say(tr("The game cannot restart now."), true);
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button((std::string(tr("Cancel")) + "##restart").c_str())) u.confirm_restart = false;
+}
+
 void draw_status() {
     Ui& u = ui();
     const AnvilControlStatus& s = u.status;
@@ -929,6 +979,7 @@ void draw_status() {
         if (ImGui::SmallButton((std::string(tr("Copy link")) + "##release").c_str())) copy_to_clipboard(u.latest->url);
     }
     if (s.session) line(session_text(s));
+    draw_restart();
     if (!s.loading_done) weak(tr("Plugins are still loading."));
     line(trf("{0} loaded, {1} failed, {2} skipped",
              {std::to_string(s.loaded), std::to_string(s.failed), std::to_string(s.skipped)}));

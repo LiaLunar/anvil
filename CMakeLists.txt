@@ -279,6 +279,10 @@ if(ANVIL_BUILD_TESTS)
     target_link_libraries(anvil_crash_tests PRIVATE anvil_loader)
     add_dependencies(anvil_crash_tests version_dll)
     add_test(NAME anvil_crash_tests COMMAND anvil_crash_tests $<TARGET_FILE:version_dll>)
+    # anvil.log opened late, after the game's own restart; the log is one per process.
+    add_executable(anvil_log_tests tests/log_tests.cpp)
+    target_link_libraries(anvil_log_tests PRIVATE anvil_loader)
+    add_test(NAME anvil_log_tests COMMAND anvil_log_tests)
     add_executable(anvil_symbols_tests tests/test_symbols.cpp)
     target_link_libraries(anvil_symbols_tests PRIVATE anvil_loader)
     add_test(NAME anvil_symbols_tests COMMAND anvil_symbols_tests)
@@ -392,6 +396,7 @@ if(ANVIL_BUILD_TESTS)
     # anvil-game end to end on a synthetic image laid out like eu4.exe, with
     # the gameplay policy listening (tests/anvil_game_plugin_tests.cpp).
     add_executable(anvil_game_plugin_tests tests/anvil_game_plugin_tests.cpp plugins/anvil-game/src/commands.cpp
+        plugins/anvil-game/src/restart.cpp
         plugins/anvil-game/src/session.cpp
         plugins/anvil-game/src/work_queue.cpp plugins/anvil-game/src/world.cpp)
     target_link_libraries(anvil_game_plugin_tests PRIVATE anvil_loader)

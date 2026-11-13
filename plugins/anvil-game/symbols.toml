@@ -47,6 +47,39 @@ build."eu4-1.37.5-steam-win64" = { rva = 0x14C2DD0 }
 build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BCC30 }
 build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BCC30 }
 
+# --- the game's own restart (ADR 0012) ---
+# CApplication::Run leaves its loop on app+0x83 and, with app+0x84 set, starts
+# eu4.exe again with its own command line (CApplication::DoRestart). In a
+# campaign the in-game idler's _bResignGame runs the game's Exit to Menu
+# (NiceMultiplayerExit, HandleIronmanSave, Restart). Optional: a build that
+# declares them absent answers restart() with ANVIL_ERROR_UNSUPPORTED.
+
+[symbol.restart_store]
+bytes = "66 C7 81 83 00 00 00 01 01 48 81 C1 88 00 00 00"   # mov word [rcx+83h],0101h; add rcx,88h
+memory = "code"
+values.flags = { at = 3, size = 4 }
+note = "CApplication::Restart: the exit and restart flags (app+0x83, +0x84) in one word, then its arguments at app+0x88"
+build."eu4-1.37.5-steam-win64" = { rva = 0x14C2500 }
+build."eu4-1.37.5.2-gog-win64" = { rva = 0x14BC360 }       # CApplication::Restart
+build."eu4-1.37.5.0-gog-win64" = { rva = 0x14BC360 }
+
+[symbol.resign_check]
+memory = "code"
+values.resign = { at = 3, size = 4 }
+note = "CInGameIdler::Idle: the Exit to Menu branch runs while the idler's _bResignGame is set (Steam +0x12E9, GOG +0x12D9)"
+
+[symbol.resign_check.build."eu4-1.37.5-steam-win64"]
+rva = 0x815C9F
+bytes = "41 80 BD E9 12 00 00 00 74 70 45 84 E4"   # cmp byte [r13+12E9h],0; je; test r12b,r12b
+
+[symbol.resign_check.build."eu4-1.37.5.2-gog-win64"]
+rva = 0x814FFF                                     # CInGameIdler::Idle
+bytes = "41 80 BD D9 12 00 00 00 74 70 45 84 E4"
+
+[symbol.resign_check.build."eu4-1.37.5.0-gog-win64"]
+rva = 0x814FFF
+bytes = "41 80 BD D9 12 00 00 00 74 70 45 84 E4"
+
 # --- readiness ---
 
 [symbol.ready_store]

@@ -479,4 +479,23 @@ impl Game {
         // SAFETY: the service's function with a valid out pointer.
         (unsafe { f(&mut flags) } != 0).then_some(KeyboardFlags(flags))
     }
+
+    /// Asks the game for its own restart (anvil-game 1.23.0, Anvil's ADR 0012),
+    /// on the player's request only. `close_campaign` is the caller's word that
+    /// the player accepted closing a running single-player campaign (ironman
+    /// is saved, anything else loses its progress since the last save).
+    /// `WrongPhase` before the game is ready, in a multiplayer session, or in
+    /// a campaign without `close_campaign`; `Unsupported` with an older
+    /// anvil-game or a build without its symbols. `host` is this plugin's, for
+    /// the log.
+    pub fn restart(&self, host: &Host, close_campaign: bool) -> Result<()> {
+        let f = function!(self.table, AnvilGameService, restart)?;
+        let flags = if close_campaign {
+            crate::sys::ANVIL_GAME_RESTART_CLOSE_CAMPAIGN
+        } else {
+            0
+        };
+        // SAFETY: the service's function with this plugin's handle.
+        check(unsafe { f(host.raw_plugin(), flags) }, || "restart")
+    }
 }

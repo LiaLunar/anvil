@@ -142,7 +142,36 @@ typedef struct AnvilGameService {
      * `flags` may be NULL. anvil-overlay.input uses it to hold plugin keys
      * back while the player types. */
     int (*keyboard)(uint32_t *flags);
+
+    /* Since anvil-game 1.23.0; check with ANVIL_GAME_HAS(service, restart). */
+
+    /* Asks the game for its own restart (Anvil's ADR 0012): the game quits as
+     * from its menu and starts eu4.exe again with the same launch options and
+     * playset; the new process opens the main menu. Call it only on the
+     * player's request, never on a timer or a game event. Callable from any
+     * thread; it only queues the request, and anvil-game acts on it after the
+     * next frame of the main loop, on the main thread, checking it again with
+     * that frame's state:
+     *   - no session (the main menu, the nation selection, the other front-end
+     *     screens): the game restarts at the end of that frame;
+     *   - a single-player session: only with ANVIL_GAME_RESTART_CLOSE_CAMPAIGN,
+     *     the caller's word that the player accepted closing the campaign. The
+     *     game runs its own Exit to Menu (an ironman campaign is saved, any
+     *     other loses its progress since the last save) and restarts; with a
+     *     plugin that turns Exit to Menu into a return to the main menu
+     *     (Hamweard), the restart comes at the main menu that follows.
+     * `self` is the caller's handle, for the log.
+     * ANVIL_ERROR_WRONG_PHASE: the game is not ready or quits, a multiplayer
+     * session runs, or a single-player session runs and `flags` lacks
+     * ANVIL_GAME_RESTART_CLOSE_CAMPAIGN (as of the last frame);
+     * ANVIL_ERROR_INVALID_ARGUMENT: an unknown flag; ANVIL_ERROR_UNSUPPORTED:
+     * this build declares the symbols absent. ANVIL_OK again while a request
+     * waits changes nothing but its flags. */
+    AnvilResult (*restart)(AnvilPlugin *self, uint32_t flags);
 } AnvilGameService;
+
+/* restart(): the player accepted closing a running single-player campaign. */
+#define ANVIL_GAME_RESTART_CLOSE_CAMPAIGN 0x1u
 
 /* Nonzero when `service` provides `field`. */
 #define ANVIL_GAME_HAS(service, field) \

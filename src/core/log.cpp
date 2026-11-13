@@ -3,7 +3,9 @@
 #include <windows.h>
 
 #include <cstdio>
+#include <filesystem>
 #include <mutex>
+#include <string>
 #include <vector>
 
 namespace anvil {
@@ -14,6 +16,12 @@ struct LogState {
     std::vector<std::string> pending;  // lines written before open()
     std::vector<std::string> warnings;  // "[source] message", at most Log::kMaxWarnings
     HANDLE file = INVALID_HANDLE_VALUE;
+    // open() could not open the file: the game's own restart starts the new
+    // process before the old one has closed its log. Writes try again until then.
+    std::filesystem::path path;
+    ULONGLONG retry_until = 0;
+    ULONGLONG next_try = 0;
+    ULONGLONG first_try = 0;
     AnvilLogLevel minimum = ANVIL_LOG_INFO;
     LARGE_INTEGER start{};
     LARGE_INTEGER frequency{};
@@ -48,6 +56,30 @@ void write_raw(HANDLE file, const std::string& line) {
     WriteFile(file, line.data(), static_cast<DWORD>(line.size()), &written, nullptr);
 }
 
+constexpr ULONGLONG kRetryMs = 60'000;      // how long a log in use is waited for
+constexpr ULONGLONG kRetryEveryMs = 250;
+
+// Under the log's lock: keeps the last log as anvil.prev.log, opens a new one
+// and writes what waited for it.
+bool try_open(LogState& s) {
+    std::filesystem::path previous = s.path;
+    previous.replace_extension(L".prev.log");
+    MoveFileExW(s.path.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING);
+    s.file = CreateFileW(s.path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
+                         nullptr);
+    if (s.file == INVALID_HANDLE_VALUE) {
+        return false;
+    }
+    static const char bom[] = "\xEF\xBB\xBF";
+    write_raw(s.file, bom);
+    for (const auto& line : s.pending) {
+        write_raw(s.file, line);
+    }
+    s.pending.clear();
+    s.pending.shrink_to_fit();
+    return true;
+}
+
 }  // namespace
 
 Log& Log::instance() {
@@ -63,21 +95,14 @@ void Log::open(const std::filesystem::path& file) {
     }
     std::error_code ignored;
     std::filesystem::create_directories(file.parent_path(), ignored);
-    std::filesystem::path previous = file;
-    previous.replace_extension(L".prev.log");
-    MoveFileExW(file.c_str(), previous.c_str(), MOVEFILE_REPLACE_EXISTING);
-    s.file = CreateFileW(file.c_str(), GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL,
-                         nullptr);
-    if (s.file == INVALID_HANDLE_VALUE) {
+    s.path = file;
+    if (try_open(s) || GetLastError() != ERROR_SHARING_VIOLATION) {
         return;
     }
-    static const char bom[] = "\xEF\xBB\xBF";
-    write_raw(s.file, bom);
-    for (const auto& line : s.pending) {
-        write_raw(s.file, line);
-    }
-    s.pending.clear();
-    s.pending.shrink_to_fit();
+    // Another process still writes it: the one the game's own restart replaces.
+    s.first_try = GetTickCount64();
+    s.retry_until = s.first_try + kRetryMs;
+    s.next_try = s.first_try + kRetryEveryMs;
 }
 
 namespace {
@@ -111,6 +136,21 @@ void keep_warning(LogState& s, AnvilLogLevel level, std::string_view source, std
 
 // Under the log's lock.
 void append_line(LogState& s, std::string line) {
+    if (s.file == INVALID_HANDLE_VALUE && s.retry_until != 0) {
+        const ULONGLONG now = GetTickCount64();
+        if (now >= s.next_try) {
+            s.next_try = now + kRetryEveryMs;
+            if (try_open(s)) {
+                write_raw(s.file, format_line(ANVIL_LOG_INFO, "anvil",
+                                              "anvil.log was still in use by the process this one replaced "
+                                              "(the game's own restart); opened " +
+                                                  std::to_string(now - s.first_try) + " ms later"));
+                s.retry_until = 0;
+            } else if (now >= s.retry_until) {
+                s.retry_until = 0;
+            }
+        }
+    }
     if (s.file == INVALID_HANDLE_VALUE) {
         if (s.pending.size() < 4096) {
             s.pending.push_back(std::move(line));

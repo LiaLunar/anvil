@@ -9,5 +9,5 @@ if(NOT COMMAND anvil_add_plugin)
     find_package(AnvilPlugin REQUIRED)
 endif()
 
-anvil_add_plugin(anvil_game SOURCES src/plugin.cpp src/commands.cpp src/session.cpp src/work_queue.cpp src/world.cpp)
+anvil_add_plugin(anvil_game SOURCES src/plugin.cpp src/commands.cpp src/restart.cpp src/session.cpp src/work_queue.cpp src/world.cpp)
 target_include_directories(anvil_game PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../../src/control)

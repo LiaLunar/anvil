@@ -10,6 +10,7 @@
 #include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-game/src/commands.hpp"
+#include "../plugins/anvil-game/src/restart.hpp"
 #include "../plugins/anvil-game/src/session.hpp"
 #include "../plugins/anvil-game/src/work_queue.hpp"
 #include "../plugins/anvil-game/src/world.hpp"
@@ -1250,6 +1251,101 @@ int main(int argc, char** argv) {
         CHECK(q.run() == 1 && (ran == std::vector<int>{1, 2, 3}) && q.run() == 0);
     });
 
+    run("anvil-game: the restart's rules (ADR 0012)", [] {
+        using anvil_game::RestartAction;
+        using anvil_game::RestartState;
+        constexpr uint32_t kClose = ANVIL_GAME_RESTART_CLOSE_CAMPAIGN;
+        RestartState menu;
+        menu.ready = menu.front_end = menu.main_menu = true;
+        RestartState campaign;
+        campaign.ready = campaign.session = true;
+        campaign.number = 4;
+        RestartState multiplayer = campaign;
+        multiplayer.multiplayer = true;
+        RestartState loading;  // neither a session nor the front end
+        loading.ready = true;
+
+        // At the call.
+        CHECK(anvil_game::check_restart(menu, 0) == ANVIL_OK && anvil_game::check_restart(menu, kClose) == ANVIL_OK);
+        CHECK(anvil_game::check_restart(RestartState{}, 0) == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(anvil_game::check_restart(campaign, 0) == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(anvil_game::check_restart(campaign, kClose) == ANVIL_OK);
+        CHECK(anvil_game::check_restart(multiplayer, kClose) == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(anvil_game::check_restart(menu, 0x2) == ANVIL_ERROR_INVALID_ARGUMENT);
+
+        // The front end: the flags in the first frame.
+        anvil_game::RestartRequests r;
+        CHECK(!r.busy() && r.step(menu, 0).action == RestartAction::None);
+        r.ask(0, "overlay");
+        CHECK(r.busy());
+        auto step = r.step(menu, 0);
+        CHECK(step.action == RestartAction::ApplicationFlags && step.caller == "overlay" && !r.busy());
+        RestartState setup = menu;  // the nation selection
+        setup.main_menu = false;
+        r.ask(0, "overlay");
+        CHECK(r.step(setup, 0).action == RestartAction::ApplicationFlags);
+
+        // Checked again in the frame it acts in: a campaign that started meanwhile is not closed.
+        r.ask(0, "overlay");
+        step = r.step(campaign, 0);
+        CHECK(step.action == RestartAction::Dropped && !r.busy());
+        r.ask(kClose, "overlay");
+        CHECK(r.step(multiplayer, 0).action == RestartAction::Dropped);
+        r.ask(kClose, "overlay");
+        CHECK(r.step(RestartState{}, 0).action == RestartAction::Dropped);
+
+        // A campaign: the game's Exit to Menu, then nothing while it runs.
+        r.ask(kClose, "overlay");
+        CHECK(r.step(campaign, 0).action == RestartAction::Resign && r.busy());
+        CHECK(r.step(campaign, 0).action == RestartAction::None);
+        // A later call while it is under way changes nothing.
+        r.ask(0, "other");
+        // With a plugin that returns to the menu: the flags after 30 frames of the main menu.
+        CHECK(r.step(loading, 1000).action == RestartAction::None);
+        for (uint32_t i = 1; i < anvil_game::kRestartMenuFrames; ++i) CHECK(r.step(menu, 1000).action == RestartAction::None);
+        step = r.step(menu, 1000);
+        CHECK(step.action == RestartAction::ApplicationFlags && step.caller == "overlay" && !r.busy());
+
+        // A frame off the main menu starts the count again.
+        r.ask(kClose, "overlay");
+        CHECK(r.step(campaign, 0).action == RestartAction::Resign);
+        for (uint32_t i = 0; i < 10; ++i) r.step(menu, 0);
+        r.step(loading, 0);
+        uint32_t frames = 0;
+        while (r.step(menu, 0).action == RestartAction::None) ++frames;
+        CHECK(frames == anvil_game::kRestartMenuFrames - 1);
+
+        // The game does not leave the campaign: the flag is taken back.
+        r.ask(kClose, "overlay");
+        CHECK(r.step(campaign, 0).action == RestartAction::Resign);
+        for (uint32_t i = 0; i < anvil_game::kRestartResignFrames; ++i) CHECK(r.step(campaign, 0).action == RestartAction::None);
+        CHECK(r.step(campaign, 0).action == RestartAction::ClearResign && !r.busy());
+
+        // Another session, a session before the menu, no menu in time: dropped.
+        RestartState other = campaign;
+        other.number = 5;
+        r.ask(kClose, "overlay");
+        r.step(campaign, 0);
+        CHECK(r.step(other, 0).action == RestartAction::Dropped);
+        r.ask(kClose, "overlay");
+        r.step(campaign, 0);
+        r.step(loading, 0);
+        CHECK(r.step(other, 0).action == RestartAction::Dropped);
+        r.ask(kClose, "overlay");
+        r.step(campaign, 0);
+        r.step(loading, 5000);
+        CHECK(r.step(menu, 5000 + anvil_game::kRestartMenuMs + 1).action == RestartAction::Dropped);
+
+        // Neither a session nor the front end for too long.
+        r.ask(0, "overlay");
+        for (uint32_t i = 0; i < anvil_game::kRestartWaitFrames; ++i) CHECK(r.step(loading, 0).action == RestartAction::None);
+        CHECK(r.step(loading, 0).action == RestartAction::Dropped);
+
+        r.ask(0, "overlay");
+        r.cancel();
+        CHECK(!r.busy());
+    });
+
     run("anvil-game.commands: the rules, with a fake game", [] {
         FakeCommands game;
         anvil_game::CommandPoster poster;
@@ -1716,7 +1812,7 @@ int main(int argc, char** argv) {
         bool world = false;
         for (const Symbol& s : symbols.file->symbols) {
             world = world || s.name == "province_count";
-            if (!world && !s.name.starts_with("gui_")) continue;
+            if (!world && !s.name.starts_with("gui_") && s.name != "restart_store" && s.name != "resign_check") continue;
             for (uint32_t page = *s.rva & ~0xFFFu; page < *s.rva + s.bytes.size(); page += 0x1000) {
                 image.commit(page, PAGE_EXECUTE_READWRITE);
             }
@@ -1731,7 +1827,7 @@ int main(int argc, char** argv) {
         start.add(gp_toml);
         start.add(plugin_toml("other"));
         start.make();
-        CHECK(start.plugin(ANVIL_GAME_ID).symbols().size() == 163);
+        CHECK(start.plugin(ANVIL_GAME_ID).symbols().size() == 165);
         AnvilPlugin* p = start.load(ANVIL_GAME_ID);
         CHECK(p != nullptr);
         if (p == nullptr) return;
@@ -2008,6 +2104,66 @@ int main(int argc, char** argv) {
         frame(game.app, 1);
         CHECK(heard.events.size() == 3 && heard.events[0].starts_with("session started") && heard.events[1] == "main menu 0");
         CHECK(service->main_menu() == 0);
+    });
+
+    run("anvil-game: restart() writes the game's own flags after the next frame (ADR 0012)", [&] {
+        CHECK(ANVIL_GAME_HAS(service, restart));
+        if (!ANVIL_GAME_HAS(service, restart)) return;
+        constexpr uint32_t kClose = ANVIL_GAME_RESTART_CLOSE_CAMPAIGN;
+        const auto flags = [&](uint8_t v) { return game.app[0x83] == v && game.app[0x84] == v; };
+        // A single-player game, as the test before left it.
+        game.set_session(game.session);
+        frame(game.app, 1);
+        AnvilGameSession s{};
+        CHECK(service->session(&s) == 1 && !s.multiplayer);
+        CHECK(service->restart(nullptr, 0) == ANVIL_ERROR_WRONG_PHASE);
+        CHECK(service->restart(nullptr, 0x2) == ANVIL_ERROR_INVALID_ARGUMENT);
+        CHECK(contains(log, "anvil-game: restart asked by an unknown caller: refused, a campaign runs, and closing it was not asked for"));
+        frame(game.app, 1);
+        CHECK(game.session[0x12E9] == 0 && flags(0));
+
+        // Multiplayer: refused, also with the flag.
+        g_multiplayer = true;
+        frame(game.app, 1);
+        CHECK(service->restart(nullptr, kClose) == ANVIL_ERROR_WRONG_PHASE);
+        g_multiplayer = false;
+        frame(game.app, 1);
+
+        // With the flag: the in-game idler's _bResignGame after the next frame, the application's flags untouched.
+        CHECK(service->restart(nullptr, kClose) == ANVIL_OK);
+        CHECK(game.session[0x12E9] == 0);  // only queued
+        frame(game.app, 1);
+        CHECK(game.session[0x12E9] == 1 && flags(0));
+        CHECK(contains(log, "anvil-game: restart asked by an unknown caller: the game's Exit to Menu (session 11)"));
+
+        // A plugin that turns Exit to Menu into a return: the main menu, then after
+        // 30 frames of it the application's flags, and the main loop stops.
+        game.session[0x12E9] = 0;
+        const uintptr_t vtable = image.address(0x1D5A8C8);
+        std::memcpy(game.frontend, &vtable, sizeof(vtable));
+        game.set_front_end_state(0);
+        game.set_session(game.frontend);
+        for (uint32_t i = 0; i < anvil_game::kRestartMenuFrames; ++i) {
+            CHECK(flags(0));
+            frame(game.app, 1);
+        }
+        CHECK(flags(1));
+        CHECK(contains(log, "anvil-game: restart asked by an unknown caller: application flags set (the main menu after the campaign); the game quits and starts again"));
+        const uint64_t frames = game.frame_counter();
+        const uint64_t published = service->frame_number();
+        frame(game.app, 1);
+        CHECK(game.frame_counter() == frames + 1 && service->frame_number() == published);  // quitting: nothing runs
+        game.app[0x83] = game.app[0x84] = 0;
+
+        // The nation selection: the flags in the next frame.
+        game.set_front_end_state(3);
+        frame(game.app, 1);
+        CHECK(service->restart(nullptr, 0) == ANVIL_OK);
+        frame(game.app, 1);
+        CHECK(flags(1) && contains(log, "anvil-game: restart asked by an unknown caller: application flags set (no session); the game quits and starts again"));
+        game.app[0x83] = game.app[0x84] = 0;
+        game.set_front_end_state(0);
+        frame(game.app, 1);
     });
 
     run("anvil-game: out of sync from the handler and the game-speed object", [&] {
