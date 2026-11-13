@@ -49,6 +49,10 @@ struct Setup {
 // A second call does nothing.
 bool install(const Setup& setup, std::string& error);
 
+// The plugins of this start, once the plugin set is made (it comes after
+// install, before any plugin's code runs); reports name them from then on.
+void attach_plugins(const PluginSet* plugins);
+
 // A stack overflow on a thread reaches the handlers only when the CPU state
 // Windows saves with the exception fits in the stack left after the overflow:
 // about 12 KB with the default guarantee. That holds the 1.7 KB of AVX and

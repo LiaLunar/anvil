@@ -1,17 +1,10 @@
-// Plugin API 2 end to end: the host table of src/core/host.cpp loads the
+// Plugin API 2 end to end: the plugin set (src/core/plugin_set.cpp) loads the
 // example plugins (hello-c, hello-cpp, and the Rust hello-rust and panel-rust
 // when cargo built them) and the test plugins (probe, throwing)
-// as the game would, against a synthetic image that holds the code their
+// as the game does, through the host table, against a synthetic image that holds the code their
 // symbols.toml declare, at the same RVAs (those of eu4.exe 1.37.5 for the
 // examples). Usage: anvil_plugin_tests <folder with one folder per plugin>
-#include "core/changes.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/plugin_symbols.hpp"
-#include "core/services.hpp"
-#include "core/settings.hpp"
-#include "core/symbol_check.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include <anvil/anvil_game.h>
 #include <anvil/anvil_panel.h>
@@ -111,98 +104,6 @@ struct FakeGame {
             std::memcpy(base + at, &s, sizeof(s));
             at += sizeof(s);
         }
-    }
-};
-
-// The host side of one test run: the registry over the fake image, the bus,
-// the host table, and every plugin's log lines.
-struct Loader {
-    FakeGame& game;
-    std::filesystem::path plugins_dir;
-    ChangeRegistry changes;
-    ServiceBus bus;
-    HostContext context;
-    AnvilGameInfo info{};
-    AnvilHost host{};
-    std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-    std::vector<std::string> log;  // "<id>: <message>"
-
-    Loader(FakeGame& g, std::filesystem::path dir)
-        : game(g), plugins_dir(std::move(dir)), changes(g.address(0), FakeGame::kSize) {
-        context.changes = &changes;
-        context.bus = &bus;
-        context.image = GetModuleHandleW(nullptr);
-        context.log = [this](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-            log.push_back(p.manifest.id + ": " + std::string(message));
-        };
-        info.size = sizeof(info);
-        info.build_id = kBuild;
-        info.image_base = g.address(0);
-        info.image_size = FakeGame::kSize;
-        host = make_host(&info);
-    }
-
-    // As runtime.cpp does: manifest, symbols verified against the image,
-    // owner in load order, the DLL, then anvil_plugin_load as one group.
-    AnvilPlugin* load(const char* folder, LoadOutcome* outcome) {
-        const auto dir = plugins_dir / folder;
-        const auto parsed = load_manifest(dir);
-        CHECK(parsed.manifest.has_value());
-        if (!parsed.manifest) return nullptr;
-        auto plugin = std::make_unique<AnvilPlugin>();
-        // A plugin with no game addresses has no symbols.toml.
-        if (!parsed.manifest->symbols.empty()) {
-            SymbolVerification verified;
-            SymbolFile declared;
-            const std::string reason = anvil::i18n::english(check_plugin_symbols(
-                dir / parsed.manifest->symbols, kBuild, changes, game.address(0), &verified, &declared));
-            if (!reason.empty()) std::printf("  %s: %s\n", folder, reason.c_str());
-            CHECK(reason.empty());
-            if (!reason.empty()) return nullptr;
-            plugin->symbols = PluginSymbols(declared, verified, game.address(0));
-        }
-        plugin->context = &context;
-        plugin->manifest = *parsed.manifest;
-        plugin->owner = changes.add_owner(plugin->manifest.id);
-        plugin->plugin_dir = dir.wstring();
-        if (!parsed.manifest->settings.empty()) {
-            SettingsFileResult settings = load_settings(dir / parsed.manifest->settings);
-            CHECK(settings.file.has_value());
-            if (!settings.file) return nullptr;
-            // The player's file in a fresh folder: each run starts from the defaults.
-            const auto data = std::filesystem::temp_directory_path() /
-                              ("anvil_plugin_tests_" + std::to_string(GetCurrentProcessId())) / plugin->manifest.id;
-            std::filesystem::remove_all(data);
-            plugin->data_dir = data.wstring();
-            const auto notes = plugin->settings.init(std::move(*settings.file), data / "settings.toml", plugin->manifest.id,
-                                                     [](const std::string&) { return std::optional<std::string>(); });
-            for (const auto& note : notes) log.push_back(plugin->manifest.id + ": " + note.message);
-        }
-        plugin->module = LoadLibraryExW((dir / plugin->manifest.entry).c_str(), nullptr,
-                                        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(plugin->module != nullptr);
-        if (plugin->module == nullptr) return nullptr;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(plugin->module, "anvil_plugin_load"));
-        CHECK(fn != nullptr);
-        if (fn == nullptr) return nullptr;
-        *outcome = run_plugin_load(*plugin, host, fn);
-        plugins.push_back(std::move(plugin));
-        return plugins.back().get();
-    }
-
-    bool logged(const std::string& line) const {
-        for (const auto& l : log) {
-            if (l == line) return true;
-        }
-        return false;
-    }
-    size_t logged_containing(const std::string& part) const {
-        size_t n = 0;
-        for (const auto& l : log) n += l.find(part) != std::string::npos ? 1 : 0;
-        return n;
-    }
-    void dump() const {
-        for (const auto& l : log) std::printf("    log: %s\n", l.c_str());
     }
 };
 
@@ -332,7 +233,7 @@ AnvilGameWorldService world_service() {
 }  // namespace fake
 
 template <class F> F export_of(const AnvilPlugin* plugin, const char* name) {
-    return plugin != nullptr ? reinterpret_cast<F>(GetProcAddress(plugin->module, name)) : nullptr;
+    return plugin != nullptr ? reinterpret_cast<F>(GetProcAddress(plugin->record->dll(), name)) : nullptr;
 }
 
 }  // namespace
@@ -362,7 +263,19 @@ int main(int argc, char** argv) {
     // handles (HookOf, PointerSwap) remove themselves when the DLLs detach at
     // exit, which the host answers without touching anything.
     FakeGame& game = *new FakeGame;
-    Loader& loader = *new Loader(game, plugins_dir);
+    TestStart& start = *new TestStart(game.address(0), FakeGame::kSize, kBuild);
+    // Every plugin of the run in load order, the Rust examples when cargo
+    // built them: the set is made before the first one loads.
+    // The Rust examples are built by cargo, not CMake: CI lays them out in the
+    // plugins folder before ctest (ANVIL_REQUIRE_RUST_EXAMPLES then makes a
+    // missing plugin a failure); elsewhere a test is skipped when it is not there.
+    const bool rust_required = GetEnvironmentVariableA("ANVIL_REQUIRE_RUST_EXAMPLES", nullptr, 0) != 0;
+    const bool hello_rust_built = std::filesystem::exists(plugins_dir / "hello-rust" / "hello_rust.dll");
+    const bool panel_rust_built = std::filesystem::exists(plugins_dir / "panel-rust" / "panel_rust.dll");
+    for (const char* folder : {"probe", "throwing", "hello-c", "hello-cpp"}) start.add(plugins_dir / folder);
+    if (hello_rust_built) start.add(plugins_dir / "hello-rust");
+    if (panel_rust_built) start.add(plugins_dir / "panel-rust");
+    start.make();
     using IntFn = int (*)(int);
     using U64Fn = uint64_t (*)(uint64_t);
     const auto add_one = game.function<IntFn>(0x1000);
@@ -374,18 +287,17 @@ int main(int argc, char** argv) {
     AnvilPlugin* probe = nullptr;
 
     run("api 2: the probe loads through the C++ wrapper", [&] {
-        LoadOutcome outcome;
-        probe = loader.load("probe", &outcome);
-        CHECK(probe != nullptr && outcome.result == ANVIL_OK && outcome.exception == 0);
-        if (probe == nullptr) return;
+        probe = start.load("probe");
+        CHECK(probe != nullptr);
+        if (probe == nullptr) return start.dump();
         // Staged during load, enabled together afterwards.
-        CHECK(outcome.staged == 5 && loader.changes.count(probe->owner) == 5);
-        CHECK(loader.logged("probe: twice(21) = 42"));
-        CHECK(loader.logged("probe: counter 7 through the same address"));
-        CHECK(loader.logged("probe: patch_bytes twice: invalid argument (1)"));
-        CHECK(loader.logged("probe: begin_group: wrong phase"));
-        CHECK(loader.logged("probe: patch_bytes twice refused: invalid argument"));
-        if (g_failures != 0) loader.dump();
+        CHECK(start.changes.count(probe->owner) == 5 && start.logged_containing("probe 1.0.0: loaded (main, ") == 1);
+        CHECK(start.logged("probe: twice(21) = 42"));
+        CHECK(start.logged("probe: counter 7 through the same address"));
+        CHECK(start.logged("probe: patch_bytes twice: invalid argument (1)"));
+        CHECK(start.logged("probe: begin_group: wrong phase"));
+        CHECK(start.logged("probe: patch_bytes twice refused: invalid argument"));
+        if (g_failures != 0) start.dump();
     });
 
     run("api 2: wrapper changes act on the game", [&] {
@@ -393,41 +305,42 @@ int main(int argc, char** argv) {
         CHECK(adjust(5) == 1010);                // mid hook: rcx + 1000
         CHECK(triple(7) == 21);                  // block replacement
         CHECK((*tick_slot)(1) == 1020);          // pointer swap: previous (add_one, hooked: 102) * 10
-        CHECK(loader.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr) == 1);
-        CHECK(loader.logged("probe: plugins loaded"));
+        CHECK(start.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr) == 1);
+        CHECK(start.logged("probe: plugins loaded"));
     });
 
     run("api 2: an exception in a callback is logged once and the game continues", [&] {
         CHECK(thrower(1) == 7);    // rcx + 1, then + 5
         CHECK(thrower(13) == 18);  // threw before changing rcx
         CHECK(thrower(13) == 18);
-        CHECK(loader.logged_containing("mid_hook thrower: the callback threw (unlucky thirteen)") == 1);
+        CHECK(start.logged_containing("mid_hook thrower: the callback threw (unlucky thirteen)") == 1);
         CHECK(thrower(2) == 8);
     });
 
     run("api 2: a throw in load() rolls back what it staged", [&] {
-        LoadOutcome outcome;
-        AnvilPlugin* throwing = loader.load("throwing", &outcome);
-        CHECK(throwing != nullptr && outcome.result == ANVIL_ERROR_INTERNAL && outcome.staged == 2);
-        if (throwing == nullptr) return;
-        CHECK(loader.changes.count(throwing->owner) == 0 && loader.changes.staged_count(throwing->owner) == 0);
-        CHECK(loader.logged("throwing: load() failed: refused on purpose"));
+        CHECK(start.load("throwing") == nullptr);
+        const PluginRecord& record = start.plugin("throwing");
+        const AnvilPlugin* throwing = record.handle();
+        CHECK(record.outcome() != nullptr && record.outcome()->kind == Outcome::Kind::failed);
+        CHECK(start.logged("anvil: throwing 1.0.0: anvil_plugin_load returned internal error; 2 change(s) rolled back; plugin stays "
+                           "inactive"));
+        CHECK(start.changes.count(throwing->owner) == 0 && start.changes.staged_count(throwing->owner) == 0);
+        CHECK(start.logged("throwing: load() failed: refused on purpose"));
         // Its hook (-1) and mid hook (rcx = 0) never reached the game.
         CHECK(add_one(1) == 102);
         CHECK(adjust(5) == 1010);
     });
 
     run("api 2: the C and C++ hello examples", [&] {
-        LoadOutcome c_outcome, cpp_outcome;
-        AnvilPlugin* hello_c = loader.load("hello-c", &c_outcome);
-        AnvilPlugin* hello_cpp = loader.load("hello-cpp", &cpp_outcome);
-        CHECK(hello_c != nullptr && c_outcome.result == ANVIL_OK && c_outcome.staged == 2);
-        CHECK(hello_cpp != nullptr && cpp_outcome.result == ANVIL_OK && cpp_outcome.staged == 2);
+        AnvilPlugin* hello_c = start.load("hello-c");
+        AnvilPlugin* hello_cpp = start.load("hello-cpp");
+        CHECK(hello_c != nullptr && start.changes.count(hello_c->owner) == 2);
+        CHECK(hello_cpp != nullptr && start.changes.count(hello_cpp->owner) == 2);
         if (hello_c == nullptr || hello_cpp == nullptr) return;
-        CHECK(loader.logged_containing("hello-c: hello from C on Anvil ") == 1);
-        CHECK(loader.logged("hello-cpp: hello from C++ on Anvil " ANVIL_VERSION ", game build eu4-1.37.5-steam-win64"));
+        CHECK(start.logged_containing("hello-c: hello from C on Anvil ") == 1);
+        CHECK(start.logged("hello-cpp: hello from C++ on Anvil " ANVIL_VERSION ", game build eu4-1.37.5-steam-win64"));
         // Both hook speed_object: one chain, hello-c outermost.
-        CHECK((loader.changes.chain_at(game.address(0x8024D0)) ==
+        CHECK((start.changes.chain_at(game.address(0x8024D0)) ==
                std::vector<OwnerId>{hello_c->owner, hello_cpp->owner}));
         alignas(8) uint8_t session[0x420] = {};
         void* const speed = &session[0];
@@ -435,51 +348,47 @@ int main(int argc, char** argv) {
         const auto speed_object = game.function<void* (*)(void*)>(0x8024D0);
         CHECK(speed_object(session) == speed);
         CHECK(speed_object(session) == speed);
-        CHECK(loader.logged_containing("hello-c: first game-speed object: ") == 1);
-        CHECK(loader.logged_containing("hello-cpp: first game-speed object: ") == 1);
+        CHECK(start.logged_containing("hello-c: first game-speed object: ") == 1);
+        CHECK(start.logged_containing("hello-cpp: first game-speed object: ") == 1);
         const auto idle_exit = game.function<uintptr_t (*)()>(0x815CAE);
         idle_exit();
         idle_exit();
-        CHECK(loader.logged_containing("hello-c: returning to the menu (rcx=0x") == 2);
-        CHECK(loader.logged_containing("hello-cpp: returning to the menu (rcx=0x") == 2);
-        CHECK(loader.logged_containing(", 2 so far)") == 1);
-        loader.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr);
-        CHECK(loader.logged("hello-c: every plugin is loaded") && loader.logged("hello-cpp: every plugin is loaded"));
+        CHECK(start.logged_containing("hello-c: returning to the menu (rcx=0x") == 2);
+        CHECK(start.logged_containing("hello-cpp: returning to the menu (rcx=0x") == 2);
+        CHECK(start.logged_containing(", 2 so far)") == 1);
+        start.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr);
+        CHECK(start.logged("hello-c: every plugin is loaded") && start.logged("hello-cpp: every plugin is loaded"));
 
         // Its setting (restart = false), changed as the overlay would: the
         // subscription runs and the next return to the menu reads the new value.
-        CHECK(hello_cpp->settings.size() == 1 && loader.host.setting_bool(hello_cpp, 0) == 1);
-        const auto change = hello_cpp->settings.set_text(0, "false");
+        PluginSettings& settings = hello_cpp->record->settings();
+        CHECK(settings.size() == 1 && start.host.setting_bool(hello_cpp, 0) == 1);
+        const auto change = settings.set_text(0, "false");
         CHECK(change.result == ANVIL_OK && change.applied && change.saved && change.notified == 1);
-        CHECK(loader.logged("hello-cpp: logging returns to the menu: off"));
+        CHECK(start.logged("hello-cpp: logging returns to the menu: off"));
         idle_exit();
-        CHECK(loader.logged_containing("hello-cpp: returning to the menu (rcx=0x") == 2);
-        CHECK(loader.logged_containing("hello-c: returning to the menu (rcx=0x") == 3);
-        hello_cpp->settings.reset(0);
-        CHECK(loader.logged("hello-cpp: logging returns to the menu: on"));
+        CHECK(start.logged_containing("hello-cpp: returning to the menu (rcx=0x") == 2);
+        CHECK(start.logged_containing("hello-c: returning to the menu (rcx=0x") == 3);
+        settings.reset(0);
+        CHECK(start.logged("hello-cpp: logging returns to the menu: on"));
         idle_exit();
-        CHECK(loader.logged_containing(", 4 so far)") == 1);
-        if (g_failures != 0) loader.dump();
+        CHECK(start.logged_containing(", 4 so far)") == 1);
+        if (g_failures != 0) start.dump();
     });
 
-    // The Rust examples are built by cargo, not CMake: CI lays them out in the
-    // plugins folder before ctest (ANVIL_REQUIRE_RUST_EXAMPLES then makes a
-    // missing plugin a failure); elsewhere a test is skipped when it is not there.
-    const bool rust_required = GetEnvironmentVariableA("ANVIL_REQUIRE_RUST_EXAMPLES", nullptr, 0) != 0;
     run("api 2: the Rust hello example", [&] {
         const bool required = rust_required;
-        if (!std::filesystem::exists(plugins_dir / "hello-rust" / "hello_rust.dll")) {
+        if (!hello_rust_built) {
             std::printf("  hello-rust is not built (cargo build -p hello-rust --release); skipped\n");
             CHECK(!required);
             return;
         }
-        LoadOutcome outcome;
-        AnvilPlugin* hello_rust = loader.load("hello-rust", &outcome);
-        CHECK(hello_rust != nullptr && outcome.result == ANVIL_OK && outcome.staged == 2);
+        AnvilPlugin* hello_rust = start.load("hello-rust");
+        CHECK(hello_rust != nullptr && start.changes.count(hello_rust->owner) == 2);
         if (hello_rust == nullptr) return;
-        CHECK(loader.logged("hello-rust: hello from Rust on Anvil " ANVIL_VERSION ", game build eu4-1.37.5-steam-win64"));
+        CHECK(start.logged("hello-rust: hello from Rust on Anvil " ANVIL_VERSION ", game build eu4-1.37.5-steam-win64"));
         // After hello-c and hello-cpp on speed_object: the third change of the chain.
-        const auto chain = loader.changes.chain_at(game.address(0x8024D0));
+        const auto chain = start.changes.chain_at(game.address(0x8024D0));
         CHECK(chain.size() == 3 && chain.back() == hello_rust->owner);
         alignas(8) uint8_t session[0x420] = {};
         void* const speed = &session[0];
@@ -487,13 +396,13 @@ int main(int argc, char** argv) {
         const auto speed_object = game.function<void* (*)(void*)>(0x8024D0);
         CHECK(speed_object(session) == speed);
         CHECK(speed_object(session) == speed);
-        CHECK(loader.logged_containing("hello-rust: first game-speed object: 0x") == 1);
+        CHECK(start.logged_containing("hello-rust: first game-speed object: 0x") == 1);
         const auto idle_exit = game.function<uintptr_t (*)()>(0x815CAE);
         idle_exit();
-        CHECK(loader.logged_containing("hello-rust: returning to the menu (rcx=0x") == 1);
-        loader.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr);
-        CHECK(loader.logged("hello-rust: every plugin is loaded"));
-        if (g_failures != 0) loader.dump();
+        CHECK(start.logged_containing("hello-rust: returning to the menu (rcx=0x") == 1);
+        start.bus.publish(ANVIL_EVENT_PLUGINS_LOADED, nullptr);
+        CHECK(start.logged("hello-rust: every plugin is loaded"));
+        if (g_failures != 0) start.dump();
     });
 
     // The safe crate's services from Rust: the world read in anvil-game's
@@ -502,30 +411,29 @@ int main(int argc, char** argv) {
     static const AnvilGameWorldService world_service = fake::world_service();
     static const AnvilPanelService panel_service = fake::panel_service();
     run("api 2: the Rust panel example", [&] {
-        if (!std::filesystem::exists(plugins_dir / "panel-rust" / "panel_rust.dll")) {
+        if (!panel_rust_built) {
             std::printf("  panel-rust is not built (cargo build -p panel-rust --release); skipped\n");
             CHECK(!rust_required);
             return;
         }
-        CHECK(loader.bus.register_service("anvil-game", ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, &game_service) ==
+        CHECK(start.bus.register_service("anvil-game", ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, &game_service) ==
               ANVIL_OK);
-        CHECK(loader.bus.register_service("anvil-game", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
+        CHECK(start.bus.register_service("anvil-game", ANVIL_GAME_WORLD_SERVICE, ANVIL_GAME_WORLD_SERVICE_VERSION,
                                           &world_service) == ANVIL_OK);
-        CHECK(loader.bus.register_service("anvil-overlay", ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION,
+        CHECK(start.bus.register_service("anvil-overlay", ANVIL_PANEL_SERVICE, ANVIL_PANEL_SERVICE_VERSION,
                                           &panel_service) == ANVIL_OK);
-        LoadOutcome outcome;
-        AnvilPlugin* panel = loader.load("panel-rust", &outcome);
-        CHECK(panel != nullptr && outcome.result == ANVIL_OK && outcome.staged == 0);
+        AnvilPlugin* panel = start.load("panel-rust");
+        CHECK(panel != nullptr && start.changes.count(panel->owner) == 0);
         if (panel == nullptr) return;
-        CHECK(loader.logged("panel-rust: country panel loaded (world service: yes, panel: yes)"));
+        CHECK(start.logged("panel-rust: country panel loaded (world service: yes, panel: yes)"));
         CHECK(fake::shown == 1 && fake::click != nullptr);
         CHECK((fake::rows == std::vector<std::string>{"No game is loaded."}));
 
         fake::in_session = true;
         const AnvilGameSession started{sizeof(AnvilGameSession), ANVIL_GAME_SESSION_STARTED, 0, 0, 1};
-        loader.bus.publish(ANVIL_GAME_EVENT_SESSION, &started);
+        start.bus.publish(ANVIL_GAME_EVENT_SESSION, &started);
         const std::string summary = "RUS on 1719.3.17: capital Moskva (295), 123 provinces, treasury 1234.5, stability 1";
-        CHECK(loader.logged("panel-rust: session 1: " + summary));
+        CHECK(start.logged("panel-rust: session 1: " + summary));
         CHECK((fake::rows == std::vector<std::string>{"Country=RUS", "Date=1719.3.17", "Capital=Moskva (295)",
                                                        "Provinces=123", "Treasury=1234.5", "Monthly income=?",
                                                        "Stability=1", "Prestige=?", "Manpower=?", "---",
@@ -534,20 +442,20 @@ int main(int argc, char** argv) {
         AnvilGameDateChange month{};
         month.size = sizeof(month);
         month.days = 1;
-        loader.bus.publish(ANVIL_GAME_EVENT_MONTH, &month);
-        CHECK(loader.logged_containing(summary) == 1 && fake::rows.size() == 12);
+        start.bus.publish(ANVIL_GAME_EVENT_MONTH, &month);
+        CHECK(start.logged_containing(summary) == 1 && fake::rows.size() == 12);
         // Clicks, as the overlay delivers them on the main thread.
         fake::click(fake::click_context, 1);
-        CHECK(loader.logged("panel-rust: refresh: " + summary));
+        CHECK(start.logged("panel-rust: refresh: " + summary));
         fake::click(fake::click_context, 2);
-        CHECK(loader.logged("panel-rust: selected units: none"));
+        CHECK(start.logged("panel-rust: selected units: none"));
         fake::in_session = false;
         const AnvilGameSession ended{sizeof(AnvilGameSession), ANVIL_GAME_SESSION_ENDED, 0, 0, 1};
-        loader.bus.publish(ANVIL_GAME_EVENT_SESSION, &ended);
+        start.bus.publish(ANVIL_GAME_EVENT_SESSION, &ended);
         CHECK((fake::rows == std::vector<std::string>{"No game is loaded."}));
         // No adapter panicked on the way.
-        CHECK(loader.logged_containing("panicked") == 0);
-        if (g_failures != 0) loader.dump();
+        CHECK(start.logged_containing("panicked") == 0);
+        if (g_failures != 0) start.dump();
     });
 
     run("api 2: anvil::Host and Change after load", [&] {
@@ -572,12 +480,12 @@ int main(int argc, char** argv) {
         // A group after load: enabled together, or dropped when its body throws.
         CHECK(patch_in_group(1) == 1 && patch_site() == 1);
         CHECK(patch_in_group(0) == 0 && patch_site() == 2);
-        CHECK(loader.changes.count(probe->owner) == 4);  // triple, thrower, swap, patch
+        CHECK(start.changes.count(probe->owner) == 4);  // triple, thrower, swap, patch
     });
 
     run("api 2: host calls refuse what the C ABI forbids", [&] {
         if (probe == nullptr) return;
-        const AnvilHost& h = loader.host;
+        const AnvilHost& h = start.host;
         void* next = nullptr;
         AnvilChange* change = nullptr;
         auto detour = reinterpret_cast<void*>(+[](int x) { return x; });
@@ -597,7 +505,7 @@ int main(int argc, char** argv) {
         CHECK(h.setting_int(probe, 0) == 0 && h.setting_bool(probe, 0) == 0 && h.setting_float(probe, 0) == 0.0);
         CHECK(std::string(h.setting_string(probe, 0)).empty());
         CHECK(h.subscribe_setting(probe, 0, [](AnvilSetting, void*) {}, nullptr) == ANVIL_ERROR_NOT_DECLARED);
-        CHECK(loader.logged("probe: subscribe_setting setting 0 (not declared) refused: not declared in symbols.toml or "
+        CHECK(start.logged("probe: subscribe_setting setting 0 (not declared) refused: not declared in symbols.toml or "
                             "settings.toml"));
         CHECK(h.setting_int(nullptr, 0) == 0 && std::string(h.setting_string(nullptr, 0)).empty());
     });

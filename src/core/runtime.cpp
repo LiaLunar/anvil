@@ -13,6 +13,7 @@
 #include "log.hpp"
 #include "manifest.hpp"
 #include "platform.hpp"
+#include "plugin_set.hpp"
 #include "changes.hpp"
 #include "control.hpp"
 #include "crash.hpp"
@@ -59,8 +60,7 @@ struct Runtime {
     std::unique_ptr<GameplayPolicy> policy;  // design §13, fed by anvil-game's session event
     HostContext context;  // what every plugin's host calls act on
     AnvilHost host{};
-    std::vector<std::unique_ptr<AnvilPlugin>> plugins;  // resolved, in load order
-    std::vector<Skipped> skipped;
+    std::unique_ptr<PluginSet> plugins;  // every plugin of this start, once resolved
     StartMarker start_marker;  // safe mode: starts that ended before game_ready
     ModDiscovery mods;  // plugins in the playset's mods (design §14)
     std::unique_ptr<Control> control;  // anvil.control, the overlay's view of the core (design §15)
@@ -87,10 +87,11 @@ struct Runtime {
 
 Runtime* g_runtime = nullptr;
 
-// Whose change a registry message is about.
+// Whose change a registry message is about: a plugin's id, a module's key,
+// or the core's.
 std::string owner_name(OwnerId owner) {
-    const auto& plugins = g_runtime->plugins;
-    return owner < plugins.size() ? plugins[owner]->manifest.id : "anvil";
+    const AnvilPlugin* h = g_runtime->plugins ? g_runtime->plugins->handle_of(owner) : nullptr;
+    return h != nullptr ? h->name : "anvil";
 }
 
 double elapsed_ms() {
@@ -133,25 +134,8 @@ BenchmarkRecord benchmark_record(const char* write) {
     if (GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) {
         r.creation_filetime = (static_cast<uint64_t>(created.dwHighDateTime) << 32) | created.dwLowDateTime;
     }
-    std::vector<BenchmarkParticipant> participants = g_runtime->benchmark->participants();
-    for (const auto& p : g_runtime->plugins) {
-        BenchmarkRecordPlugin out;
-        out.id = p->manifest.id;
-        out.version = p->manifest.version.to_string();
-        out.state = p->state;
-        for (auto& joined : participants) {
-            if (joined.plugin == p.get()) out.participant = std::move(joined);
-        }
-        r.plugins.push_back(std::move(out));
-    }
-    for (const auto& s : g_runtime->skipped) {
-        BenchmarkRecordPlugin out;
-        out.id = s.id;
-        out.state = s.disabled ? "disabled" : "skipped";
-        out.disabled_by_arm = s.benchmark_arm;
-        out.skip_reason = skip_kind_name(s.kind);
-        r.plugins.push_back(std::move(out));
-    }
+    // The plugin set, the same list anvil.control reads.
+    r.plugins = record_plugins(*g_runtime->plugins, g_runtime->benchmark->participants());
     if (g_runtime->first_opens_metered) r.game_first_opens = g_runtime->first_opens.total(r.qpc_frequency);
     r.first_start_since_boot = g_runtime->first_start_since_boot;
     r.definitions_changed = g_runtime->definitions_changed;
@@ -270,120 +254,23 @@ void on_game_ready(const char*, const void*, void*) {
 
 // ---- loading ---------------------------------------------------------------
 
-// Empty when every required dependency loaded (they come earlier in the
-// load order); otherwise why the plugin is not loaded either.
-i18n::Message failed_dependency(const AnvilPlugin& plugin) {
-    for (const auto& d : plugin.manifest.dependencies) {
-        if (d.optional) continue;
-        for (const auto& p : g_runtime->plugins) {
-            if (p->manifest.id == d.id && p->state != "loaded") return i18n::Message("dependency_failed", {d.id});
-        }
-    }
-    return {};
-}
-
-// The plugin and its modules leave the gameplay policy (a failed load).
-void forget_in_policy(const AnvilPlugin& plugin) {
-    g_runtime->policy->forget(plugin.owner);
-    for (const auto& m : plugin.modules) g_runtime->policy->forget(m->owner);
-}
-
-void set_failed(AnvilPlugin& plugin, i18n::Message why) {
-    plugin.reason = i18n::english(why);
-    plugin.why = std::move(why);
-    plugin.state = "failed";
-}
-
-void load_plugin(AnvilPlugin& plugin) {
-    const double begin = elapsed_ms();
-    const std::filesystem::path dll = std::filesystem::path(plugin.plugin_dir) / plugin.manifest.entry;
-    const std::string label = plugin.manifest.id + " " + plugin.manifest.version.to_string();
-    if (i18n::Message reason = failed_dependency(plugin); !reason.empty()) {
-        set_failed(plugin, std::move(reason));
-        forget_in_policy(plugin);
-        log_error(label + ": not loaded; " + plugin.reason);
-        return;
-    }
-    // A plugin from a mod: its approved copy must still have the approved
-    // hash. Its files stay open without write or delete sharing until the
-    // DLL is mapped, so nothing can change between the check and the load.
-    FileLocks locks;
-    if (!plugin.approved_hash.empty()) {
-        const FolderHash now = hash_plugin_folder(plugin.plugin_dir, &locks);
-        if (now.sha256 != plugin.approved_hash) {
-            set_failed(plugin, i18n::Message("copy_changed", {now.error.empty() ? i18n::Message("hash", {short_hash(now.sha256)})
-                                                                                : i18n::Message(now.error),
-                                                              short_hash(plugin.approved_hash)}));
-            forget_in_policy(plugin);
-            log_error(label + ": not loaded; " + plugin.reason);
-            return;
-        }
-    }
-    plugin.module = LoadLibraryExW(dll.c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-    locks.release();
-    if (plugin.module == nullptr) {
-        const DWORD error = GetLastError();
-        set_failed(plugin, i18n::Message("load_error", {plugin.manifest.entry, std::to_string(error)}));
-        forget_in_policy(plugin);
-        log_error(label + ": cannot load " + narrow(dll.wstring()) + " (error " + std::to_string(error) + ")");
-        return;
-    }
-    const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(plugin.module, "anvil_plugin_load"));
-    if (fn == nullptr) {
-        set_failed(plugin, i18n::Message("no_load_export", {}));
-        forget_in_policy(plugin);
-        log_error(label + ": entry DLL does not export anvil_plugin_load");
-        FreeLibrary(plugin.module);
-        plugin.module = nullptr;
-        return;
-    }
-    // Changes requested during anvil_plugin_load are staged and enabled together
-    // after it returns ANVIL_OK; on failure none are (design §8.4).
-    ChangeRegistry& changes = *g_runtime->changes;
-    const LoadOutcome outcome = run_plugin_load(plugin, g_runtime->host, fn);
-    if (outcome.commit_failed) {
-        log_error(label + ": its " + std::to_string(outcome.staged) + " change(s) could not be enabled");
-    }
-    if (outcome.result != ANVIL_OK) {
-        char code[32] = {};
-        if (outcome.exception != 0) std::snprintf(code, sizeof(code), "0x%08lX", outcome.exception);
-        set_failed(plugin, outcome.exception != 0 ? i18n::Message("load_exception", {code})
-                                                  : i18n::Message("load_returned", {result_name(outcome.result)}));
-        forget_in_policy(plugin);
-        g_runtime->benchmark->forget(&plugin);
-        log_error(label + ": " + plugin.reason + "; " + std::to_string(outcome.staged) +
-                  " change(s) rolled back; plugin stays inactive");
-        // The DLL is not unloaded: threads it may have started could still run.
-        return;
-    }
-    plugin.state = "loaded";
-    std::string summary = label + ": loaded (" + (plugin.manifest.phase == Phase::Early ? "early" : "main") + ", " +
-                          fmt_ms(elapsed_ms() - begin) + ", " + std::to_string(changes.count(plugin.owner)) +
-                          " change(s))";
-    if (plugin.manifest.affects_gameplay) summary += " — declares gameplay changes";
-    log_info(summary);
-    for (const auto& line : changes.describe(plugin.owner)) {
-        Log::instance().write(ANVIL_LOG_DEBUG, plugin.manifest.id, line);
-    }
-    for (const auto& m : plugin.modules) {
-        if (!m->enabled) continue;
-        log_info(m->manifest.id + ": module " + std::to_string(changes.count(m->owner)) + " change(s)" +
-                 (m->manifest.affects_gameplay ? " — declares gameplay changes" : ""));
-        for (const auto& line : changes.describe(m->owner)) {
-            Log::instance().write(ANVIL_LOG_DEBUG, m->manifest.id, line);
+// A phase of the plugin set, then what the runtime keeps besides: the
+// benchmark forgets the plugins that failed.
+void load_phase(Phase phase) {
+    g_runtime->plugins->load(phase);
+    for (const PluginRecord& p : *g_runtime->plugins) {
+        const Outcome* o = p.outcome();
+        if (p.handle() != nullptr && p.manifest().phase == phase && o != nullptr && o->kind == Outcome::Kind::failed) {
+            g_runtime->benchmark->forget(p.handle());
         }
     }
 }
 
 void write_summary() {
-    size_t loaded = 0, failed = 0;
-    for (const auto& p : g_runtime->plugins) {
-        if (p->state == "loaded") ++loaded;
-        else if (p->state == "failed") ++failed;
-    }
-    log_info("status: " + std::to_string(loaded) + " loaded, " + std::to_string(failed) + " failed, " +
-             std::to_string(g_runtime->skipped.size()) + " skipped");
+    const PluginSet& plugins = *g_runtime->plugins;
+    log_info("status: " + std::to_string(plugins.count(Outcome::Kind::loaded)) + " loaded, " +
+             std::to_string(plugins.count(Outcome::Kind::failed)) + " failed, " +
+             std::to_string(plugins.size() - plugins.resolved_count()) + " skipped");
     for (const auto& s : g_runtime->bus.describe()) log_info("service " + s);
 }
 
@@ -394,9 +281,7 @@ DWORD WINAPI main_phase(LPVOID) {
     const std::filesystem::path history = g_runtime->anvil_dir / "data" / "anvil" / "last-start.txt";
     g_runtime->previous_start = read_start_history(history);
     g_runtime->history_read.store(true, std::memory_order_release);
-    for (auto& p : g_runtime->plugins) {
-        if (p->manifest.phase == Phase::Main) load_plugin(*p);
-    }
+    load_phase(Phase::Main);
     // The end of the core start-up of design §17 (entry point -> end of loading).
     log_info("plugins loaded at " + fmt_ms(elapsed_ms()));
     g_runtime->plugins_loaded.store(true, std::memory_order_release);
@@ -516,8 +401,6 @@ void startup_impl(const std::filesystem::path& game_dir) {
     }
     g_runtime->changes->set_refusal_sink([](OwnerId owner, const std::string& message) {
         // Names both owners of a conflict; the host call adds its own line.
-        // Owner ids are the indices of g_runtime->plugins (both in load order);
-        // the core's own owner comes after them.
         Log::instance().write(ANVIL_LOG_WARNING, owner_name(owner), message);
     });
     g_runtime->changes->set_notice_sink([](OwnerId owner, const std::string& message) {
@@ -550,7 +433,6 @@ void startup_impl(const std::filesystem::path& game_dir) {
     capture.log_file = g_runtime->anvil_dir / "anvil.log";
     capture.image = exe;
     capture.sources.changes = g_runtime->changes.get();
-    capture.sources.plugins = &g_runtime->plugins;
     capture.sources.image_base = identity->image_base;
     capture.sources.image_size = identity->size_of_image;
     g_runtime->exe_name = narrow(g_runtime->exe_path.filename().wstring());
@@ -596,6 +478,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
     if (unknown_build.code == "build_unknown_gog") log_warning(i18n::english(unknown_build));
 
     // Discovery: anvil/plugins/<folder>/plugin.toml
+    std::vector<Skipped> skipped;
     ResolveInput input;
     input.host_api = kManifestApi;
     input.host_version = Version::parse(kAnvilVersion);
@@ -637,21 +520,21 @@ void startup_impl(const std::filesystem::path& game_dir) {
         const auto parsed = load_manifest(folder);
         local_ids.insert(parsed.manifest ? parsed.manifest->id : narrow(folder.filename().wstring()));
         if (!parsed.manifest) {
-            g_runtime->skipped.push_back(skipped_for(narrow(folder.filename().wstring()), parsed.error, folder));
+            skipped.push_back(skipped_for(narrow(folder.filename().wstring()), parsed.error, folder));
             continue;
         }
         if (i18n::Message reason = missing_entry_reason(*parsed.manifest); !reason.empty()) {
-            g_runtime->skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder));
+            skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder));
             continue;
         }
         if (record.safe_mode && !loads_in_safe_mode(parsed.manifest->id)) {
-            g_runtime->skipped.push_back(
+            skipped.push_back(
                 skipped_for(parsed.manifest->id, i18n::Message("safe_mode", {}), folder, SkipKind::safe_mode));
             continue;
         }
         if (record.safe_mode) {
             if (i18n::Message reason = safe_mode_exclusion(parsed.manifest->id, safe_mode_reports); !reason.empty()) {
-                g_runtime->skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder, SkipKind::safe_mode));
+                skipped.push_back(skipped_for(parsed.manifest->id, std::move(reason), folder, SkipKind::safe_mode));
                 continue;
             }
         }
@@ -688,7 +571,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
                 s.mod = p.mod.name;
                 s.awaiting_approval = !p.loads() && (p.state == ModPluginState::Pending || p.state == ModPluginState::Conflict);
                 s.kind = kind;
-                g_runtime->skipped.push_back(std::move(s));
+                skipped.push_back(std::move(s));
             };
             if (p.state == ModPluginState::Shadowed) {
                 shadowed[p.id].push_back(p.mod.name);
@@ -735,8 +618,8 @@ void startup_impl(const std::filesystem::path& game_dir) {
         }
     }
     ResolveResult resolved = resolve(input);
-    g_runtime->skipped.insert(g_runtime->skipped.end(), resolved.skipped.begin(), resolved.skipped.end());
-    for (const auto& s : g_runtime->skipped) log_warning(s.id + ": skipped — " + s.reason);
+    skipped.insert(skipped.end(), resolved.skipped.begin(), resolved.skipped.end());
+    for (const auto& s : skipped) log_warning(s.id + ": skipped — " + s.reason);
     log_info("resolved " + std::to_string(resolved.order.size()) + " plugin(s) to load at " + fmt_ms(elapsed_ms()));
     // The overlay speaks the language of EU4's settings, or with Mei, which
     // shows a translation mod's Chinese, Japanese or Korean, Steam's or
@@ -746,46 +629,35 @@ void startup_impl(const std::filesystem::path& game_dir) {
     const i18n::LanguageChoice language = i18n::choose_language(user_dir, cjk_text);
     const std::string player_language = i18n::language_code(language.language);
     log_info("the player's language: " + player_language + " (" + language.source + ")");
-    // No reallocation later: the crash writer may read the list from another thread.
-    g_runtime->plugins.reserve(resolved.order.size());
+    // The plugin set: what the start found out about each plugin, in load
+    // order, then the skipped ones. It adds the owners (the core's own last)
+    // and the gameplay policy entries, before any plugin's code runs.
+    std::vector<ResolvedPlugin> to_load;
+    to_load.reserve(resolved.order.size());
     for (auto& m : resolved.order) {
-        auto plugin = std::make_unique<AnvilPlugin>();
-        plugin->context = &g_runtime->context;
-        // Owners in load order: the earlier plugin is outermost in every chain.
-        plugin->owner = g_runtime->changes->add_owner(m.id);
+        ResolvedPlugin r;
         if (const auto it = verified_symbols.find(m.folder.wstring()); it != verified_symbols.end()) {
-            plugin->symbols = std::move(it->second);
+            r.symbols = std::move(it->second);
         }
-        plugin->plugin_dir = m.folder.wstring();
-        if (const auto it = approved_hashes.find(m.folder.wstring()); it != approved_hashes.end()) {
-            plugin->approved_hash = it->second;
-        }
-        plugin->data_dir = (g_runtime->anvil_dir / "data" / m.id).wstring();
-        // The player's values and the ANVIL_<ID>_<NAME> overrides, before any plugin loads.
         if (const auto it = declared_settings.find(m.folder.wstring()); it != declared_settings.end()) {
-            const auto notes = plugin->settings.init(std::move(it->second),
-                                                     std::filesystem::path(plugin->data_dir) / "settings.toml", m.id);
-            for (const auto& note : notes) Log::instance().write(note.level, m.id, note.message);
+            r.settings = std::move(it->second);
         }
-        plugin->manifest = std::move(m);
-        g_runtime->policy->add(plugin->manifest, plugin->owner);
-        // Its modules (ADR 0011): owners right after the plugin's, and a
-        // policy entry for each module that is on at this start.
-        add_modules(*plugin, *g_runtime->changes, [&](const std::string& key, bool by_default) {
-            return module_enabled(settings, key, by_default);
-        });
-        for (const auto& mod : plugin->modules) {
-            if (mod->enabled) {
-                g_runtime->policy->add(mod->manifest, mod->owner);
-            } else {
-                log_info(mod->manifest.id + ": module off at this start (anvil.toml)");
-            }
+        if (const auto it = approved_hashes.find(m.folder.wstring()); it != approved_hashes.end()) {
+            r.approved_hash = it->second;
         }
-        g_runtime->plugins.push_back(std::move(plugin));
+        r.data_dir = g_runtime->anvil_dir / "data" / m.id;
+        // Its modules on or off at this start (anvil.toml, `default`; ADR 0011).
+        for (const Module& mod : m.modules) r.modules_on.push_back(module_enabled(settings, module_key(m, mod), mod.enabled_by_default));
+        r.manifest = std::move(m);
+        to_load.push_back(std::move(r));
     }
-    // The core's own changes: its owner comes after every plugin's, so each
-    // is the innermost link of its chain.
-    const OwnerId core = g_runtime->changes->add_owner("anvil");
+    PluginSet::Dependencies deps;
+    deps.context = &g_runtime->context;
+    deps.policy = g_runtime->policy.get();
+    deps.host = &g_runtime->host;
+    g_runtime->plugins = std::make_unique<PluginSet>(std::move(to_load), std::move(skipped), std::move(deps));
+    crash::attach_plugins(g_runtime->plugins.get());
+    const OwnerId core = g_runtime->plugins->core_owner();
     if (const ChangeStatus s = g_runtime->changes->replace_import(core, exe, "KERNEL32.dll", "ExitProcess",
                                                                   reinterpret_cast<void*>(&exit_process), &g_exit_next);
         s != ChangeStatus::Ok) {
@@ -809,8 +681,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
     sources.anvil_dir = g_runtime->anvil_dir;
     sources.anvil_version = kAnvilVersion;
     sources.game_build = game.build_id;
-    sources.plugins = &g_runtime->plugins;
-    sources.skipped = &g_runtime->skipped;
+    sources.plugins = g_runtime->plugins.get();
     sources.policy = g_runtime->policy.get();
     sources.disabled = settings.disabled_plugins;
     sources.safe_mode = record.safe_mode;
@@ -829,8 +700,9 @@ void startup_impl(const std::filesystem::path& game_dir) {
         return t.translation;
     };
     if (player_language != "en") {
-        for (const auto& p : g_runtime->plugins) {
-            if (auto t = translation(p->manifest.folder, p->manifest.id)) sources.translations.emplace(p->manifest.id, std::move(*t));
+        for (size_t i = 0; i < g_runtime->plugins->resolved_count(); ++i) {
+            const Manifest& m = g_runtime->plugins->at(i).manifest();
+            if (auto t = translation(m.folder, m.id)) sources.translations.emplace(m.id, std::move(*t));
         }
         for (uint32_t i = 0; i < g_runtime->mods.plugins.size(); ++i) {
             const ModPlugin& p = g_runtime->mods.plugins[i];
@@ -846,7 +718,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
     // anvil.benchmark: plugins declare their fields inside anvil_plugin_load,
     // so it is there before any plugin loads too.
     g_runtime->benchmark = std::make_unique<Benchmark>(arm.has_value(), [](const AnvilPlugin& plugin, const std::string& message) {
-        Log::instance().write(ANVIL_LOG_WARNING, plugin.manifest.id, message);
+        Log::instance().write(ANVIL_LOG_WARNING, plugin.name, message);
     });
     if (g_runtime->bus.register_service("anvil", ANVIL_BENCHMARK_SERVICE, ANVIL_BENCHMARK_SERVICE_VERSION,
                                         g_runtime->benchmark->service()) != ANVIL_OK) {
@@ -854,9 +726,7 @@ void startup_impl(const std::filesystem::path& game_dir) {
     }
 
     // Early plugins: here, before the game's runtime starts.
-    for (auto& p : g_runtime->plugins) {
-        if (p->manifest.phase == Phase::Early) load_plugin(*p);
-    }
+    load_phase(Phase::Early);
     log_info("early phase done at " + fmt_ms(elapsed_ms()));
 
     if (HANDLE t = CreateThread(nullptr, 0, main_phase, nullptr, 0, nullptr)) {
@@ -878,21 +748,21 @@ void write_call_counts() {
                                        " counted change(s)")) {
         return;
     }
-    const auto& plugins = g_runtime->plugins;
     for (const CallCount& c : counts) {
-        const std::string& id = c.owner < plugins.size() ? plugins[c.owner]->manifest.id : std::string("?");
-        if (!Log::instance().try_write(ANVIL_LOG_INFO, id, "calls: " + describe_call_count(c))) return;
+        // Under the plugin, or the module, whose change it is.
+        const AnvilPlugin* h = g_runtime->plugins ? g_runtime->plugins->handle_of(c.owner) : nullptr;
+        if (!Log::instance().try_write(ANVIL_LOG_INFO, h != nullptr ? h->name : std::string("?"), "calls: " + describe_call_count(c))) {
+            return;
+        }
     }
 }
 
 }  // namespace
 
 PluginSettings* plugin_settings(std::string_view plugin_id) {
-    if (g_runtime == nullptr) return nullptr;
-    for (const auto& p : g_runtime->plugins) {
-        if (p->manifest.id == plugin_id) return &p->settings;
-    }
-    return nullptr;
+    if (g_runtime == nullptr || !g_runtime->plugins) return nullptr;
+    const PluginRecord* p = g_runtime->plugins->find(plugin_id);
+    return p != nullptr && p->handle() != nullptr ? &p->settings() : nullptr;
 }
 
 void shutdown() {

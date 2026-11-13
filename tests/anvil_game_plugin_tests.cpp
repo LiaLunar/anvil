@@ -6,15 +6,8 @@
 // session tracker and the work queue on their own.
 // Usage: anvil_game_plugin_tests <folder with one folder per plugin>
 #include "core/benchmark.hpp"
-#include "core/changes.hpp"
-#include "core/gameplay_policy.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/plugin_symbols.hpp"
-#include "core/services.hpp"
-#include "core/symbol_check.hpp"
 #include "control/anvil_control.h"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-game/src/commands.hpp"
 #include "../plugins/anvil-game/src/session.hpp"
@@ -1674,32 +1667,19 @@ int main(int argc, char** argv) {
         CHECK(poster.post(game, self, &v1, &out) == ANVIL_OK && out.posted == 1);
     });
 
-    // As in the game, the image, the host and the policy outlive the plugin.
+    // As in the game, the image, the host and the policy outlive the plugin
+    // (the DLL's handles use them while it detaches).
     FakeEu4& image = *new FakeEu4;
     GameObjects& game = *new GameObjects;
-    ChangeRegistry& changes = *new ChangeRegistry(image.address(0), FakeEu4::kSize);
-    ServiceBus& bus = *new ServiceBus;
-    std::vector<std::string>& log = *new std::vector<std::string>;
-    HostContext& context = *new HostContext;
-    context.changes = &changes;
-    context.bus = &bus;
-    context.image = GetModuleHandleW(nullptr);
-    context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-        log.push_back(p.manifest.id + ": " + std::string(message));
-    };
-    AnvilGameInfo& info = *new AnvilGameInfo{};
-    info.size = sizeof(info);
-    info.build_id = kBuild;
-    info.image_base = image.address(0);
-    info.image_size = FakeEu4::kSize;
-    const AnvilHost& host = *new AnvilHost(make_host(&info));  // the DLL's handles use it while it detaches
-    GameplayPolicy& policy = *new GameplayPolicy(changes, bus, {}, [&log](AnvilLogLevel, const std::string& id, const std::string& m) {
-        log.push_back(id + ": " + m);
-    });
-    policy.subscribe();
+    TestStart& start = *new TestStart(image.address(0), FakeEu4::kSize, kBuild);
+    ChangeRegistry& changes = start.changes;
+    ServiceBus& bus = start.bus;
+    std::vector<std::string>& log = start.log;
+    const AnvilHost& host = start.host;
+    GameplayPolicy& policy = start.policy;
     // A benchmark start, as the core registers it before any plugin loads.
     Benchmark& bench = *new Benchmark(true, [&log](const AnvilPlugin& p, const std::string& m) {
-        log.push_back(p.manifest.id + ": " + m);
+        log.push_back(p.name + ": " + m);
     });
     bus.register_service("anvil", ANVIL_BENCHMARK_SERVICE, ANVIL_BENCHMARK_SERVICE_VERSION, bench.service());
     Heard& heard = *new Heard;
@@ -1742,26 +1722,20 @@ int main(int argc, char** argv) {
             }
             std::memcpy(image.base + *s.rva, s.bytes.data(), s.bytes.size());
         }
-        SymbolVerification verified;
-        SymbolFile declared;
-        const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
-                                                                          image.address(0), &verified, &declared));
-        if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 163);
-        if (!reason.empty()) return;
-        auto* p = new AnvilPlugin;
-        p->context = &context;
-        p->manifest = *parsed.manifest;
-        p->symbols = PluginSymbols(declared, verified, image.address(0));
-        p->owner = changes.add_owner(p->manifest.id);
-        p->plugin_dir = dir.wstring();
-        p->module = LoadLibraryExW((dir / p->manifest.entry).c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(p->module != nullptr);
-        if (p->module == nullptr) return;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
-        const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 2 && changes.count(p->owner) == 2);
+        // Its symbols verify as the start checks them; after it in load order,
+        // a plugin that affects gameplay (one byte patch, below, as the policy
+        // sees it) and one that tries to publish anvil-game's events.
+        CHECK(start.add(dir) != nullptr);
+        std::string gp_toml = plugin_toml("gp");
+        gp_toml.replace(gp_toml.find("affects_gameplay = false"), 24, "affects_gameplay = true");
+        start.add(gp_toml);
+        start.add(plugin_toml("other"));
+        start.make();
+        CHECK(start.plugin(ANVIL_GAME_ID).symbols().size() == 163);
+        AnvilPlugin* p = start.load(ANVIL_GAME_ID);
+        CHECK(p != nullptr);
+        if (p == nullptr) return;
+        CHECK(changes.count(p->owner) == 2);
         CHECK(changes.chain_at(image.address(0x14C25A0)) == std::vector<OwnerId>{p->owner});
         CHECK(changes.chain_at(image.address(0x756A30)) == std::vector<OwnerId>{p->owner});
         plugin = p;
@@ -1832,14 +1806,11 @@ int main(int argc, char** argv) {
     });
 
     // A plugin that affects gameplay, with one byte patch, as the policy sees it.
-    const OwnerId gp = changes.add_owner("gp");
+    const OwnerId gp = start.handle("gp")->owner;
     {
         const uint8_t patch[1] = {0x90};
         const ChangeTarget target{image.address(0x205000), true, nullptr, nullptr, 0};
         CHECK(changes.patch_bytes(gp, target, patch, 1) == ChangeStatus::Ok);
-        std::string toml = plugin_toml("gp");
-        toml.replace(toml.find("affects_gameplay = false"), 24, "affects_gameplay = true");
-        policy.add(manifest(toml), gp);
     }
 
     run("anvil-game: sessions from the game root; the policy suspends in ironman and multiplayer", [&] {
@@ -2120,9 +2091,7 @@ int main(int argc, char** argv) {
     });
 
     run("anvil-game: only anvil-game publishes its events", [&] {
-        AnvilPlugin other;
-        other.context = &context;
-        other.manifest = manifest(plugin_toml("other"));
+        AnvilPlugin& other = *start.handle("other");
         AnvilGameSession forged{};
         forged.size = sizeof(forged);
         forged.change = ANVIL_GAME_SESSION_STARTED;

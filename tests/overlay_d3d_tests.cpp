@@ -8,13 +8,8 @@
 // stand-in of anvil-game's service. Without a Direct3D 9 device (some CI
 // machines) it reports that and passes.
 // Usage: anvil_overlay_d3d_tests <folder with one folder per plugin>
-#include "core/changes.hpp"
 #include "core/control.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/services.hpp"
-#include "core/settings.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include <anvil/anvil_game.h>
 #include <anvil/anvil_input.h>
@@ -225,64 +220,39 @@ int main(int argc, char** argv) {
     HMODULE self = GetModuleHandleW(nullptr);
     const auto* nt = reinterpret_cast<const IMAGE_NT_HEADERS64*>(
         reinterpret_cast<const uint8_t*>(self) + reinterpret_cast<const IMAGE_DOS_HEADER*>(self)->e_lfanew);
-    ChangeRegistry& changes = *new ChangeRegistry(reinterpret_cast<uintptr_t>(self), nt->OptionalHeader.SizeOfImage);
-    ServiceBus& bus = *new ServiceBus;
-    std::vector<std::string>& log = *new std::vector<std::string>;
-    HostContext& context = *new HostContext;
-    context.changes = &changes;
-    context.bus = &bus;
-    context.image = self;
-    context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-        log.push_back(p.manifest.id + ": " + std::string(message));
-        std::printf("    %s: %.*s\n", p.manifest.id.c_str(), static_cast<int>(message.size()), message.data());
+    TestStart& start = *new TestStart(reinterpret_cast<uintptr_t>(self), nt->OptionalHeader.SizeOfImage);
+    ChangeRegistry& changes = start.changes;
+    ServiceBus& bus = start.bus;
+    std::vector<std::string>& log = start.log;
+    start.context.image = self;
+    start.context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
+        log.push_back(p.name + ": " + std::string(message));
+        std::printf("    %s: %.*s\n", p.name.c_str(), static_cast<int>(message.size()), message.data());
     };
-    AnvilGameInfo& info = *new AnvilGameInfo{};
-    info.size = sizeof(info);
-    const AnvilHost& host = *new AnvilHost(make_host(&info));
-
-    auto& plugins = *new std::vector<std::unique_ptr<AnvilPlugin>>;
-    auto& skipped = *new std::vector<Skipped>{{"tongs", "requires plugin 'anvil-game', which is not loaded", root, false}};
     {
-        const auto parsed = load_manifest(dir);
-        CHECK(parsed.manifest.has_value());
-        if (!parsed.manifest) return 1;
-        auto p = std::make_unique<AnvilPlugin>();
-        p->context = &context;
-        p->manifest = *parsed.manifest;
-        p->owner = changes.add_owner(p->manifest.id);
-        p->plugin_dir = dir.wstring();
-        p->data_dir = (root / "anvil" / "data" / "anvil-overlay").wstring();
-        auto schema = load_settings(dir / p->manifest.settings);
-        CHECK(schema.file.has_value());
-        if (!schema.file) return 1;
-        p->settings.init(std::move(*schema.file), fs::path(p->data_dir) / "settings.toml", p->manifest.id,
-                         [](const std::string&) { return std::optional<std::string>(); });
-        plugins.push_back(std::move(p));
+        anvil::ResolvedPlugin* overlay = start.add(dir);
+        if (overlay == nullptr) return 1;
+        overlay->data_dir = root / "anvil" / "data" / "anvil-overlay";
+        start.skip({"tongs", "requires plugin 'anvil-game', which is not loaded", root, false});
+        start.make();
     }
     ControlSources sources;
     sources.anvil_dir = root / "anvil";
     sources.anvil_version = "test";
-    sources.plugins = &plugins;
-    sources.skipped = &skipped;
+    sources.plugins = &start.set();
     Control& control = *new Control(sources);
     bus.register_service("anvil", ANVIL_CONTROL_SERVICE, ANVIL_CONTROL_VERSION, control.service());
     bus.register_service(ANVIL_GAME_ID, ANVIL_GAME_SERVICE, ANVIL_GAME_SERVICE_VERSION, &kFakeGame);
 
-    AnvilPlugin& overlay = *plugins.front();
+    AnvilPlugin& overlay = *start.handle("anvil-overlay");
     run("overlay: loads early and hooks Direct3DCreate9(Ex)", [&] {
-        overlay.module = LoadLibraryExW((dir / overlay.manifest.entry).c_str(), nullptr,
-                                        LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(overlay.module != nullptr);
-        if (overlay.module == nullptr) return;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(overlay.module, "anvil_plugin_load"));
-        const LoadOutcome outcome = run_plugin_load(overlay, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 4 && changes.count(overlay.owner) == 4);
-        overlay.state = outcome.result == ANVIL_OK ? "loaded" : "failed";
+        start.set().load(anvil::Phase::Early);
+        CHECK(start.loaded("anvil-overlay") && changes.count(overlay.owner) == 4);
         CHECK(contains(log, "Direct3DCreate9(Ex) hooked; panel key Ctrl+Shift+F12"));
         control.loading_done();
         bus.publish(ANVIL_GAME_EVENT_READY, nullptr);
     });
-    if (overlay.state != "loaded") {
+    if (!start.loaded("anvil-overlay")) {
         std::printf("%d checks, %d failed\n", g_checks, g_failures);
         return 1;
     }

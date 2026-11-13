@@ -6,13 +6,7 @@
 // and jump to stand-ins; CEffect's vtable lies in .rdata. A stand-in of
 // anvil.control answers who a plugin is.
 // Usage: anvil_script_tests <folder with one folder per plugin>
-#include "core/changes.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/plugin_symbols.hpp"
-#include "core/services.hpp"
-#include "core/symbol_check.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-script/src/day_end.hpp"
 #include "../plugins/anvil-script/src/dlc_gate.hpp"
@@ -592,22 +586,11 @@ int main(int argc, char** argv) {
 
     // As in the game, the image and the host outlive the plugin.
     FakeEu4& image = *new FakeEu4;
-    ChangeRegistry& changes = *new ChangeRegistry(image.address(0), FakeEu4::kSize);
-    ServiceBus& bus = *new ServiceBus;
-    std::vector<std::string>& log = *new std::vector<std::string>;
-    HostContext& context = *new HostContext;
-    context.changes = &changes;
-    context.bus = &bus;
-    context.image = GetModuleHandleW(nullptr);
-    context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-        log.push_back(p.manifest.id + ": " + std::string(message));
-    };
-    AnvilGameInfo& info = *new AnvilGameInfo{};
-    info.size = sizeof(info);
-    info.build_id = kBuild;
-    info.image_base = image.address(0);
-    info.image_size = FakeEu4::kSize;
-    const AnvilHost& host = *new AnvilHost(make_host(&info));
+    TestStart& start = *new TestStart(image.address(0), FakeEu4::kSize, kBuild);
+    ChangeRegistry& changes = start.changes;
+    ServiceBus& bus = start.bus;
+    std::vector<std::string>& log = start.log;
+    const AnvilHost& host = start.host;
     AnvilControlService& control = *new AnvilControlService{};
     control.size = sizeof(control);
     control.plugin_of = control_plugin_of;
@@ -621,26 +604,16 @@ int main(int argc, char** argv) {
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest && parsed.manifest->phase == Phase::Early && !parsed.manifest->affects_gameplay);
         if (!parsed.manifest) return;
-        SymbolVerification verified;
-        SymbolFile declared;
-        const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
-                                                                          image.address(0), &verified, &declared));
-        if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 15);
-        if (!reason.empty()) return;
-        auto* p = new AnvilPlugin;
-        p->context = &context;
-        p->manifest = *parsed.manifest;
-        p->symbols = PluginSymbols(declared, verified, image.address(0));
-        p->owner = changes.add_owner(p->manifest.id);
-        p->plugin_dir = dir.wstring();
-        p->module = LoadLibraryExW((dir / p->manifest.entry).c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(p->module != nullptr);
-        if (p->module == nullptr) return;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
-        const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 3 && changes.count(p->owner) == 3);
+        anvil::ResolvedPlugin* resolved = start.add(dir);
+        CHECK(resolved != nullptr && resolved->symbols.size() == 15);
+        if (resolved == nullptr) return;
+        // After it, a stand-in for anvil-game: never loaded, it publishes the
+        // session events through its handle below.
+        start.add(plugin_toml("anvil-game"));
+        start.make();
+        AnvilPlugin* p = start.load("anvil-script");
+        CHECK(p != nullptr && changes.count(p->owner) == 3);
+        if (p == nullptr) return;
         plugin = p;
     });
     if (plugin == nullptr) {
@@ -876,9 +849,7 @@ int main(int argc, char** argv) {
 
     // has_dlc: anvil-game's session event decides; the game's own names stay the game's.
     auto* assign = reinterpret_cast<bool (*)(void*, const void*)>(image.address(0xCC5BA0));
-    AnvilPlugin& game_plugin = *new AnvilPlugin;
-    game_plugin.context = &context;
-    game_plugin.manifest = manifest(plugin_toml("anvil-game"));
+    AnvilPlugin& game_plugin = *start.handle("anvil-game");
     const auto session = [&](std::uint32_t change, std::uint32_t multiplayer) {
         AnvilGameSession s{};
         s.size = sizeof(s);

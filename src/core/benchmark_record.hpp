@@ -1,6 +1,7 @@
 #pragma once
 
 #include "benchmark.hpp"
+#include "outcome.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -9,6 +10,8 @@
 #include <vector>
 
 namespace anvil {
+
+class PluginSet;
 
 // ---- labels of a cold start (docs/spec/benchmark-v1.md §3) ----------------------
 
@@ -39,7 +42,7 @@ std::optional<uint64_t> newest_definitions_update();
 struct BenchmarkRecordPlugin {
     std::string id;
     std::string version;      // "" when skipped or disabled
-    std::string state;        // "loaded" | "disabled" | "skipped" | "failed" | "pending"
+    std::optional<Outcome::Kind> outcome;  // none yet: "pending"
     bool disabled_by_arm = false;  // disabled: by the arm, not by the player
     std::string skip_reason;  // skipped: skip_kind_name()
     std::optional<BenchmarkParticipant> participant;
@@ -64,6 +67,11 @@ struct BenchmarkRecord {
     std::optional<bool> definitions_changed;     // since the previous start; nullopt: unknown
     std::optional<bool> input_during_start;      // keyboard or mouse between the entry point and ready
 };
+
+// The record's plugins: every plugin of the set, in its order (the ones to
+// load in load order, then the skipped and disabled ones), with the fields of
+// the participants that declared them joined to their plugins.
+std::vector<BenchmarkRecordPlugin> record_plugins(const PluginSet& plugins, std::vector<BenchmarkParticipant> participants);
 
 // The record as UTF-8 JSON, one document. Times to ready are also given in
 // ms (creation -> entry, entry -> ready, creation -> ready).

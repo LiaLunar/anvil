@@ -6,14 +6,7 @@
 // classes' vtables in .rdata. Stand-ins of anvil-game.game and
 // anvil-overlay.panel carry the events and the clicks.
 // Usage: anvil_script_profiler_tests <folder with one folder per plugin> -userdir=<folder for the CSV files>
-#include "core/changes.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/plugin_symbols.hpp"
-#include "core/services.hpp"
-#include "core/settings.hpp"
-#include "core/symbol_check.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-script-profiler/src/owners.hpp"
 #include "../plugins/anvil-script-profiler/src/recorder.hpp"
@@ -610,22 +603,11 @@ int main(int argc, char** argv) {
 
     // As in the game, the image and the host outlive the plugin.
     FakeEu4& image = *new FakeEu4;
-    ChangeRegistry& changes = *new ChangeRegistry(image.address(0), FakeEu4::kSize);
-    ServiceBus& bus = *new ServiceBus;
-    std::vector<std::string>& log = *new std::vector<std::string>;
-    HostContext& context = *new HostContext;
-    context.changes = &changes;
-    context.bus = &bus;
-    context.image = GetModuleHandleW(nullptr);
-    context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-        log.push_back(p.manifest.id + ": " + std::string(message));
-    };
-    AnvilGameInfo& info = *new AnvilGameInfo{};
-    info.size = sizeof(info);
-    info.build_id = kBuild;
-    info.image_base = image.address(0);
-    info.image_size = FakeEu4::kSize;
-    const AnvilHost& host = *new AnvilHost(make_host(&info));
+    TestStart& start = *new TestStart(image.address(0), FakeEu4::kSize, kBuild);
+    ChangeRegistry& changes = start.changes;
+    ServiceBus& bus = start.bus;
+    std::vector<std::string>& log = start.log;
+    const AnvilHost& host = start.host;
     AnvilGameService& game = *new AnvilGameService{};
     game.size = sizeof(game);
     game.main_thread_id = fake_main_thread_id;
@@ -648,32 +630,18 @@ int main(int argc, char** argv) {
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest && parsed.manifest->phase == Phase::Main && !parsed.manifest->affects_gameplay);
         if (!parsed.manifest) return;
-        SymbolVerification verified;
-        SymbolFile declared;
-        const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
-                                                                          image.address(0), &verified, &declared));
-        if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 13);
-        if (!reason.empty()) return;
-        auto* p = new AnvilPlugin;
-        p->context = &context;
-        p->manifest = *parsed.manifest;
-        p->symbols = PluginSymbols(declared, verified, image.address(0));
-        p->owner = changes.add_owner(p->manifest.id);
-        p->plugin_dir = dir.wstring();
-        p->data_dir = data.wstring();
-        auto schema = load_settings(dir / p->manifest.settings);
-        CHECK(schema.file.has_value());
-        if (!schema.file) return;
-        p->settings.init(std::move(*schema.file), data / "settings.toml", p->manifest.id,
-                         [](const std::string&) -> std::optional<std::string> { return std::nullopt; });
-        p->module = LoadLibraryExW((dir / p->manifest.entry).c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(p->module != nullptr);
-        if (p->module == nullptr) return;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
-        const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 0 && changes.count(p->owner) == 0);
+        // anvil-game first, as its required dependency: a stand-in that loads
+        // mod-probe and publishes the session events through its handle below.
+        start.add(plugin_toml(ANVIL_GAME_ID, "", "1.0.0", "early"), mod_probe_dir()).manifest.entry = "mod-probe.dll";
+        anvil::ResolvedPlugin* resolved = start.add(dir);
+        CHECK(resolved != nullptr && resolved->symbols.size() == 13);
+        if (resolved == nullptr) return;
+        resolved->data_dir = data;
+        start.make();
+        CHECK(start.load(ANVIL_GAME_ID) != nullptr);
+        AnvilPlugin* p = start.load("anvil-script-profiler");
+        CHECK(p != nullptr && changes.count(p->owner) == 0);
+        if (p == nullptr) return;
         CHECK(g_title == "Script profiler" && g_shown == 0 && g_click != nullptr);
         CHECK(row_labelled("Load a game to measure.") != nullptr && button("Start") == 0);
         CHECK(contains(log, "anvil-script-profiler: idle: no hooks until a profiling span starts in the panel (9 owner "
@@ -686,9 +654,7 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    AnvilPlugin& game_plugin = *new AnvilPlugin;
-    game_plugin.context = &context;
-    game_plugin.manifest = manifest(plugin_toml("anvil-game"));
+    AnvilPlugin& game_plugin = *start.handle(ANVIL_GAME_ID);
     const auto session = [&](std::uint32_t change, std::uint32_t multiplayer) {
         AnvilGameSession s{};
         s.size = sizeof(s);
@@ -782,7 +748,7 @@ int main(int argc, char** argv) {
     });
 
     run("profiler plugin: Measure N days stops by itself; the setting changes N", [&] {
-        CHECK(plugin->settings.set_text(0, "3").applied);
+        CHECK(plugin->record->settings().set_text(0, "3").applied);
         run_work();
         click("Measure 3 days");
         CHECK(changes.count(plugin->owner) == 3 && row_labelled("State") != nullptr &&

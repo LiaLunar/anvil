@@ -2,10 +2,9 @@
 // shows (design §12, §13, §15), its release check (ADR 0005), the panel key,
 // and its client of anvil.control against the core's service on fake plugins.
 #include "core/control.hpp"
-#include "core/host.hpp"
 #include "core/mod_plugins.hpp"
 #include "core/settings.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-overlay/src/control_client.hpp"
 #include "../plugins/anvil-overlay/src/input.hpp"
@@ -646,26 +645,23 @@ int main() {
         std::error_code ignored;
         fs::remove_all(dir, ignored);
         fs::create_directories(dir / "anvil");
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        auto p = std::make_unique<AnvilPlugin>();
-        p->manifest = manifest(plugin_toml("anvil-overlay", "", "1.0.0", "early"));
-        p->state = "loaded";
+        // The plugin set of a start: the overlay with one setting (its load is
+        // not what this test is about), and two skipped plugins.
+        TestStart start;
+        anvil::ResolvedPlugin& overlay = start.add(plugin_toml("anvil-overlay", "", "1.0.0", "early"));
         auto schema = anvil::parse_settings_text(
             "[setting.mode]\ntype = \"enum\"\nvalues = [{ name = \"off\", label = \"Off\" }, { name = \"on\" }]\n"
             "default = \"on\"\nlabel = \"Mode\"\nrestart = false\n");
         CHECK(schema.file.has_value());
-        p->settings.init(std::move(*schema.file), dir / "anvil" / "data" / "anvil-overlay" / "settings.toml",
-                         "anvil-overlay", [](const std::string&) { return std::optional<std::string>(); });
-        plugins.push_back(std::move(p));
-        std::vector<anvil::Skipped> skipped{{"tongs", "safe mode", dir / "tongs", false},
-                                            anvil::skipped_for("bellows", anvil::i18n::Message("requires_missing", {"tongs", "*"}),
-                                                               dir / "bellows")};
+        overlay.settings = std::move(*schema.file);
+        overlay.data_dir = dir / "anvil" / "data" / "anvil-overlay";
+        start.skip({"tongs", "safe mode", dir / "tongs", false});
+        start.skip(anvil::skipped_for("bellows", anvil::i18n::Message("requires_missing", {"tongs", "*"}), dir / "bellows"));
         anvil::ControlSources sources;
         sources.anvil_dir = dir / "anvil";
         sources.anvil_version = "1.1.0";
         sources.language = "de";
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
+        sources.plugins = &start.make();
         anvil::Control control(sources);
         control.loading_done();
         ControlClient client(control.service());
@@ -714,12 +710,8 @@ int main() {
         write(user / "mod" / "m.mod", "name=\"M\"\npath=\"mod/m\"\n");
         write(user / "dlc_load.json", "{\"enabled_mods\":[\"mod/m.mod\"]}");
         const anvil::ModDiscovery mods = anvil::discover_mod_plugins(anvil, user, {});
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        std::vector<anvil::Skipped> skipped;
         anvil::ControlSources sources;
         sources.anvil_dir = anvil;
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
         sources.mods = &mods;
         anvil::Control control(sources);
         control.loading_done();

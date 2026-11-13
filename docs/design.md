@@ -349,7 +349,7 @@ Every call that touches `eu4.exe` takes a declared symbol, never a raw RVA. Raw 
 ### 8.2 Chains
 
 - Anvil owns one SafetyHook hook per address and chains the plugins itself.
-- Order follows the load order (dependencies, `load_after`): the earlier plugin is outermost. There are no priorities.
+- Order follows the load order (dependencies, `load_after`): the earlier plugin is outermost. There are no priorities. A plugin's modules that are on (§5.1) come right after it, in `plugin.toml` order, and the core's own changes (its import replacement of `ExitProcess`) are innermost. The plugin set gives the owners in that order before any plugin's code runs (§8.4).
 - Every link has its own `next`. Redirects and pointer swaps chain with `next` being the previous target or value; a pointer swap's `previous` follows the chain as §8.1 describes.
 - Links can be removed in any order. Executable memory (stubs, trampolines) is never freed.
 - At one address, mid hooks run first, then a block replacement or the function-hook chain or the redirected call.
@@ -363,6 +363,7 @@ Every call that touches `eu4.exe` takes a declared symbol, never a raw RVA. Raw 
 
 ### 8.4 Staging, handles, suspension
 
+- **The plugin set** (`src/core/plugin_set.hpp`, GLOSSARY) holds every plugin Anvil found at this start: the ones to load in load order, then the skipped and disabled ones. For each plugin to load it makes, before any plugin's code runs, a record (its `plugin.toml`, verified symbols, settings, folders, approved hash) and its handles: one for the plugin and one for each module that is on (a module that is off has none). A handle is the `self` a plugin passes; the core names, counts and suspends changes by it, and each has its own owner in the change registry and its own entry in the gameplay policy (§13). From then on the set does not change; only each plugin's outcome (loaded, failed, skipped, disabled) and its DLL are set as it loads. The rest of the core (the host table, `anvil.control`, the crash report, the benchmark's start record, the log's summary) reads the set.
 - Changes requested during `anvil_plugin_load` are staged and enabled together after it returns `ANVIL_OK`; on failure none are enabled.
 - Later changes are atomic one by one or as an explicit group.
 - Every change returns a handle and can be removed. A failed load rolls back everything the plugin had.
@@ -444,7 +445,7 @@ The C ABI is [`include/anvil/anvil_plugin.h`](../include/anvil/anvil_plugin.h) (
    - When only cycles are left, the smallest id (byte order) is skipped and the rest is resolved again. Two plugins that conflict with each other leave the one with the larger id; in `a -> b -> c -> a`, `a` is skipped, then `b` because of `c`, and `c` loads.
    - A conflict with a plugin that is absent, disabled, rejected by the API, `anvil` or symbols checks, or outside the version range is ignored.
    - A candidate that is skipped later, because its own dependency is missing or in a cycle, still counts as a conflict target: conflicts are resolved before dependencies.
-7. `early` plugins are loaded at the entry point, then `main` plugins on an Anvil thread. Each plugin's staged changes are enabled when its load returns. A plugin whose required dependency failed to load is not loaded either ("requires plugin '<id>', which failed to load").
+7. The plugin set is made from what steps 5 and 6 found (§8.4). `early` plugins are loaded at the entry point, then `main` plugins on an Anvil thread. Each plugin's staged changes are enabled when its load returns. A plugin whose required dependency failed to load is not loaded either ("requires plugin '<id>', which failed to load"). Every way a load fails (that dependency, a changed approved copy, a DLL that does not load or has no `anvil_plugin_load`, a load that fails) gives the plugin the outcome failed with its reason and one line in the log, rolls back its changes and takes its handles out of the gameplay policy; a module shares its plugin's outcome.
 8. `anvil.plugins_loaded` is published and the status is recorded.
 
 ## 11. Settings
@@ -490,6 +491,8 @@ Decided in [Crash attribution to plugins](https://github.com/happy-dwarf-team/an
   - the registers, the plugins with versions and `issues` links, the build, the earlier fatal-looking exceptions of the VEH, and the tail of the log.
 - **Levels:** "in plugin X's code", "in plugin X's change", "plugin X on the stack", or "no plugin involved". Never "X caused it".
   - In X's code: the crash address is in X's DLL. In X's change: it is in game bytes, a stub or a trampoline of X's change (every owner of a shared one). On the stack: a later frame is in X's DLL or change. The JSON has the level as `in_plugin_code`, `in_plugin_change`, `plugin_on_stack` or `no_plugin`.
+  - A change belongs to the handle that requested it (§8.4). For a module's change (ADR 0011) the verdict and `plugins_involved` still name the plugin, and the report names the module beside it: `modules_involved` (`<plugin>.<module>`), `"module"` in the change's entry next to its `"plugin"`, and "Through module … of plugin …" in the text. Safe mode's exclusion and "disable X at the next start" stay per plugin.
+  - The report asks the plugin set (§8.4) which handle owns a change, whose DLL holds an address and which plugin declared a symbol. The set does not change once plugins run, so these answers need no lock and allocate nothing.
 - **Next start:** a notice in the overlay with "disable X at the next start" (only on click), and safe mode after two crashes before the game is ready (`anvil-game.ready`). Nothing is uploaded; "copy report" plus the `issues` link.
 
 ## 13. Gameplay-affecting plugins
@@ -507,7 +510,7 @@ Decided in [Gameplay-affecting plugins in ironman, achievements and multiplayer]
 - **Achievements:** with an ironman opt-in active, the overlay shows a permanent notice that achievements stay enabled but may break Paradox's rules.
 - **Multiplayer:** the overlay shows a hash of the active gameplay plugin set for players to compare by hand.
 - **Without `anvil-game`** nothing would report sessions, so gameplay plugins depend on it implicitly (§10): they are skipped when it is missing, disabled or skipped, and not loaded when it fails to load.
-- **Modules** ([ADR 0011](adr/0011-plugin-modules.md)). Each module of §5.1 is an owner of its own: the policy holds an entry for the plugin's handle and one for each module that is on at this start, and suspends each by its own flags; `anvil.suspended` reaches what that handle subscribed. The player lists a module as `<plugin>.<module>` in `allow_ironman` and `allow_multiplayer`, and chooses modules for the next start with `enabled_modules` (one whose `default` is `false`) and `disabled_modules`, which wins; `module()` answers `ANVIL_ERROR_DISABLED` for a module that is off, so its code never runs. The hash has a line `<plugin>.<module> <version>` for each module that affects gameplay and acts in the session. `anvil.control`'s `plugin_of` answers for a module's handle with the module's key, flags and state, so `anvil-game.commands` and `anvil-script` gate the module. A plugin depends on `anvil-game` implicitly when it or any module affects gameplay.
+- **Modules** ([ADR 0011](adr/0011-plugin-modules.md)). Each module of §5.1 that is on has a handle and an owner of its own: the plugin set (§8.4) gives the policy an entry for the plugin's handle and one for each module that is on at this start, and the policy suspends each by its own flags; `anvil.suspended` reaches what that handle subscribed. The player lists a module as `<plugin>.<module>` in `allow_ironman` and `allow_multiplayer`, and chooses modules for the next start with `enabled_modules` (one whose `default` is `false`) and `disabled_modules`, which wins; `module()` answers `ANVIL_ERROR_DISABLED` for a module that is off, so its code never runs. The hash has a line `<plugin>.<module> <version>` for each module that affects gameplay and acts in the session. `anvil.control`'s `plugin_of` answers for a module's handle with the module's key, flags and state, so `anvil-game.commands` and `anvil-script` gate the module. A plugin depends on `anvil-game` implicitly when it or any module affects gameplay.
 
 **How the core applies it** (`src/core/gameplay_policy.cpp`):
 - The core subscribes to `anvil-game.session` before any plugin loads, so it acts before plugins hear of a session. Only `anvil-game` can publish that name (§9).

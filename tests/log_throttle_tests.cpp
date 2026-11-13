@@ -4,14 +4,7 @@
 // the declared bytes of symbols.toml at their RVAs); lines written through
 // that vtable reach a stand-in of the game's writer as the plugin decides.
 // Usage: anvil_log_throttle_tests <folder with one folder per plugin>
-#include "core/changes.hpp"
-#include "core/host.hpp"
-#include "core/manifest.hpp"
-#include "core/plugin_symbols.hpp"
-#include "core/services.hpp"
-#include "core/settings.hpp"
-#include "core/symbol_check.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include "../plugins/anvil-log-throttle/src/errors_model.hpp"
 #include "../plugins/anvil-log-throttle/src/playset.hpp"
@@ -663,22 +656,10 @@ int main(int argc, char** argv) {
 
     // As in the game, the image and the host outlive the plugin.
     FakeEu4& image = *new FakeEu4;
-    ChangeRegistry& changes = *new ChangeRegistry(image.address(0), FakeEu4::kSize);
-    ServiceBus& bus = *new ServiceBus;
-    std::vector<std::string>& log = *new std::vector<std::string>;
-    HostContext& context = *new HostContext;
-    context.changes = &changes;
-    context.bus = &bus;
-    context.image = GetModuleHandleW(nullptr);
-    context.log = [&log](const AnvilPlugin& p, AnvilLogLevel, std::string_view message) {
-        log.push_back(p.manifest.id + ": " + std::string(message));
-    };
-    AnvilGameInfo& info = *new AnvilGameInfo{};
-    info.size = sizeof(info);
-    info.build_id = kBuild;
-    info.image_base = image.address(0);
-    info.image_size = FakeEu4::kSize;
-    const AnvilHost& host = *new AnvilHost(make_host(&info));
+    TestStart& start = *new TestStart(image.address(0), FakeEu4::kSize, kBuild);
+    ChangeRegistry& changes = start.changes;
+    ServiceBus& bus = start.bus;
+    std::vector<std::string>& log = start.log;
     const fs::path data = fs::temp_directory_path() / ("anvil-log-throttle-tests-" + std::to_string(GetCurrentProcessId()));
     AnvilPlugin* plugin = nullptr;
 
@@ -687,36 +668,19 @@ int main(int argc, char** argv) {
         const auto parsed = load_manifest(dir);
         CHECK(parsed.manifest && parsed.manifest->phase == Phase::Early && !parsed.manifest->affects_gameplay);
         if (!parsed.manifest) return;
-        SymbolVerification verified;
-        SymbolFile declared;
-        const std::string reason = anvil::i18n::english(check_plugin_symbols(dir / parsed.manifest->symbols, kBuild, changes,
-                                                                          image.address(0), &verified, &declared));
-        if (!reason.empty()) std::printf("  %s\n", reason.c_str());
-        CHECK(reason.empty() && verified.symbols.size() == 3);
-        if (!reason.empty()) return;
-        auto* p = new AnvilPlugin;
-        p->context = &context;
-        p->manifest = *parsed.manifest;
-        p->symbols = PluginSymbols(declared, verified, image.address(0));
-        p->owner = changes.add_owner(p->manifest.id);
-        p->plugin_dir = dir.wstring();
-        p->data_dir = data.wstring();
-        auto schema = load_settings(dir / p->manifest.settings);
-        CHECK(schema.file.has_value());
-        if (!schema.file) return;
+        anvil::ResolvedPlugin* resolved = start.add(dir);
+        CHECK(resolved != nullptr && resolved->symbols.size() == 3);
+        if (resolved == nullptr) return;
+        resolved->data_dir = data;
         // Three lines per message, as an environment override.
-        p->settings.init(std::move(*schema.file), data / "settings.toml", p->manifest.id,
-                         [](const std::string& name) -> std::optional<std::string> {
-                             if (name == "ANVIL_ANVIL_LOG_THROTTLE_REPEATS") return "3";
-                             return std::nullopt;
-                         });
-        p->module = LoadLibraryExW((dir / p->manifest.entry).c_str(), nullptr,
-                                   LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
-        CHECK(p->module != nullptr);
-        if (p->module == nullptr) return;
-        const auto fn = reinterpret_cast<PluginLoadFn>(GetProcAddress(p->module, "anvil_plugin_load"));
-        const LoadOutcome outcome = run_plugin_load(*p, host, fn);
-        CHECK(outcome.result == ANVIL_OK && outcome.staged == 2 && changes.count(p->owner) == 2);
+        start.environment = [](const std::string& name) -> std::optional<std::string> {
+            if (name == "ANVIL_ANVIL_LOG_THROTTLE_REPEATS") return "3";
+            return std::nullopt;
+        };
+        start.make();
+        AnvilPlugin* p = start.load("anvil-log-throttle");
+        CHECK(p != nullptr && changes.count(p->owner) == 2);
+        if (p == nullptr) return;
         auto* const* slots = static_cast<void* const*>(image.vtable());
         CHECK(reinterpret_cast<uintptr_t>(slots[0]) != image.address(0x1562B90) &&
               reinterpret_cast<uintptr_t>(slots[1]) != image.address(0x1562BE0));
@@ -776,10 +740,10 @@ int main(int argc, char** argv) {
 
     run("log throttle plugin: full_log writes every line", [&] {
         g_written.clear();
-        CHECK(plugin->settings.set_text(0, "true").applied);
+        CHECK(plugin->record->settings().set_text(0, "true").applied);
         for (int i = 0; i < 4; ++i) write(error_log, spam);
         CHECK(g_written.size() == 4);
-        CHECK(plugin->settings.set_text(0, "false").applied);
+        CHECK(plugin->record->settings().set_text(0, "false").applied);
         g_written.clear();
         write(error_log, spam);
         CHECK(g_written.empty());
@@ -801,7 +765,7 @@ int main(int argc, char** argv) {
     });
 
     run("log throttle plugin: a count is reported when it is due", [&] {
-        CHECK(plugin->settings.set_text(2, "1").applied);
+        CHECK(plugin->record->settings().set_text(2, "1").applied);
         Sink& fresh = *new Sink(image, "logs/error.log");
         g_written.clear();
         for (int i = 0; i < 6; ++i) write(fresh, spam);
@@ -825,7 +789,7 @@ int main(int argc, char** argv) {
         small.size = 8;
         CHECK(svc->totals(&small) == ANVIL_ERROR_INVALID_ARGUMENT && svc->totals(nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
         CHECK(svc->keep() == ANVIL_OK);
-        CHECK(plugin->settings.set_text(2, "60").applied);
+        CHECK(plugin->record->settings().set_text(2, "60").applied);
         Sink& log2 = *new Sink(image, "logs/error.log");
         g_written.clear();
         for (int i = 0; i < 25; ++i) write(log2, spam);

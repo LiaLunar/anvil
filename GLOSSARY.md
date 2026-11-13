@@ -38,6 +38,22 @@ _Avoid_: catalog (Anvil's own texts have catalogs; the Plugin catalog is the lis
 A part of one plugin that `plugin.toml` declares with its own `affects_gameplay` and opt-ins, and that the player turns on or off by `<plugin>.<module>`; the plugin acts for it through the module's handle, so Anvil suspends it on its own (ADR 0011).
 _Avoid_: feature (the player's word for what a module does), sub-plugin, component
 
+**Start**:
+One run of the game's process with Anvil in it, from the game's entry point to its exit.
+_Avoid_: launch, run, session (a game session is another thing)
+
+**Handle**:
+What a plugin, or one of its modules that is on, acts through: every request it makes of Anvil carries one, and Anvil names, counts and suspends its changes by it.
+_Avoid_: self (the parameter's name), owner (the handle's number in the registry of changes), context
+
+**Plugin set**:
+The plugins Anvil found at one start, in load order, each with its handles and its outcome.
+_Avoid_: plugin list, plugin registry, loaded plugins (some are not)
+
+**Outcome**:
+What became of a plugin at one start: loaded, failed, skipped or disabled, with the reason for a failed or a skipped one. A module has no outcome of its own: it is on or off, and shares its plugin's.
+_Avoid_: state, status, result
+
 **Plugin catalog**:
 The list of the team's plugins that the Manager offers to install, each pinned to one release zip by its size and SHA-256 (`catalog/plugins.json`).
 _Avoid_: store, marketplace, plugin registry

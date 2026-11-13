@@ -7,7 +7,7 @@
 #include "core/host.hpp"
 #include "core/resolver.hpp"
 #include "core/services.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include <anvil/anvil_game.h>
 #include <windows.h>
@@ -267,8 +267,9 @@ void gameplay_tests() {
     });
 
     run("gameplay: modules are suspended by their own flags (ADR 0011)", [] {
-        World w;
-        const Manifest smithy = manifest(plugin_toml("smithy", R"([[modules]]
+        World w;  // its scratch image; the start's registry patches it
+        TestStart start(reinterpret_cast<uintptr_t>(w.base), 0x1000, nullptr, GameplayOptIns{{"smithy.drill_all"}, {}});
+        anvil::ResolvedPlugin& smithy = start.add(plugin_toml("smithy", R"([[modules]]
 id = "ui_fix"
 name = "UI fix"
 affects_gameplay = false
@@ -290,45 +291,39 @@ id = "explore"
 name = "Explore"
 affects_gameplay = true
 default = false
-)"));
-        HostContext context;
-        context.changes = w.changes;
-        context.bus = &w.bus;
-        std::vector<std::string> host_log;
-        context.log = [&](const AnvilPlugin& p, AnvilLogLevel, std::string_view m) {
-            host_log.push_back(p.manifest.id + ": " + std::string(m));
-        };
-        AnvilPlugin plugin;
-        plugin.context = &context;
-        plugin.manifest = smithy;
-        plugin.owner = w.changes->add_owner("smithy");
+)"), L"C:\\plugins\\smithy");
         AnvilSettings player;
         player.disabled_modules = {"smithy.chase", "other.ui_fix"};
-        add_modules(plugin, *w.changes,
-                    [&](const std::string& key, bool by_default) { return module_enabled(player, key, by_default); });
-        CHECK(plugin.modules.size() == 4);
-        if (plugin.modules.size() != 4) return;
-        CHECK(w.changes->owner_name(plugin.modules[1]->owner) == "smithy.drill_all");
-        CHECK(plugin.modules[0]->enabled && plugin.modules[1]->enabled && !plugin.modules[2]->enabled &&
-              !plugin.modules[3]->enabled && plugin.modules[2]->state == "disabled");
+        for (const Module& m : smithy.manifest.modules) {
+            smithy.modules_on.push_back(module_enabled(player, module_key(smithy.manifest, m), m.enabled_by_default));
+        }
+        start.make();
+        AnvilPlugin& plugin = *start.handle("smithy");
+        CHECK(start.plugin("smithy").modules().size() == 4);
+        AnvilPlugin* const ui_handle = start.module("smithy", "smithy.ui_fix");
+        AnvilPlugin* const drill_handle = start.module("smithy", "smithy.drill_all");
+        CHECK(ui_handle != nullptr && drill_handle != nullptr);
+        if (ui_handle == nullptr || drill_handle == nullptr) return;
+        CHECK(start.changes.owner_name(drill_handle->owner) == "smithy.drill_all");
+        // Off at this start: no handle, no owner.
+        CHECK(start.module("smithy", "smithy.chase") == nullptr && start.module("smithy", "smithy.explore") == nullptr);
+        CHECK(start.logged("anvil: smithy.chase: module off at this start (anvil.toml)"));
         player.enabled_modules = {"smithy.explore", "smithy.chase"};
         CHECK(module_enabled(player, "smithy.explore", false) && !module_enabled(player, "smithy.chase", true));
 
         const AnvilHost host = make_host(nullptr);
         CHECK(ANVIL_HOST_HAS(&host, module));
         AnvilPlugin *ui = nullptr, *drill = nullptr, *chase = &plugin, *none = &plugin;
-        CHECK(host.module(&plugin, "ui_fix", &ui) == ANVIL_OK && ui == plugin.modules[0].get());
-        CHECK(host.module(&plugin, "drill_all", &drill) == ANVIL_OK && drill == plugin.modules[1].get());
+        CHECK(host.module(&plugin, "ui_fix", &ui) == ANVIL_OK && ui == ui_handle);
+        CHECK(host.module(&plugin, "drill_all", &drill) == ANVIL_OK && drill == drill_handle);
         CHECK(host.module(&plugin, "chase", &chase) == ANVIL_ERROR_DISABLED && chase == nullptr);
         CHECK(host.module(&plugin, "nope", &none) == ANVIL_ERROR_NOT_DECLARED && none == nullptr);
         CHECK(host.module(drill, "ui_fix", &none) == ANVIL_ERROR_NOT_DECLARED);
         CHECK(host.module(&plugin, "ui_fix", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
-        if (ui == nullptr || drill == nullptr) return;
         // A module shares the plugin's folders and names, and logs under its key.
-        plugin.plugin_dir = L"C:\\plugins\\smithy";
         CHECK(std::wstring(host.plugin_dir(drill)) == L"C:\\plugins\\smithy");
         host.log(drill, ANVIL_LOG_INFO, "hello");
-        CHECK(!host_log.empty() && host_log.back() == "smithy.drill_all: hello");
+        CHECK(!start.log.empty() && start.log.back() == "smithy.drill_all: hello");
         static const uint32_t service[2] = {sizeof(service), 0};  // a table starts with its size
         CHECK(host.register_service(drill, "smithy.api", 1, service) == ANVIL_OK);  // the plugin's name, not the module's
         CHECK(host.publish(drill, "smithy.ready", nullptr) == ANVIL_OK);
@@ -336,13 +331,14 @@ default = false
         CHECK(host.publish(drill, "other.ready", nullptr) == ANVIL_ERROR_INVALID_ARGUMENT);
 
         // One change per handle; each belongs to its owner.
+        ChangeRegistry& changes = start.changes;
         const uint8_t patch[2] = {0x90, 0x90};
         const auto at = [&](size_t offset) {
             return ChangeTarget{reinterpret_cast<uintptr_t>(w.base) + offset, true, nullptr, nullptr, 0};
         };
-        CHECK(w.changes->patch_bytes(plugin.owner, at(0x100), patch, 2) == ChangeStatus::Ok);
-        CHECK(w.changes->patch_bytes(ui->owner, at(0x200), patch, 2) == ChangeStatus::Ok);
-        CHECK(w.changes->patch_bytes(drill->owner, at(0x300), patch, 2) == ChangeStatus::Ok);
+        CHECK(changes.patch_bytes(plugin.owner, at(0x100), patch, 2) == ChangeStatus::Ok);
+        CHECK(changes.patch_bytes(ui->owner, at(0x200), patch, 2) == ChangeStatus::Ok);
+        CHECK(changes.patch_bytes(drill->owner, at(0x300), patch, 2) == ChangeStatus::Ok);
         std::vector<std::string> heard;
         const AnvilEventCallback record = [](const char* event, const void*, void* context) {
             static_cast<std::vector<std::string>*>(context)->push_back(event);
@@ -352,36 +348,41 @@ default = false
         std::vector<std::string> plugin_heard;
         CHECK(host.subscribe(&plugin, ANVIL_EVENT_SUSPENDED, record, &plugin_heard) == ANVIL_OK);
 
-        GameplayPolicy policy(*w.changes, w.bus, GameplayOptIns{{"smithy.drill_all"}, {}}, w.sink());
-        policy.subscribe();
-        policy.add(plugin.manifest, plugin.owner);
-        for (const auto& m : plugin.modules) {
-            if (m->enabled) policy.add(m->manifest, m->owner);
-        }
+        // The set gave the policy the plugin and its modules that are on.
+        const auto session = [&](uint32_t change, bool ironman, bool multiplayer) {
+            AnvilGameSession s{};
+            s.size = sizeof(s);
+            s.change = change;
+            s.ironman = ironman ? 1 : 0;
+            s.multiplayer = multiplayer ? 1 : 0;
+            s.number = 1;
+            start.bus.publish(ANVIL_GAME_EVENT_SESSION, &s);
+        };
         // Ironman: drill_all is allowed by the player, the interface module never suspends.
-        w.session(ANVIL_GAME_SESSION_STARTED, true, false);
+        session(ANVIL_GAME_SESSION_STARTED, true, false);
         CHECK(w.patched(0x100) && w.patched(0x200) && w.patched(0x300) && heard.empty());
-        CHECK(w.logged("smithy.drill_all: stays active: the player allows it in ironman"));
-        w.session(ANVIL_GAME_SESSION_ENDED, true, false);
+        CHECK(start.logged_containing("smithy.drill_all: stays active: the player allows it in ironman") == 1);
+        session(ANVIL_GAME_SESSION_ENDED, true, false);
         // Multiplayer without its opt-in: only the module goes, and only it hears so.
-        w.session(ANVIL_GAME_SESSION_STARTED, false, true);
+        session(ANVIL_GAME_SESSION_STARTED, false, true);
         CHECK(w.patched(0x100) && w.patched(0x200) && !w.patched(0x300));
-        CHECK(policy.suspended(drill->owner) && !policy.suspended(plugin.owner) && !policy.suspended(ui->owner));
+        CHECK(start.policy.suspended(drill->owner) && !start.policy.suspended(plugin.owner) &&
+              !start.policy.suspended(ui->owner));
         CHECK((heard == std::vector<std::string>{ANVIL_EVENT_SUSPENDED}) && plugin_heard.empty());
-        CHECK(w.logged("smithy.drill_all: suspended: affects gameplay and is not allowed in multiplayer (add it to "
-                       "allow_multiplayer in anvil.toml); 1 change(s) out of the game"));
-        w.session(ANVIL_GAME_SESSION_ENDED, false, true);
+        CHECK(start.logged_containing("smithy.drill_all: suspended: affects gameplay and is not allowed in multiplayer (add "
+                                      "it to allow_multiplayer in anvil.toml); 1 change(s) out of the game") == 1);
+        session(ANVIL_GAME_SESSION_ENDED, false, true);
         CHECK(w.patched(0x300) && (heard == std::vector<std::string>{ANVIL_EVENT_SUSPENDED, ANVIL_EVENT_RESUMED}));
 
         // The wrappers remove with the plugin's handle: a module's change goes too.
         ChangeId id = 0;
-        CHECK(w.changes->patch_bytes(drill->owner, at(0x400), patch, 2, &id) == ChangeStatus::Ok);
+        CHECK(changes.patch_bytes(drill->owner, at(0x400), patch, 2, &id) == ChangeStatus::Ok);
         auto* handle = reinterpret_cast<AnvilChange*>(static_cast<uintptr_t>(id));
-        CHECK(host.remove(&plugin, handle) == ANVIL_OK && !w.patched(0x400) && w.changes->count(drill->owner) == 1);
+        CHECK(host.remove(&plugin, handle) == ANVIL_OK && !w.patched(0x400) && changes.count(drill->owner) == 1);
         CHECK(host.remove(&plugin, handle) == ANVIL_ERROR_NOT_FOUND);
-        CHECK(w.changes->patch_bytes(plugin.owner, at(0x500), patch, 2, &id) == ChangeStatus::Ok);
+        CHECK(changes.patch_bytes(plugin.owner, at(0x500), patch, 2, &id) == ChangeStatus::Ok);
         CHECK(host.remove(ui, reinterpret_cast<AnvilChange*>(static_cast<uintptr_t>(id))) == ANVIL_OK);
-        if (g_failures != 0) w.dump();
+        if (g_failures != 0) start.dump();
     });
 
     run("gameplay: a module that affects gameplay needs anvil-game (ADR 0011)", [] {

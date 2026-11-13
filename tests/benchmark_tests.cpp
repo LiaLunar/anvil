@@ -5,7 +5,7 @@
 #include "core/benchmark_record.hpp"
 #include "core/files.hpp"
 #include "core/first_opens.hpp"
-#include "core/host.hpp"
+#include "core/plugin_set.hpp"
 #include "core/manifest.hpp"
 #include "core/resolver.hpp"
 #include "test_support.hpp"
@@ -29,9 +29,9 @@ struct Fixture {
     AnvilPlugin plugin;
 
     explicit Fixture(bool active = true)
-        : bench(active, [this](const AnvilPlugin& p, const std::string& m) { warnings.push_back(p.manifest.id + ": " + m); }),
+        : bench(active, [this](const AnvilPlugin& p, const std::string& m) { warnings.push_back(p.name + ": " + m); }),
           s(*bench.service()) {
-        plugin.manifest.id = "bellows";
+        plugin.name = "bellows";
         plugin.loading = true;
     }
     const BenchmarkParticipant* participant() {
@@ -191,7 +191,7 @@ void benchmark_tests() {
         CHECK(f.participant()->fields.size() == ANVIL_BENCHMARK_MAX_FIELDS);
         // A refused declaration still made the plugin a participant.
         AnvilPlugin other;
-        other.manifest.id = "other";
+        other.name = "other";
         other.loading = true;
         CHECK(f.s.declare(&other, nullptr, 1) == ANVIL_ERROR_INVALID_ARGUMENT);
         CHECK(f.bench.participants().size() == 2);
@@ -234,7 +234,7 @@ void benchmark_tests() {
 
         // A plugin that never declared.
         AnvilPlugin stranger;
-        stranger.manifest.id = "stranger";
+        stranger.name = "stranger";
         CHECK(f.s.set_int(&stranger, "open_warmup.opened", 1) == ANVIL_ERROR_NOT_DECLARED);
         CHECK(f.s.done(&stranger) == ANVIL_ERROR_NOT_DECLARED);
         CHECK(f.s.learning(&stranger, "new_mod_set") == ANVIL_ERROR_NOT_DECLARED);
@@ -330,9 +330,9 @@ void benchmark_tests() {
         r.ready_qpc = 5'000'000 + 400'000'000;  // 40 s
         r.creation_filetime = 1'000'000;
         r.entry_filetime = 1'000'000 + 1'500'000;  // 150 ms
-        r.plugins.push_back({"anvil-game", "1.4.0", "loaded"});
-        r.plugins.push_back({"bellows", "", "disabled", true});
-        r.plugins.push_back({"broken", "", "skipped", false, "verification"});
+        r.plugins.push_back({"anvil-game", "1.4.0", Outcome::Kind::loaded});
+        r.plugins.push_back({"bellows", "", Outcome::Kind::disabled, true});
+        r.plugins.push_back({"broken", "", Outcome::Kind::skipped, false, "verification"});
         r.game_first_opens = BenchmarkOpenCost{11502, 460.25};
         r.first_start_since_boot = true;
         r.input_during_start = false;
@@ -358,7 +358,7 @@ void benchmark_tests() {
     run("benchmark: a plugin that failed to load is forgotten", [] {
         Fixture f;
         AnvilPlugin other;
-        other.manifest.id = "other";
+        other.name = "other";
         other.loading = true;
         CHECK(f.s.declare(&f.plugin, nullptr, 0) == ANVIL_OK);
         CHECK(f.s.declare(&other, nullptr, 0) == ANVIL_OK);

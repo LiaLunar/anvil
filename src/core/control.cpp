@@ -2,8 +2,8 @@
 
 #include "anvil_toml_edit.hpp"
 #include "game_build.hpp"
-#include "host.hpp"
 #include "log.hpp"
+#include "plugin_set.hpp"
 #include "plugin_settings.hpp"
 #include "plugin_hash.hpp"
 #include "symbols.hpp"
@@ -298,7 +298,17 @@ const AnvilControlService kService{
     svc_mod_plugin_module,
 };
 
-const char* skipped_state(const Skipped&) { return "skipped"; }
+// The reason as a message for the overlay (i18n::serialize).
+std::string reason_message(const Outcome& o) { return i18n::serialize(o.why.empty() ? i18n::Message(o.reason) : o.why); }
+
+// A module that is on shares its plugin's outcome. It reads "pending" when its
+// plugin failed before anvil_plugin_load ran (a dependency, the approved copy,
+// the DLL), as anvil.control answered before the plugin set.
+const char* module_state(const PluginRecord& p) {
+    const Outcome* o = p.outcome();
+    if (o != nullptr && o->kind == Outcome::Kind::failed && p.dll() == nullptr) return "pending";
+    return outcome_name(o);
+}
 
 }  // namespace
 
@@ -327,10 +337,11 @@ const char* Control::mod_plugin_text(uint32_t index, const char* english) const 
 
 Control::Control(ControlSources sources) : sources_(std::move(sources)) {
     if (sources_.plugins != nullptr) {
-        for (const auto& p : *sources_.plugins) versions_.push_back(p->manifest.version.to_string());
-    }
-    if (sources_.skipped != nullptr) {
-        for (const Skipped& s : *sources_.skipped) skipped_messages_.push_back(i18n::serialize(s.why.empty() ? s.reason : s.why));
+        for (const PluginRecord& p : *sources_.plugins) {
+            const bool skipped = p.handle() == nullptr;
+            versions_.push_back(skipped ? std::string() : p.manifest().version.to_string());
+            messages_.push_back(skipped ? reason_message(*p.outcome()) : std::string());
+        }
     }
     disabled_next_.insert(sources_.disabled.begin(), sources_.disabled.end());
     if (sources_.mods != nullptr) {
@@ -371,10 +382,18 @@ Control::~Control() {
 const AnvilControlService* Control::service() const { return &kService; }
 
 void Control::loading_done() {
-    if (sources_.plugins != nullptr && resolved_messages_.empty()) {
-        for (const auto& p : *sources_.plugins) resolved_messages_.push_back(i18n::serialize(p->why.empty() ? p->reason : p->why));
+    if (sources_.plugins != nullptr && !loading_done_.load(std::memory_order_acquire)) {
+        for (size_t i = 0; i < sources_.plugins->resolved_count(); ++i) {
+            const Outcome* o = sources_.plugins->at(i).outcome();
+            messages_[i] = o != nullptr ? reason_message(*o) : std::string();
+        }
     }
     loading_done_.store(true, std::memory_order_release);
+}
+
+const PluginRecord* Control::loadable(std::string_view plugin_id) const {
+    const PluginRecord* p = sources_.plugins != nullptr ? sources_.plugins->find(plugin_id) : nullptr;
+    return p != nullptr && p->handle() != nullptr ? p : nullptr;
 }
 
 void Control::status(AnvilControlStatus& out) const {
@@ -384,10 +403,10 @@ void Control::status(AnvilControlStatus& out) const {
     out.game_build = sources_.game_build;
     out.safe_mode = sources_.safe_mode ? 1 : 0;
     out.unfinished_starts = sources_.unfinished_starts;
-    const size_t resolved = sources_.plugins ? sources_.plugins->size() : 0;
-    const size_t skipped = sources_.skipped ? sources_.skipped->size() : 0;
-    out.plugins = static_cast<uint32_t>(resolved + skipped);
-    out.skipped = static_cast<uint32_t>(skipped);
+    const size_t all = sources_.plugins ? sources_.plugins->size() : 0;
+    const size_t resolved = sources_.plugins ? sources_.plugins->resolved_count() : 0;
+    out.plugins = static_cast<uint32_t>(all);
+    out.skipped = static_cast<uint32_t>(all - resolved);
     out.warnings = static_cast<uint32_t>(Log::instance().warning_count());
     const bool done = loading_done_.load(std::memory_order_acquire);
     out.loading_done = done ? 1 : 0;
@@ -398,21 +417,23 @@ void Control::status(AnvilControlStatus& out) const {
             out.multiplayer = session->multiplayer ? 1 : 0;
         }
     }
-    if (!done) return;
+    if (!done || sources_.plugins == nullptr) return;
+    out.loaded = static_cast<uint32_t>(sources_.plugins->count(Outcome::Kind::loaded));
+    out.failed = static_cast<uint32_t>(sources_.plugins->count(Outcome::Kind::failed));
     std::vector<std::string> active;
-    for (const auto& p : *sources_.plugins) {
-        if (p->state == "loaded") ++out.loaded;
-        else if (p->state == "failed") ++out.failed;
-        if (p->state != "loaded") continue;
+    for (size_t i = 0; i < resolved; ++i) {
+        const PluginRecord& p = sources_.plugins->at(i);
+        const Outcome* o = p.outcome();
+        if (o == nullptr || o->kind != Outcome::Kind::loaded) continue;
         // One line for the plugin's own handle and one per module that
         // affects gameplay and acts now (ADR 0011): "<plugin>.<module> <version>".
+        const std::string version = p.manifest().version.to_string();
         const auto acting = [&](const AnvilPlugin& h) {
-            return h.manifest.affects_gameplay && h.enabled &&
-                   (sources_.policy == nullptr || !sources_.policy->suspended(h.owner));
+            return h.affects_gameplay && (sources_.policy == nullptr || !sources_.policy->suspended(h.owner));
         };
-        if (acting(*p)) active.push_back(p->manifest.id + " " + p->manifest.version.to_string());
-        for (const auto& m : p->modules) {
-            if (acting(*m)) active.push_back(m->manifest.id + " " + m->manifest.version.to_string());
+        if (acting(*p.handle())) active.push_back(p.id() + " " + version);
+        for (const auto& m : p.modules()) {
+            if (m.handle != nullptr && acting(*m.handle)) active.push_back(m.key + " " + version);
         }
     }
     out.gameplay_active = static_cast<uint32_t>(active.size());
@@ -421,73 +442,64 @@ void Control::status(AnvilControlStatus& out) const {
 }
 
 bool Control::plugin(uint32_t index, AnvilControlPlugin& out) const {
-    const size_t resolved = sources_.plugins ? sources_.plugins->size() : 0;
-    const size_t skipped = sources_.skipped ? sources_.skipped->size() : 0;
-    if (index >= resolved + skipped) return false;
+    if (sources_.plugins == nullptr || index >= sources_.plugins->size()) return false;
+    const PluginRecord& p = sources_.plugins->at(index);
     out = AnvilControlPlugin{};
     out.size = sizeof(out);
-    std::string_view id;
-    if (index < resolved) {
-        const AnvilPlugin& p = *(*sources_.plugins)[index];
-        id = p.manifest.id;
-        out.id = p.manifest.id.c_str();
-        out.name = p.manifest.name.c_str();
-        out.version = versions_[index].c_str();
-        out.issues = p.manifest.issues.c_str();
-        out.early = p.manifest.phase == Phase::Early ? 1 : 0;
-        out.affects_gameplay = p.manifest.affects_gameplay ? 1 : 0;
-        out.settings = static_cast<uint32_t>(p.settings.size());
-        if (loading_done_.load(std::memory_order_acquire)) {
-            out.state = p.state.c_str();
-            out.reason = p.reason.c_str();
-            out.reason_message = index < resolved_messages_.size() ? resolved_messages_[index].c_str() : out.reason;
-        } else {
-            out.state = "pending";
-            out.reason = "";
-            out.reason_message = "";
-        }
-        out.suspended = sources_.policy != nullptr && sources_.policy->suspended(p.owner) ? 1 : 0;
+    out.id = p.id().c_str();
+    out.version = versions_[index].c_str();
+    if (const AnvilPlugin* self = p.handle()) {
+        const Manifest& m = p.manifest();
+        out.name = m.name.c_str();
+        out.issues = m.issues.c_str();
+        out.early = m.phase == Phase::Early ? 1 : 0;
+        out.affects_gameplay = m.affects_gameplay ? 1 : 0;
+        out.settings = static_cast<uint32_t>(p.settings().size());
+        const Outcome* o = loading_done_.load(std::memory_order_acquire) ? p.outcome() : nullptr;
+        out.state = outcome_name(o);
+        out.reason = o != nullptr ? o->reason.c_str() : "";
+        out.reason_message = o != nullptr ? messages_[index].c_str() : "";
+        out.suspended = sources_.policy != nullptr && sources_.policy->suspended(self->owner) ? 1 : 0;
         out.mod = "";
-        if (sources_.mods != nullptr && !p.approved_hash.empty()) {
-            for (const ModPlugin& m : sources_.mods->plugins) {
-                if (m.loads() && m.load_folder.wstring() == p.plugin_dir) out.mod = m.mod.name.c_str();
+        if (sources_.mods != nullptr && !p.approved_hash().empty()) {
+            for (const ModPlugin& mp : sources_.mods->plugins) {
+                if (mp.loads() && mp.load_folder.wstring() == p.plugin_dir()) out.mod = mp.mod.name.c_str();
             }
         }
     } else {
-        const Skipped& s = (*sources_.skipped)[index - resolved];
-        id = s.id;
-        out.id = s.id.c_str();
+        // Skipped, or disabled (by the player or a benchmark arm): "skipped"
+        // with the `disabled` flag on the wire.
+        const Outcome& o = *p.outcome();
         out.name = "";
-        out.version = "";
         out.issues = "";
-        out.state = skipped_state(s);
-        out.reason = s.reason.c_str();
-        const size_t at = index - resolved;
-        out.reason_message = at < skipped_messages_.size() ? skipped_messages_[at].c_str() : out.reason;
-        out.disabled = s.disabled ? 1 : 0;
-        out.mod = s.mod.c_str();
-        out.awaiting_approval = s.awaiting_approval ? 1 : 0;
+        out.state = "skipped";
+        out.reason = o.reason.c_str();
+        out.reason_message = messages_[index].c_str();
+        out.disabled = o.kind == Outcome::Kind::disabled ? 1 : 0;
+        out.mod = p.mod().c_str();
+        out.awaiting_approval = p.awaiting_approval() ? 1 : 0;
     }
-    out.disabled_next_start = disabled_next_start(id) ? 1 : 0;
+    out.disabled_next_start = disabled_next_start(p.id()) ? 1 : 0;
     return true;
 }
 
 bool Control::plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin& out) const {
+    // Only compared: a caller may pass any pointer.
     if (plugin == nullptr || sources_.plugins == nullptr) return false;
-    const auto& plugins = *sources_.plugins;
-    for (size_t i = 0; i < plugins.size(); ++i) {
-        if (plugins[i].get() == plugin) return this->plugin(static_cast<uint32_t>(i), out);
+    for (size_t i = 0; i < sources_.plugins->resolved_count(); ++i) {
+        const PluginRecord& p = sources_.plugins->at(i);
+        if (p.handle() == plugin) return this->plugin(static_cast<uint32_t>(i), out);
         // A module's handle (ADR 0011): its plugin's entry with the module's
         // key, flags and state, so a service that checks its caller
         // (anvil-game.commands, anvil-script) gates the module, not the plugin.
-        for (const auto& m : plugins[i]->modules) {
-            if (m.get() != plugin) continue;
+        for (const auto& m : p.modules()) {
+            if (m.handle == nullptr || m.handle != plugin) continue;
             if (!this->plugin(static_cast<uint32_t>(i), out)) return false;
-            out.id = m->manifest.id.c_str();
-            out.name = m->manifest.name.c_str();
-            out.affects_gameplay = m->manifest.affects_gameplay ? 1 : 0;
-            out.suspended = sources_.policy != nullptr && sources_.policy->suspended(m->owner) ? 1 : 0;
-            if (loading_done_.load(std::memory_order_acquire)) out.state = m->state.c_str();
+            out.id = m.key.c_str();
+            out.name = m.name.c_str();
+            out.affects_gameplay = m.handle->affects_gameplay ? 1 : 0;
+            out.suspended = sources_.policy != nullptr && sources_.policy->suspended(m.handle->owner) ? 1 : 0;
+            if (loading_done_.load(std::memory_order_acquire)) out.state = module_state(p);
             return true;
         }
     }
@@ -501,11 +513,8 @@ std::optional<std::string> Control::warning(uint32_t index) const {
 }
 
 PluginSettings* Control::settings_of(std::string_view plugin_id) const {
-    if (sources_.plugins == nullptr) return nullptr;
-    for (const auto& p : *sources_.plugins) {
-        if (p->manifest.id == plugin_id) return &p->settings;
-    }
-    return nullptr;
+    const PluginRecord* p = loadable(plugin_id);
+    return p != nullptr ? &p->settings() : nullptr;
 }
 
 const AnvilControlCrash* Control::previous_crash() {
@@ -566,14 +575,7 @@ bool Control::disabled_next_start(std::string_view plugin_id) const {
 }
 
 AnvilResult Control::disable_next_start(std::string_view plugin_id, std::string& error) {
-    bool known = false;
-    if (sources_.plugins != nullptr) {
-        for (const auto& p : *sources_.plugins) known = known || p->manifest.id == plugin_id;
-    }
-    if (sources_.skipped != nullptr) {
-        for (const auto& s : *sources_.skipped) known = known || s.id == plugin_id;
-    }
-    if (!known) {
+    if (sources_.plugins == nullptr || sources_.plugins->find(plugin_id) == nullptr) {
         error = "no plugin '" + std::string(plugin_id) + "' at this start";
         return ANVIL_ERROR_NOT_FOUND;
     }
@@ -599,8 +601,9 @@ std::string Control::running_hash(const std::string& id) const {
     if (sources_.mods == nullptr || sources_.plugins == nullptr) return {};
     for (const ModPlugin& m : sources_.mods->plugins) {
         if (m.id != id || !m.loads()) continue;
-        for (const auto& p : *sources_.plugins) {
-            if (p->plugin_dir == m.load_folder.wstring()) return p->approved_hash;
+        for (size_t i = 0; i < sources_.plugins->resolved_count(); ++i) {
+            const PluginRecord& p = sources_.plugins->at(i);
+            if (p.plugin_dir() == m.load_folder.wstring()) return p.approved_hash();
         }
     }
     return {};
@@ -632,8 +635,10 @@ bool Control::mod_plugin(uint32_t index, AnvilControlModPlugin& out) const {
     out.affects_gameplay = p.manifest && p.manifest->affects_gameplay ? 1 : 0;
     out.symbols = v.symbols;
     if (p.loads() && loading_done_.load(std::memory_order_acquire) && sources_.plugins != nullptr) {
-        for (const auto& r : *sources_.plugins) {
-            if (r->plugin_dir == p.load_folder.wstring() && r->state == "loaded") out.loaded = 1;
+        for (size_t i = 0; i < sources_.plugins->resolved_count(); ++i) {
+            const PluginRecord& r = sources_.plugins->at(i);
+            const Outcome* o = r.outcome();
+            if (r.plugin_dir() == p.load_folder.wstring() && o != nullptr && o->kind == Outcome::Kind::loaded) out.loaded = 1;
         }
     }
     std::lock_guard lock(mutex_);
@@ -669,28 +674,21 @@ void fill_declared(const Module& m, const char* key, AnvilControlModule& out) {
 }  // namespace
 
 uint32_t Control::module_count(std::string_view plugin_id) const {
-    if (sources_.plugins == nullptr) return 0;
-    for (const auto& p : *sources_.plugins) {
-        if (p->manifest.id == plugin_id) return static_cast<uint32_t>(p->modules.size());
-    }
-    return 0;
+    const PluginRecord* p = loadable(plugin_id);
+    return p != nullptr ? static_cast<uint32_t>(p->modules().size()) : 0;
 }
 
 bool Control::module(std::string_view plugin_id, uint32_t index, AnvilControlModule& out) const {
-    if (sources_.plugins == nullptr) return false;
-    for (const auto& p : *sources_.plugins) {
-        if (p->manifest.id != plugin_id) continue;
-        if (index >= p->modules.size() || index >= p->manifest.modules.size()) return false;
-        const AnvilPlugin& handle = *p->modules[index];
-        fill_declared(p->manifest.modules[index], handle.manifest.id.c_str(), out);
-        out.enabled = handle.enabled ? 1 : 0;
-        out.state = loading_done_.load(std::memory_order_acquire) ? handle.state.c_str()
-                    : handle.enabled                               ? "pending"
-                                                                   : "disabled";
-        out.suspended = sources_.policy != nullptr && handle.enabled && sources_.policy->suspended(handle.owner) ? 1 : 0;
-        return true;
-    }
-    return false;
+    const PluginRecord* p = loadable(plugin_id);
+    if (p == nullptr || index >= p->modules().size()) return false;
+    const PluginRecord::ModuleSlot& m = p->modules()[index];
+    fill_declared(*m.declared, m.key.c_str(), out);
+    out.enabled = m.handle != nullptr ? 1 : 0;
+    out.state = m.handle == nullptr                              ? "disabled"
+                : loading_done_.load(std::memory_order_acquire) ? module_state(*p)
+                                                                : "pending";
+    out.suspended = sources_.policy != nullptr && m.handle != nullptr && sources_.policy->suspended(m.handle->owner) ? 1 : 0;
+    return true;
 }
 
 uint32_t Control::mod_plugin_module_count(uint32_t index) const {

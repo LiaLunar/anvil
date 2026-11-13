@@ -134,6 +134,7 @@ int main(int argc, char** argv) {
     control_tests();
     benchmark_tests();
     translation_tests();
+    plugin_set_tests();
 
     run("resolver: verify skips plugins and dependents", [] {
         ResolveInput in;

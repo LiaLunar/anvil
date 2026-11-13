@@ -26,6 +26,14 @@ volatile LONG64 g_last_fatal = 0;  // GetTickCount64 of the last fatal-looking e
 
 // ---- set up at install, read by the helper ---------------------------------
 const Setup* g_setup = nullptr;  // lives for the process
+std::atomic<const PluginSet*> g_plugins{nullptr};  // attach_plugins
+
+// What reports attribute against: the setup's, with the plugins attached so far.
+CrashSources sources_now() {
+    CrashSources s = g_setup->sources;
+    if (const PluginSet* plugins = g_plugins.load(std::memory_order_acquire)) s.plugins = plugins;
+    return s;
+}
 wchar_t g_dir[MAX_PATH * 2] = {};  // the crash folder, with a trailing backslash
 wchar_t g_log[MAX_PATH * 2] = {};
 DWORD g_main_thread = 0;
@@ -230,6 +238,7 @@ void write_report(void*) {
     if (!open_reports()) return;
 
     const Setup& setup = *g_setup;
+    const CrashSources sources = sources_now();
     LARGE_INTEGER now{}, frequency{};
     QueryPerformanceCounter(&now);
     QueryPerformanceFrequency(&frequency);
@@ -240,7 +249,7 @@ void write_report(void*) {
     in.main_thread = request.thread == g_main_thread;
     in.stack_low = request.stack_low;
     in.stack_high = request.stack_high;
-    in.sources = &setup.sources;
+    in.sources = &sources;
     in.anvil_version = setup.anvil_version;
     GetLocalTime(&in.time);
     in.seconds = frequency.QuadPart != 0 && setup.start.QuadPart != 0
@@ -278,9 +287,9 @@ void write_report(void*) {
     char line[512];
     TextBuffer message(line, sizeof(line));
     message.putf("crash 0x%08lX %s at ", record->ExceptionCode, exception_name(record->ExceptionCode));
-    describe_address(reinterpret_cast<uintptr_t>(record->ExceptionAddress), setup.sources, message);
+    describe_address(reinterpret_cast<uintptr_t>(record->ExceptionAddress), sources, message);
     message.put(": ");
-    describe_verdict(verdict, setup.sources, message);
+    describe_verdict(verdict, sources, message);
     message.putf("; report crashes\\%ls.txt", g_stem);
     Log::instance().try_write(ANVIL_LOG_ERROR, "anvil", message.view());
 }
@@ -499,6 +508,8 @@ bool crashed() {
     return reported() || (last != 0 && GetTickCount64() - last < 30000);
 }
 
+void attach_plugins(const PluginSet* plugins) { g_plugins.store(plugins, std::memory_order_release); }
+
 bool check_filter(std::string& by) {
     if (g_real_set == nullptr) return true;
     const Filter current = g_real_set(&filter);
@@ -510,7 +521,7 @@ bool check_filter(std::string& by) {
     g_real_set(current);  // the later filter stays on top
     char text[160];
     TextBuffer out(text, sizeof(text));
-    describe_address(reinterpret_cast<uintptr_t>(current), g_setup->sources, out);
+    describe_address(reinterpret_cast<uintptr_t>(current), sources_now(), out);
     by = std::string(out.view());
     return false;
 }

@@ -22,6 +22,8 @@ struct AnvilPlugin;
 
 namespace anvil {
 
+class PluginRecord;
+class PluginSet;
 class PluginSettings;
 
 // What anvil.control reports on. The runtime fills it once the plugins are
@@ -30,10 +32,9 @@ struct ControlSources {
     std::filesystem::path anvil_dir;  // anvil/: anvil.toml, anvil.log, crashes/, data/anvil/
     const char* anvil_version = "";
     const char* game_build = nullptr;
-    // Resolved plugins in load order, and the skipped ones; neither changes
-    // after start-up (the plugins' states do, until loading_done).
-    const std::vector<std::unique_ptr<AnvilPlugin>>* plugins = nullptr;
-    const std::vector<Skipped>* skipped = nullptr;
+    // The plugin set of this start; may be null. Its outcomes are reported
+    // from loading_done on.
+    const PluginSet* plugins = nullptr;
     const GameplayPolicy* policy = nullptr;  // may be null
     std::vector<std::string> disabled;       // disabled_plugins at this start
     bool safe_mode = false;
@@ -68,13 +69,14 @@ public:
     // clears), so only one Control exists at a time.
     const AnvilControlService* service() const;
 
-    // Every plugin was processed: the plugins' states are final from now on
+    // Every plugin was processed: the plugins' outcomes are final from now on
     // and the service reports them.
     void loading_done();
 
     void status(AnvilControlStatus& out) const;
     bool plugin(uint32_t index, AnvilControlPlugin& out) const;
-    // plugin() of the resolved plugin with this handle; false for any other.
+    // plugin() of the plugin with this handle, with a module's key, flags and
+    // state for a module's handle; false for any other pointer.
     bool plugin_of(const AnvilPlugin* plugin, AnvilControlPlugin& out) const;
     std::optional<std::string> warning(uint32_t index) const;
     PluginSettings* settings_of(std::string_view plugin_id) const;
@@ -97,8 +99,8 @@ public:
     AnvilResult approve_mod_plugin(uint32_t index, std::string_view hash, std::string& error);
     AnvilResult revoke_mod_plugin(uint32_t index, std::string& error);
 
-    // Modules (ADR 0011): of a resolved plugin by id, with their state at this
-    // start, and of a plugin in a mod by its index, as declared.
+    // Modules (ADR 0011): of a plugin of this start by id, with their state at
+    // this start, and of a plugin in a mod by its index, as declared.
     uint32_t module_count(std::string_view plugin_id) const;
     bool module(std::string_view plugin_id, uint32_t index, AnvilControlModule& out) const;
     uint32_t mod_plugin_module_count(uint32_t index) const;
@@ -113,12 +115,14 @@ private:
         AnvilControlCrash view{};
     };
 
+    // A plugin of this start that Anvil loads, by id.
+    const PluginRecord* loadable(std::string_view plugin_id) const;
+
     ControlSources sources_;
-    std::vector<std::string> versions_;  // by plugin index
-    // The reasons as messages (i18n::serialize): the skipped plugins' made
-    // once, the resolved plugins' at loading_done.
-    std::vector<std::string> skipped_messages_;
-    std::vector<std::string> resolved_messages_;
+    std::vector<std::string> versions_;  // by plugin index; "" for a skipped one
+    // The reasons as messages (i18n::serialize), by plugin index: the skipped
+    // plugins' made once, the others' at loading_done.
+    std::vector<std::string> messages_;
     std::atomic<bool> loading_done_{false};
     mutable std::mutex mutex_;
     std::set<std::string, std::less<>> disabled_next_;  // under mutex_

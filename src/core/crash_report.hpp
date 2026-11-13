@@ -15,6 +15,9 @@ struct AnvilPlugin;
 
 namespace anvil {
 
+class PluginRecord;
+class PluginSet;
+
 // The crash report (design §12): where an exception happened, which plugins
 // are involved and how. Everything here runs on the crash helper thread while
 // the crashed thread waits, so it neither allocates nor waits for a lock: text
@@ -44,9 +47,8 @@ private:
 // What the report attributes addresses against. Any pointer may be null.
 struct CrashSources {
     const ChangeRegistry* changes = nullptr;
-    // Owner ids of `changes` are indices into this list (the runtime adds the
-    // owners in load order).
-    const std::vector<std::unique_ptr<AnvilPlugin>>* plugins = nullptr;
+    // The plugins of this start, whose handles own the changes of `changes`.
+    const PluginSet* plugins = nullptr;
     uintptr_t image_base = 0;  // eu4.exe, or a test's image
     uint32_t image_size = 0;
     const char* image_name = "eu4.exe";
@@ -64,12 +66,12 @@ struct ModuleInfo {
 struct Located {
     uintptr_t address = 0;
     ModuleInfo module;
-    int plugin = -1;              // the plugin whose DLL holds the address
+    const PluginRecord* plugin = nullptr;  // the plugin whose DLL holds the address
     AddressAttribution change;    // what the change registry knows
     bool registry_busy = false;   // the registry could not be asked
     // The nearest declared symbol at or below an address in the game image.
     const PluginSymbol* symbol = nullptr;
-    int symbol_plugin = -1;       // first plugin declaring it
+    const PluginRecord* symbol_plugin = nullptr;  // first plugin declaring it
     int also_declared = 0;        // further plugins declaring the same address
     uintptr_t symbol_offset = 0;
     bool inside_symbol = false;   // within the symbol's declared bytes
@@ -109,14 +111,18 @@ size_t walk_stack(const CONTEXT& start, uintptr_t stack_low, uintptr_t stack_hig
 // The four levels of design §12; never "X caused it".
 enum class CrashLevel { NoPlugin, OnStack, InChange, InCode };
 
+// The handles involved, most involved first: for a crash in a plugin's DLL
+// its own handle, for one in a change the handle that requested it (a
+// module's, ADR 0011). The report names their plugins, and the modules among
+// them.
 struct CrashVerdict {
     static constexpr size_t kMax = 8;
     CrashLevel level = CrashLevel::NoPlugin;
-    int plugins[kMax] = {};  // indices into CrashSources::plugins, most involved first
+    const AnvilPlugin* handles[kMax] = {};
     size_t count = 0;
 };
 
-CrashVerdict assess(const Frame* frames, size_t count, size_t plugin_count);
+CrashVerdict assess(const Frame* frames, size_t count, const CrashSources& sources);
 const char* crash_level_key(CrashLevel level);  // in_plugin_code, in_plugin_change, plugin_on_stack, no_plugin
 
 // A fatal-looking exception the vectored handler saw (first chance).

@@ -8,11 +8,11 @@
 //        anvil_crash_tests --child <mode> <dir>   (internal)
 #include "core/changes.hpp"
 #include "core/crash.hpp"
+#include "core/crash_history.hpp"
 #include "core/crash_report.hpp"
-#include "core/host.hpp"
 #include "core/log.hpp"
 #include "core/safe_mode.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include <windows.h>
 
@@ -64,12 +64,23 @@ uintptr_t stub_target(void* next) {
     return target;
 }
 
-std::unique_ptr<AnvilPlugin> plugin(const std::string& id, const std::string& extra = "", HMODULE module = nullptr) {
-    auto p = std::make_unique<AnvilPlugin>();
-    p->manifest = manifest(plugin_toml(id, extra));
-    p->module = module;
-    p->state = "loaded";
-    return p;
+// This executable as a plugin's entry DLL (plugin "crasher" below), so a crash
+// in its code is a crash in the plugin's code.
+extern "C" __declspec(dllexport) AnvilResult anvil_plugin_load(const AnvilHost*, AnvilPlugin*) { return ANVIL_OK; }
+
+fs::path this_executable() {
+    wchar_t self[MAX_PATH * 2] = {};
+    GetModuleFileNameW(nullptr, self, static_cast<DWORD>(std::size(self)));
+    return self;
+}
+
+// A plugin of the start with plugin.toml's `extra`; its entry is mod-probe's
+// DLL, so it loads, unless `entry` names another (an absolute path).
+anvil::ResolvedPlugin& add_plugin(TestStart& start, const std::string& id, const std::string& extra = "",
+                                  const fs::path& entry = mod_probe_dir() / "mod-probe.dll") {
+    anvil::ResolvedPlugin& r = start.add(plugin_toml(id, extra));
+    r.manifest.entry = narrow(entry.wstring());
+    return r;
 }
 
 // One symbol `name` at `rva` with `size` declared bytes.
@@ -291,14 +302,17 @@ int child(const std::string& mode, const fs::path& dir) {
     image.put(0x100, kAddOne);
     image.put(0x200, kAddOne);
     image.put(0x300, kAddOne);
-    static ChangeRegistry registry(image.at(0), 0x10000);
-    static std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-    plugins.push_back(plugin("crasher", "issues = \"https://example.org/crasher/issues\"\n", GetModuleHandleW(nullptr)));
-    plugins.push_back(plugin("patcher", "issues = \"https://example.org/patcher/issues\"\n"));
-    plugins[1]->symbols = symbols(image.at(0), "add_one", 0x200, kAddOne.size());
-    const OwnerId crasher = registry.add_owner("crasher");
-    const OwnerId patcher = registry.add_owner("patcher");
-    (void)crasher;
+    // The plugins of the start: crasher, whose DLL is this executable, and
+    // patcher, which declares the symbol it patches.
+    static TestStart& plugins = *new TestStart(image.at(0), 0x10000);
+    add_plugin(plugins, "crasher", "issues = \"https://example.org/crasher/issues\"\n", this_executable());
+    add_plugin(plugins, "patcher", "issues = \"https://example.org/patcher/issues\"\n").symbols =
+        symbols(image.at(0), "add_one", 0x200, kAddOne.size());
+    plugins.make();
+    if (plugins.load("crasher") == nullptr || plugins.load("patcher") == nullptr) return 17;
+    ChangeRegistry& registry = plugins.changes;
+    const OwnerId crasher = plugins.handle("crasher")->owner;
+    const OwnerId patcher = plugins.handle("patcher")->owner;
     const uint8_t ud2[] = {0x0F, 0x0B};
     if (registry.patch_bytes(patcher, in_image(image.at(0x200)), ud2, sizeof(ud2)) != ChangeStatus::Ok) return 10;
     if (mode == "mid") {
@@ -315,7 +329,7 @@ int child(const std::string& mode, const fs::path& dir) {
     setup.log_file = dir / "anvil.log";
     setup.image = GetModuleHandleW(nullptr);
     setup.sources.changes = &registry;
-    setup.sources.plugins = &plugins;
+    setup.sources.plugins = &plugins.set();
     setup.sources.image_base = image.at(0);
     setup.sources.image_size = 0x10000;
     setup.sources.image_name = "game.exe";
@@ -532,14 +546,14 @@ int main(int argc, char** argv) {
         Scratch image(0x10000);
         image.put(0x100, kAddOne);
         image.put(0x200, kAddOne);
-        ChangeRegistry r(image.at(0), 0x10000);
-        const OwnerId m = r.add_owner("m");
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        plugins.push_back(plugin("m"));
-        plugins[0]->symbols = symbols(image.at(0), "add_one", 0x100, kAddOne.size());
+        TestStart start(image.at(0), 0x10000);
+        add_plugin(start, "m").symbols = symbols(image.at(0), "add_one", 0x100, kAddOne.size());
+        start.make();
+        ChangeRegistry& r = start.changes;
+        const OwnerId m = start.handle("m")->owner;
         CrashSources sources;
         sources.changes = &r;
-        sources.plugins = &plugins;
+        sources.plugins = &start.set();
         sources.image_base = image.at(0);
         sources.image_size = 0x10000;
         g_walk_sources = &sources;
@@ -583,27 +597,24 @@ int main(int argc, char** argv) {
             CHECK(caller.where.address > reinterpret_cast<uintptr_t>(&call_scratch) &&
                   caller.where.address < reinterpret_cast<uintptr_t>(&call_scratch) + 64);
         }
-        const CrashVerdict v = assess(g_walked, g_walked_count, plugins.size());
-        CHECK(v.level == CrashLevel::OnStack && v.count == 1 && v.plugins[0] == 0);
+        const CrashVerdict v = assess(g_walked, g_walked_count, sources);
+        CHECK(v.level == CrashLevel::OnStack && v.count == 1 && v.handles[0] == start.handle("m"));
     });
 
     run("crash: the nearest declared symbol of any plugin", [] {
         Scratch image(0x10000);
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        plugins.push_back(plugin("a"));
-        plugins.push_back(plugin("b"));
-        plugins.push_back(plugin("c"));
-        plugins[0]->symbols = symbols(image.at(0), "low", 0x100, 8);
-        plugins[1]->symbols = symbols(image.at(0), "high", 0x200, 8);
-        plugins[2]->symbols = symbols(image.at(0), "high_too", 0x200, 4);
+        TestStart start(image.at(0), 0x10000);
+        add_plugin(start, "a").symbols = symbols(image.at(0), "low", 0x100, 8);
+        add_plugin(start, "b").symbols = symbols(image.at(0), "high", 0x200, 8);
+        add_plugin(start, "c").symbols = symbols(image.at(0), "high_too", 0x200, 4);
         CrashSources sources;
-        sources.plugins = &plugins;
+        sources.plugins = &start.make();
         sources.image_base = image.at(0);
         sources.image_size = 0x10000;
         Located at;
         locate(image.at(0x104), sources, at);
         CHECK(at.module.base == image.at(0) && std::string(at.module.name) == "eu4.exe");
-        CHECK(at.symbol != nullptr && at.symbol->declaration.name == "low" && at.symbol_plugin == 0);
+        CHECK(at.symbol != nullptr && at.symbol->declaration.name == "low" && at.symbol_plugin == &start.plugin("a"));
         CHECK(at.symbol_offset == 4 && at.inside_symbol && at.also_declared == 0);
         locate(image.at(0x180), sources, at);
         CHECK(at.symbol != nullptr && at.symbol->declaration.name == "low" && !at.inside_symbol);
@@ -613,43 +624,48 @@ int main(int argc, char** argv) {
         CHECK(at.symbol == nullptr);
         locate(reinterpret_cast<uintptr_t>(&detour_a), sources, at);
         CHECK(at.symbol == nullptr && at.module.base == reinterpret_cast<uintptr_t>(GetModuleHandleW(nullptr)));
-        CHECK(at.plugin == -1);
+        CHECK(at.plugin == nullptr);
     });
 
     run("crash: the four levels", [] {
+        TestStart start;
+        for (const char* id : {"p0", "p1", "p2", "p3"}) add_plugin(start, id);
+        CrashSources sources;
+        sources.plugins = &start.make();
+        const auto owner = [&](const char* id) { return start.handle(id)->owner; };
         Frame frames[3];
-        frames[0].where.plugin = -1;
-        frames[1].where.plugin = -1;
-        frames[2].where.plugin = -1;
-        CHECK(assess(frames, 3, 4).level == CrashLevel::NoPlugin);
-        frames[2].where.plugin = 2;
-        CrashVerdict v = assess(frames, 3, 4);
-        CHECK(v.level == CrashLevel::OnStack && v.count == 1 && v.plugins[0] == 2);
+        CHECK(assess(frames, 3, sources).level == CrashLevel::NoPlugin);
+        frames[2].where.plugin = &start.plugin("p2");
+        CrashVerdict v = assess(frames, 3, sources);
+        CHECK(v.level == CrashLevel::OnStack && v.count == 1 && v.handles[0] == start.handle("p2"));
         frames[1].where.change.role = AddressRole::Stub;
         frames[1].where.change.count = 1;
-        frames[1].where.change.changes[0].owner = 3;
-        v = assess(frames, 3, 4);
-        CHECK(v.level == CrashLevel::OnStack && v.count == 2 && v.plugins[0] == 3 && v.plugins[1] == 2);
+        frames[1].where.change.changes[0].owner = owner("p3");
+        v = assess(frames, 3, sources);
+        CHECK(v.level == CrashLevel::OnStack && v.count == 2 && v.handles[0] == start.handle("p3") &&
+              v.handles[1] == start.handle("p2"));
         frames[0].where.change.role = AddressRole::ChangedBytes;
         frames[0].where.change.count = 2;
-        frames[0].where.change.changes[0].owner = 1;
-        frames[0].where.change.changes[1].owner = 0;
-        v = assess(frames, 3, 4);
-        CHECK(v.level == CrashLevel::InChange && v.count == 2 && v.plugins[0] == 1 && v.plugins[1] == 0);
-        frames[0].where.plugin = 2;
-        v = assess(frames, 3, 4);
-        CHECK(v.level == CrashLevel::InCode && v.count == 1 && v.plugins[0] == 2);
+        frames[0].where.change.changes[0].owner = owner("p1");
+        frames[0].where.change.changes[1].owner = owner("p0");
+        v = assess(frames, 3, sources);
+        CHECK(v.level == CrashLevel::InChange && v.count == 2 && v.handles[0] == start.handle("p1") &&
+              v.handles[1] == start.handle("p0"));
+        // The core's own owner is no plugin's.
+        frames[0].where.change.changes[1].owner = start.set().core_owner();
+        v = assess(frames, 3, sources);
+        CHECK(v.level == CrashLevel::InChange && v.count == 1);
+        frames[0].where.change.changes[1].owner = owner("p0");
+        frames[0].where.plugin = &start.plugin("p2");
+        v = assess(frames, 3, sources);
+        CHECK(v.level == CrashLevel::InCode && v.count == 1 && v.handles[0] == start.handle("p2"));
         CHECK(std::string(crash_level_key(CrashLevel::InCode)) == "in_plugin_code");
         CHECK(std::string(crash_level_key(CrashLevel::NoPlugin)) == "no_plugin");
 
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        for (const char* id : {"p0", "p1", "p2", "p3"}) plugins.push_back(plugin(id));
-        CrashSources sources;
-        sources.plugins = &plugins;
         char text[128];
         TextBuffer out(text, sizeof(text));
-        frames[0].where.plugin = -1;
-        describe_verdict(assess(frames, 3, 4), sources, out);
+        frames[0].where.plugin = nullptr;
+        describe_verdict(assess(frames, 3, sources), sources, out);
         CHECK(out.view() == "in plugin p1's change (also p0)");
         out.clear();
         describe_verdict(CrashVerdict{}, sources, out);
@@ -659,18 +675,19 @@ int main(int argc, char** argv) {
     run("crash: the report in JSON and text, with issues, plugins, registers and the log", [] {
         Scratch image(0x10000);
         image.put(0x100, kAddOne);
-        ChangeRegistry r(image.at(0), 0x10000);
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        plugins.push_back(plugin("quiet"));
-        plugins.push_back(plugin("patcher", "issues = \"https://example.org/p\\\"q/issues\"\n"));
-        plugins[1]->symbols = symbols(image.at(0), "add_one", 0x100, kAddOne.size());
-        r.add_owner("quiet");
-        const OwnerId p = r.add_owner("patcher");
+        TestStart start(image.at(0), 0x10000);
+        add_plugin(start, "quiet");
+        add_plugin(start, "patcher", "issues = \"https://example.org/p\\\"q/issues\"\n").symbols =
+            symbols(image.at(0), "add_one", 0x100, kAddOne.size());
+        start.make();
+        CHECK(start.load("quiet") != nullptr && start.load("patcher") != nullptr);
+        ChangeRegistry& r = start.changes;
+        const OwnerId p = start.handle("patcher")->owner;
         const uint8_t ud2[] = {0x0F, 0x0B};
         CHECK(r.patch_bytes(p, in_image(image.at(0x103)), ud2, 2) == ChangeStatus::Ok);
         CrashSources sources;
         sources.changes = &r;
-        sources.plugins = &plugins;
+        sources.plugins = &start.set();
         sources.image_base = image.at(0);
         sources.image_size = 0x10000;
         sources.build_id = "eu4-test";
@@ -694,7 +711,7 @@ int main(int argc, char** argv) {
         static char json_data[256 * 1024], text_data[192 * 1024];
         TextBuffer json(json_data, sizeof(json_data)), text(text_data, sizeof(text_data));
         const CrashVerdict v = build_report(in, json, text);
-        CHECK(v.level == CrashLevel::InChange && v.count == 1 && v.plugins[0] == 1);
+        CHECK(v.level == CrashLevel::InChange && v.count == 1 && v.handles[0] == start.handle("patcher"));
         CHECK(!json.truncated() && !text.truncated());
         CHECK(Json::valid(json.view()));
         const std::string_view j = json.view(), t = text.view();
@@ -719,6 +736,7 @@ int main(int argc, char** argv) {
         CHECK(contains(t, "Report it to patcher: https://example.org/p\"q/issues"));
         CHECK(contains(t, "changed bytes of patcher's byte patch rva 0x103 (2 B)"));
         CHECK(contains(t, "  quiet 1.0.0, loaded, main phase"));
+        CHECK(contains(j, "\"modules_involved\": []") && !contains(t, "Through module"));
         CHECK(contains(t, "End of anvil.log:"));
 
         // An access violation in code of no plugin, a plugin on the stack.
@@ -738,6 +756,83 @@ int main(int argc, char** argv) {
         CHECK(contains(json.view(), "\"level\": \"no_plugin\""));
         CHECK(contains(json.view(), "\"issues\": []"));
         CHECK(contains(text.view(), "Verdict: no plugin involved."));
+    });
+
+    // ADR 0011: every module that is on has its own owner, right after its
+    // plugin's, so owners are no longer positions in the list of plugins.
+    run("crash: a crash in a module's change names the module and its plugin, and a later plugin keeps its name", [] {
+        Scratch image(0x10000);
+        TestStart start(image.at(0), 0x10000);
+        add_plugin(start, "smithy", "issues = \"https://example.org/smithy\"\n"
+                                    "\n[[modules]]\nid = \"ui_fix\"\nname = \"UI fix\"\naffects_gameplay = false\n"
+                                    "\n[[modules]]\nid = \"chase\"\nname = \"Chase\"\naffects_gameplay = false\ndefault = false\n"
+                                    "\n[[modules]]\nid = \"drill\"\nname = \"Drill\"\naffects_gameplay = false\n");
+        add_plugin(start, "tongs", "issues = \"https://example.org/tongs\"\n");
+        start.make();
+        CHECK(start.load("smithy") != nullptr && start.load("tongs") != nullptr);
+        AnvilPlugin* ui_fix = start.module("smithy", "smithy.ui_fix");
+        AnvilPlugin* drill = start.module("smithy", "smithy.drill");
+        AnvilPlugin* tongs = start.handle("tongs");
+        CHECK(ui_fix != nullptr && drill != nullptr && start.module("smithy", "smithy.chase") == nullptr);
+        if (ui_fix == nullptr || drill == nullptr) return;
+        // A byte patch of each, as the host makes it for the handle that asks.
+        const uint8_t ud2[] = {0x0F, 0x0B};
+        CHECK(start.changes.patch_bytes(ui_fix->owner, in_image(image.at(0x100)), ud2, 2) == ChangeStatus::Ok);
+        CHECK(start.changes.patch_bytes(drill->owner, in_image(image.at(0x200)), ud2, 2) == ChangeStatus::Ok);
+        CHECK(start.changes.patch_bytes(tongs->owner, in_image(image.at(0x300)), ud2, 2) == ChangeStatus::Ok);
+        CrashSources sources;
+        sources.changes = &start.changes;
+        sources.plugins = &start.set();
+        sources.image_base = image.at(0);
+        sources.image_size = 0x10000;
+        static char json_data[64 * 1024], text_data[64 * 1024];
+        TextBuffer json(json_data, sizeof(json_data)), text(text_data, sizeof(text_data));
+        const auto report = [&](size_t offset) {
+            EXCEPTION_RECORD record{};
+            record.ExceptionCode = EXCEPTION_ILLEGAL_INSTRUCTION;
+            record.ExceptionAddress = reinterpret_cast<void*>(image.at(offset));
+            ReportInput in;
+            in.record = &record;
+            in.sources = &sources;
+            json.clear();
+            text.clear();
+            return build_report(in, json, text);
+        };
+
+        CrashVerdict v = report(0x100);
+        CHECK(v.level == CrashLevel::InChange && v.count == 1 && v.handles[0] == ui_fix);
+        CHECK(Json::valid(json.view()));
+        // The summary and plugins_involved name the plugin, as before modules:
+        // safe mode and the overlay read them; the module is named beside them.
+        CHECK(contains(json.view(), "\"summary\": \"in plugin smithy's change\""));
+        CHECK(contains(json.view(), "\"plugins_involved\": [\"smithy\"],\n  \"modules_involved\": [\"smithy.ui_fix\"]"));
+        CHECK(contains(json.view(), "\"plugin\": \"smithy\", \"module\": \"smithy.ui_fix\", \"kind\": \"byte patch\""));
+        CHECK(contains(json.view(), "{\"plugin\": \"smithy\", \"url\": \"https://example.org/smithy\"}"));
+        CHECK(contains(text.view(), "Verdict: in plugin smithy's change."));
+        CHECK(contains(text.view(), "Through module smithy.ui_fix of plugin smithy."));
+        CHECK(contains(text.view(), "changed bytes of smithy.ui_fix's byte patch"));
+        CHECK(contains(text.view(), "Report it to smithy: https://example.org/smithy"));
+        CHECK(!contains(text.view(), "tongs's") && !contains(json.view(), "\"?\""));
+        const CrashSummary summary = parse_crash_summary(json.view());
+        CHECK(summary.plugins == std::vector<std::string>{"smithy"} && summary.issues == "https://example.org/smithy");
+        CHECK(crash_in_plugin(summary, "smithy") && !crash_in_plugin(summary, "tongs"));
+        CHECK(i18n::crash_message(summary.level, summary.plugins, summary.summary).code == "crash_in_change");
+
+        v = report(0x200);
+        CHECK(v.level == CrashLevel::InChange && v.count == 1 && v.handles[0] == drill);
+        CHECK(contains(json.view(), "\"modules_involved\": [\"smithy.drill\"]"));
+        CHECK(contains(text.view(), "Through module smithy.drill of plugin smithy."));
+
+        // The plugin after the one with modules.
+        v = report(0x300);
+        CHECK(v.level == CrashLevel::InChange && v.count == 1 && v.handles[0] == tongs);
+        CHECK(contains(json.view(), "\"summary\": \"in plugin tongs's change\""));
+        CHECK(contains(json.view(), "\"plugins_involved\": [\"tongs\"],\n  \"modules_involved\": []"));
+        CHECK(contains(json.view(), "\"plugin\": \"tongs\", \"kind\": \"byte patch\""));
+        CHECK(contains(text.view(), "Report it to tongs: https://example.org/tongs") && !contains(text.view(), "Through module"));
+        CHECK(crash_in_plugin(parse_crash_summary(json.view()), "tongs"));
+        // The list of plugins: the two of this start, not their modules.
+        CHECK(contains(text.view(), "Plugins (2):\r\n  smithy 1.0.0, loaded, main phase"));
     });
 
     run("crash: text buffers cut what does not fit", [] {

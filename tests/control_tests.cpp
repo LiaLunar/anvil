@@ -5,12 +5,11 @@
 #include "core/control.hpp"
 #include "core/crash_history.hpp"
 #include "core/discovery.hpp"
-#include "core/host.hpp"
 #include "core/log.hpp"
 #include "core/mod_plugins.hpp"
 #include "core/safe_mode.hpp"
 #include "core/settings.hpp"
-#include "test_support.hpp"
+#include "plugin_set_fixture.hpp"
 
 #include <windows.h>
 
@@ -118,21 +117,22 @@ label = "Notify"
 restart = false
 )toml";
 
-std::optional<std::string> no_environment(const std::string&) { return std::nullopt; }
-
-std::unique_ptr<AnvilPlugin> make_plugin(const std::string& id, const std::string& state, const std::string& extra,
-                                         const fs::path& data_root, const char* schema = nullptr,
-                                         const std::string& phase = "main") {
-    auto p = std::make_unique<AnvilPlugin>();
-    p->manifest = manifest(plugin_toml(id, extra, "1.2.3", phase));
-    p->state = state;
-    p->data_dir = (data_root / id).wstring();
+// A plugin of the start, as the start resolves it: plugin.toml with `extra`
+// and version 1.2.3, settings.toml from `schema`, the player's values under
+// `data_root`. When it `loads`, its entry is mod-probe's DLL, so its load
+// succeeds; otherwise its DLL is missing and its load fails.
+anvil::ResolvedPlugin& add_plugin(TestStart& start, const std::string& id, bool loads, const std::string& extra,
+                                  const fs::path& data_root, const char* schema = nullptr,
+                                  const std::string& phase = "main") {
+    anvil::ResolvedPlugin& r = start.add(plugin_toml(id, extra, "1.2.3", phase));
+    if (loads) r.manifest.entry = narrow((mod_probe_dir() / "mod-probe.dll").wstring());
+    r.data_dir = data_root / id;
     if (schema != nullptr) {
         auto parsed = parse_settings_text(schema);
         if (!parsed.file) std::printf("  schema error: %s\n", parsed.error.c_str());
-        p->settings.init(std::move(*parsed.file), data_root / id / "settings.toml", id, no_environment);
+        r.settings = std::move(*parsed.file);
     }
-    return p;
+    return r;
 }
 
 struct Text {
@@ -367,20 +367,19 @@ void control_tests() {
     run("control: status, plugins and the service table", [] {
         const fs::path dir = fresh_dir("anvil-control-service");
         const fs::path anvil = dir / "anvil";
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        plugins.push_back(make_plugin("anvil-overlay", "loaded", "", anvil / "data", kOverlaySchema, "early"));
-        plugins.push_back(make_plugin("gameplay", "loaded", "issues = \"https://example.org/g\"\n", anvil / "data"));
-        plugins.back()->manifest.affects_gameplay = true;
-        plugins.push_back(make_plugin("broken", "failed", "", anvil / "data"));
-        plugins.back()->reason = "anvil_plugin_load returned ANVIL_ERROR_INTERNAL";
-        std::vector<Skipped> skipped{{"off", "disabled in anvil.toml", anvil / "plugins" / "off", true},
-                                     {"tongs", "safe mode", anvil / "plugins" / "tongs", false}};
+        TestStart start;
+        add_plugin(start, "anvil-overlay", true, "", anvil / "data", kOverlaySchema, "early");
+        add_plugin(start, "gameplay", true, "issues = \"https://example.org/g\"\n", anvil / "data").manifest.affects_gameplay = true;
+        add_plugin(start, "broken", false, "", anvil / "data");
+        start.skip({"off", "disabled in anvil.toml", anvil / "plugins" / "off", true});
+        start.skip({"tongs", "safe mode", anvil / "plugins" / "tongs", false});
+        start.make();
+        for (const char* id : {"anvil-overlay", "gameplay", "broken"}) start.load(id);
         ControlSources sources;
         sources.anvil_dir = anvil;
         sources.anvil_version = "1.1.0";
         sources.game_build = "eu4-1.37.5-steam-win64";
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
+        sources.plugins = &start.set();
         sources.disabled = {"off"};
         sources.safe_mode = true;
         sources.unfinished_starts = 2;
@@ -405,7 +404,7 @@ void control_tests() {
         CHECK(std::string(p.state) == "loaded" && p.early == 1 && p.settings == 6 && p.disabled_next_start == 0);
         CHECK(svc.plugin(1, &p) == 1 && p.affects_gameplay == 1 && std::string(p.issues) == "https://example.org/g");
         CHECK(svc.plugin(2, &p) == 1 && std::string(p.state) == "failed" &&
-              std::string(p.reason) == "anvil_plugin_load returned ANVIL_ERROR_INTERNAL");
+              std::string(p.reason).starts_with("cannot load broken.dll (error "));
         CHECK(svc.plugin(3, &p) == 1 && std::string(p.id) == "off" && std::string(p.state) == "skipped" &&
               p.disabled == 1 && p.disabled_next_start == 1 && std::string(p.name).empty());
         CHECK(svc.plugin(4, &p) == 1 && std::string(p.reason) == "safe mode" && p.disabled == 0);
@@ -438,7 +437,7 @@ void control_tests() {
               text.value == "Ctrl+Shift+F12");
         CHECK(svc.setting_value("anvil-overlay", 0, 7, Text::sink, &text) == 0);
 
-        PluginSettings& settings = plugins[0]->settings;
+        PluginSettings& settings = start.plugin("anvil-overlay").settings();
         g_notified = 0;
         CHECK(settings.subscribe(0, count_notification, nullptr) == ANVIL_OK);
         AnvilControlResult result{};
@@ -496,10 +495,8 @@ void control_tests() {
 
     run("control: modules in the plugin-set hash and plugin_of (ADR 0011)", [] {
         const fs::path dir = fresh_dir("anvil-control-modules");
-        static uint8_t image[0x100];
-        ChangeRegistry changes(reinterpret_cast<uintptr_t>(image), sizeof(image));
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        plugins.push_back(make_plugin("smithy", "loaded", R"([[modules]]
+        TestStart start;
+        add_plugin(start, "smithy", true, R"([[modules]]
 id = "ui_fix"
 name = "UI fix"
 affects_gameplay = false
@@ -515,20 +512,14 @@ name = "Chase"
 affects_gameplay = true
 default = false
 )",
-                                      dir / "data"));
-        AnvilPlugin& smithy = *plugins.back();
-        smithy.owner = changes.add_owner("smithy");
-        add_modules(smithy, changes, {});
-        for (const auto& m : smithy.modules) {
-            if (m->enabled) m->state = "loaded";
-        }
-        plugins.push_back(make_plugin("tongs", "loaded", "", dir / "data"));
-        plugins.back()->manifest.affects_gameplay = true;
-        std::vector<Skipped> skipped;
+                   dir / "data");
+        add_plugin(start, "tongs", true, "", dir / "data").manifest.affects_gameplay = true;
+        start.make();
+        CHECK(start.load("smithy") != nullptr && start.load("tongs") != nullptr);
+        AnvilPlugin& smithy = *start.handle("smithy");
         ControlSources sources;
         sources.anvil_dir = dir / "anvil";
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
+        sources.plugins = &start.set();
         Control control(sources);
         control.loading_done();
         const AnvilControlService& svc = *control.service();
@@ -544,10 +535,12 @@ default = false
         AnvilControlPlugin p{};
         p.size = sizeof(p);
         CHECK(svc.plugin_of(&smithy, &p) == 1 && std::string(p.id) == "smithy" && p.affects_gameplay == 0);
-        CHECK(svc.plugin_of(smithy.modules[1].get(), &p) == 1 && std::string(p.id) == "smithy.drill_all" &&
+        CHECK(svc.plugin_of(start.module("smithy", "smithy.drill_all"), &p) == 1 && std::string(p.id) == "smithy.drill_all" &&
               p.affects_gameplay == 1 && p.suspended == 0 && std::string(p.state) == "loaded" && p.early == 0);
-        CHECK(svc.plugin_of(smithy.modules[0].get(), &p) == 1 && p.affects_gameplay == 0);
-        CHECK(svc.plugin_of(smithy.modules[2].get(), &p) == 1 && std::string(p.state) == "disabled");
+        CHECK(std::string(p.name) == "smithy: Drill");
+        CHECK(svc.plugin_of(start.module("smithy", "smithy.ui_fix"), &p) == 1 && p.affects_gameplay == 0);
+        // A module that is off has no handle (ADR 0011).
+        CHECK(start.module("smithy", "smithy.chase") == nullptr);
         int other = 0;
         CHECK(svc.plugin_of(reinterpret_cast<const AnvilPlugin*>(&other), &p) == 0);
         // The modules are not plugins of their own in the list.
@@ -584,15 +577,15 @@ default = false
         write_file(user / "mod" / "probe-mod.mod", "name=\"Probe Mod\"\npath=\"mod/probe-mod\"\n");
         write_file(user / "dlc_load.json", "{\"enabled_mods\":[\"mod/probe-mod.mod\"]}");
 
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
         ModDiscovery mods = discover_mod_plugins(anvil, user, {});
-        std::vector<Skipped> skipped{{"probe", "from mod 'Probe Mod' (local mod): waiting", mods.plugins[0].folder}};
-        skipped[0].mod = "Probe Mod";
-        skipped[0].awaiting_approval = true;
+        TestStart start;
+        Skipped waiting{"probe", "from mod 'Probe Mod' (local mod): waiting", mods.plugins[0].folder};
+        waiting.mod = "Probe Mod";
+        waiting.awaiting_approval = true;
+        start.skip(waiting);
         ControlSources sources;
         sources.anvil_dir = anvil;
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
+        sources.plugins = &start.make();
         sources.mods = &mods;
         std::string hash;
         {
@@ -645,11 +638,12 @@ default = false
             // The next start: approved and loaded from its copy, which stays when revoked.
             mods = discover_mod_plugins(anvil, user, {});
             CHECK(mods.plugins[0].state == ModPluginState::Approved);
-            auto loaded = make_plugin("probe", "loaded", "", anvil / "data");
-            loaded->plugin_dir = mods.plugins[0].load_folder.wstring();
-            loaded->approved_hash = hash;
-            plugins.push_back(std::move(loaded));
-            skipped.clear();
+            TestStart next;
+            anvil::ResolvedPlugin& loaded = add_plugin(next, "probe", true, "", anvil / "data");
+            loaded.manifest.folder = mods.plugins[0].load_folder;
+            loaded.approved_hash = hash;
+            sources.plugins = &next.make();
+            CHECK(next.load("probe") != nullptr);  // its approved copy still has the approved hash
             Control control(sources);
             control.loading_done();
             const AnvilControlService& svc = *control.service();
@@ -674,12 +668,8 @@ default = false
                    report_json("in_plugin_change", {"tongs", "bellows"}, true, "in plugin tongs's change",
                                "https://example.org/t"));
         write_file(anvil / "crashes" / "2026-10-20_18-05-11.txt", "Anvil crash report\r\n");
-        std::vector<std::unique_ptr<AnvilPlugin>> plugins;
-        std::vector<Skipped> skipped;
         ControlSources sources;
         sources.anvil_dir = anvil;
-        sources.plugins = &plugins;
-        sources.skipped = &skipped;
         sources.previous_crash = crash_report_names(anvil / "crashes").front();
         {
             Control control(sources);

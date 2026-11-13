@@ -1,6 +1,6 @@
 #include "crash_report.hpp"
 
-#include "host.hpp"
+#include "plugin_set.hpp"
 
 #include <anvil/anvil_plugin.h>
 
@@ -70,11 +70,6 @@ void copy_name(char (&out)[64], const char* name) {
     out[i] = '\0';
 }
 
-const std::vector<std::unique_ptr<AnvilPlugin>>& plugins_of(const CrashSources& s) {
-    static const std::vector<std::unique_ptr<AnvilPlugin>> none;
-    return s.plugins != nullptr ? *s.plugins : none;
-}
-
 // The module of an address without the loader lock: the inverted function
 // table (RtlPcToFileHeader), the size from the PE header, the name from what
 // Anvil knows or the module's export directory.
@@ -95,11 +90,9 @@ void find_module(uintptr_t address, const CrashSources& s, ModuleInfo& out) {
         read_memory(out.base + dos.e_lfanew, &nt, sizeof(nt)) && nt.Signature == IMAGE_NT_SIGNATURE) {
         out.size = nt.OptionalHeader.SizeOfImage;
     }
-    for (const auto& p : plugins_of(s)) {
-        if (p->module != nullptr && reinterpret_cast<uintptr_t>(p->module) == out.base) {
-            copy_name(out.name, p->manifest.entry.c_str());
-            return;
-        }
+    if (const PluginRecord* p = s.plugins != nullptr ? s.plugins->plugin_with_dll(out.base) : nullptr) {
+        copy_name(out.name, p->manifest().entry.c_str());
+        return;
     }
     if (out.base == s.anvil_base) {
         copy_name(out.name, "version.dll (anvil)");
@@ -125,11 +118,7 @@ void locate(uintptr_t address, const CrashSources& s, Located& out) {
     out = Located{};
     out.address = address;
     find_module(address, s, out.module);
-    const auto& plugins = plugins_of(s);
-    for (size_t i = 0; i < plugins.size(); ++i) {
-        const auto* module = plugins[i]->module;
-        if (module != nullptr && out.module.base == reinterpret_cast<uintptr_t>(module)) out.plugin = static_cast<int>(i);
-    }
+    if (s.plugins != nullptr) out.plugin = s.plugins->plugin_with_dll(out.module.base);
     if (s.changes != nullptr) {
         // Another thread may hold the lock for a moment; a crashed one for good.
         bool asked = false;
@@ -139,22 +128,11 @@ void locate(uintptr_t address, const CrashSources& s, Located& out) {
         }
         out.registry_busy = !asked;
     }
-    if (!in_image(s, address)) return;
-    for (size_t i = 0; i < plugins.size(); ++i) {
-        const PluginSymbols& symbols = plugins[i]->symbols;
-        for (uint32_t id = 0; id < symbols.size(); ++id) {
-            const PluginSymbol* symbol = symbols.get(id);
-            if (symbol == nullptr || symbol->address == 0 || symbol->address > address) continue;
-            if (out.symbol != nullptr && symbol->address < out.symbol->address) continue;
-            if (out.symbol != nullptr && symbol->address == out.symbol->address) {
-                if (out.symbol_plugin != static_cast<int>(i)) ++out.also_declared;
-                continue;
-            }
-            out.symbol = symbol;
-            out.symbol_plugin = static_cast<int>(i);
-            out.also_declared = 0;
-        }
-    }
+    if (!in_image(s, address) || s.plugins == nullptr) return;
+    const NearestSymbol nearest = s.plugins->nearest_symbol(address);
+    out.symbol = nearest.symbol;
+    out.symbol_plugin = nearest.plugin;
+    out.also_declared = nearest.also_declared;
     if (out.symbol != nullptr) {
         out.symbol_offset = address - out.symbol->address;
         out.inside_symbol = out.symbol_offset < out.symbol->declaration.bytes.size();
@@ -318,39 +296,45 @@ size_t walk_stack(const CONTEXT& start, uintptr_t stack_low, uintptr_t stack_hig
 
 namespace {
 
-void add_plugin(CrashVerdict& v, int plugin) {
-    if (plugin < 0) return;
+void add_handle(CrashVerdict& v, const AnvilPlugin* handle) {
+    if (handle == nullptr) return;
     for (size_t i = 0; i < v.count; ++i) {
-        if (v.plugins[i] == plugin) return;
+        if (v.handles[i] == handle) return;
     }
-    if (v.count < CrashVerdict::kMax) v.plugins[v.count++] = plugin;
+    if (v.count < CrashVerdict::kMax) v.handles[v.count++] = handle;
 }
 
-void add_owners(CrashVerdict& v, const AddressAttribution& a, size_t plugin_count) {
-    for (size_t i = 0; i < a.count; ++i) {
-        if (a.changes[i].owner < plugin_count) add_plugin(v, static_cast<int>(a.changes[i].owner));
-    }
+// The plugin whose DLL holds the address: its own handle.
+void add_plugin(CrashVerdict& v, const PluginRecord* plugin) {
+    if (plugin != nullptr) add_handle(v, plugin->handle());
+}
+
+// The handles that requested the changes at the address; the core's own
+// changes have none.
+void add_owners(CrashVerdict& v, const AddressAttribution& a, const CrashSources& s) {
+    if (s.plugins == nullptr) return;
+    for (size_t i = 0; i < a.count; ++i) add_handle(v, s.plugins->handle_of(a.changes[i].owner));
 }
 
 }  // namespace
 
-CrashVerdict assess(const Frame* frames, size_t count, size_t plugin_count) {
+CrashVerdict assess(const Frame* frames, size_t count, const CrashSources& sources) {
     CrashVerdict v;
     if (count == 0) return v;
     const Located& top = frames[0].where;
-    if (top.plugin >= 0) {
+    if (top.plugin != nullptr) {
         v.level = CrashLevel::InCode;
         add_plugin(v, top.plugin);
         return v;
     }
-    add_owners(v, top.change, plugin_count);
+    add_owners(v, top.change, sources);
     if (v.count > 0) {
         v.level = CrashLevel::InChange;
         return v;
     }
     for (size_t i = 1; i < count; ++i) {
         add_plugin(v, frames[i].where.plugin);
-        add_owners(v, frames[i].where.change, plugin_count);
+        add_owners(v, frames[i].where.change, sources);
     }
     if (v.count > 0) v.level = CrashLevel::OnStack;
     return v;
@@ -413,14 +397,27 @@ const char* exception_name(DWORD code) {
 
 namespace {
 
-const char* plugin_id(const CrashSources& s, int index) {
-    const auto& plugins = plugins_of(s);
-    return index >= 0 && static_cast<size_t>(index) < plugins.size() ? plugins[index]->manifest.id.c_str() : "?";
+const char* plugin_id(const PluginRecord* plugin) { return plugin != nullptr ? plugin->id().c_str() : "?"; }
+
+// The handle that owns a change: a plugin's own or a module's; null for the
+// core's own owner.
+const AnvilPlugin* owner_handle(const CrashSources& s, OwnerId owner) {
+    return s.plugins != nullptr ? s.plugins->handle_of(owner) : nullptr;
 }
 
-const char* owner_id(const CrashSources& s, OwnerId owner) {
-    const auto& plugins = plugins_of(s);
-    return owner < plugins.size() ? plugins[owner]->manifest.id.c_str() : "?";
+// "tongs" for a plugin's own handle, "smithy.drill" for a module's, "?" for no plugin's.
+const char* owner_name(const CrashSources& s, OwnerId owner) {
+    const AnvilPlugin* h = owner_handle(s, owner);
+    return h != nullptr ? h->name.c_str() : "?";
+}
+
+// The verdict's plugins once each, most involved first.
+template <class Fn> void each_plugin(const CrashVerdict& v, Fn&& fn) {
+    for (size_t i = 0; i < v.count; ++i) {
+        bool seen = false;
+        for (size_t j = 0; j < i && !seen; ++j) seen = v.handles[j]->record == v.handles[i]->record;
+        if (!seen) fn(*v.handles[i]->record);
+    }
 }
 
 // "eu4.exe+0x1A2B" or "0x1A2B".
@@ -433,8 +430,9 @@ void put_where(TextBuffer& out, const Located& at) {
 }
 
 void put_symbol(TextBuffer& out, const Located& at, const CrashSources& s) {
+    (void)s;
     out.putf("%s+0x%llX (declared by %s", at.symbol->declaration.name.c_str(),
-             static_cast<unsigned long long>(at.symbol_offset), plugin_id(s, at.symbol_plugin));
+             static_cast<unsigned long long>(at.symbol_offset), plugin_id(at.symbol_plugin));
     if (at.also_declared > 0) out.putf(" and %d more", at.also_declared);
     out.put(at.inside_symbol ? ", inside its declared bytes)" : ")");
 }
@@ -445,7 +443,7 @@ void put_changes(TextBuffer& out, const Located& at, const CrashSources& s) {
     out.putf("%s", address_role_name(at.change.role));
     for (size_t i = 0; i < at.change.count; ++i) {
         const AddressChange& c = at.change.changes[i];
-        out.putf("%s %s's %s", i == 0 ? " of" : ",", owner_id(s, c.owner), c.label);
+        out.putf("%s %s's %s", i == 0 ? " of" : ",", owner_name(s, c.owner), c.label);
         if (c.symbol[0] != '\0') out.putf(" [%s]", c.symbol);
     }
     if (at.change.total > at.change.count) out.putf(" and %zu more", at.change.total - at.change.count);
@@ -462,9 +460,9 @@ void json_located(TextBuffer& j, const Located& at, const CrashSources& s) {
         j.hex(at.address - at.module.base);
         j.put("\"");
     }
-    if (at.plugin >= 0) {
+    if (at.plugin != nullptr) {
         j.put(", \"plugin\": ");
-        j.json(plugin_id(s, at.plugin));
+        j.json(plugin_id(at.plugin));
     }
     if (at.registry_busy) j.put(", \"registry\": \"busy\"");
     if (at.change.role != AddressRole::None) {
@@ -474,8 +472,14 @@ void json_located(TextBuffer& j, const Located& at, const CrashSources& s) {
         for (size_t i = 0; i < at.change.count; ++i) {
             const AddressChange& c = at.change.changes[i];
             j.put(i == 0 ? "{" : ", {");
+            // The plugin's id, as before modules; a module's change also names the module.
+            const AnvilPlugin* owner = owner_handle(s, c.owner);
             j.putf("\"id\": %llu, \"plugin\": ", static_cast<unsigned long long>(c.id));
-            j.json(owner_id(s, c.owner));
+            j.json(owner != nullptr ? owner->record->id().c_str() : "?");
+            if (owner != nullptr && owner->module != nullptr) {
+                j.put(", \"module\": ");
+                j.json(owner->name);
+            }
             j.put(", \"kind\": ");
             j.json(change_kind_name(c.kind));
             j.put(", \"label\": ");
@@ -495,13 +499,13 @@ void json_located(TextBuffer& j, const Located& at, const CrashSources& s) {
         j.put(", \"offset\": \"");
         j.hex(at.symbol_offset);
         j.put("\", \"declared_by\": ");
-        j.json(plugin_id(s, at.symbol_plugin));
+        j.json(plugin_id(at.symbol_plugin));
         if (at.also_declared > 0) j.putf(", \"also_declared_by\": %d", at.also_declared);
         j.putf(", \"inside\": %s}", at.inside_symbol ? "true" : "false");
     }
 }
 
-const char* state_name(const AnvilPlugin& p) { return p.state.c_str(); }
+const char* state_name(const PluginRecord& p) { return outcome_name(p.outcome()); }
 
 // "1.2.3-beta", without allocating.
 void put_version(TextBuffer& out, const Version& v) {
@@ -540,21 +544,24 @@ void describe_verdict(const CrashVerdict& v, const CrashSources& s, TextBuffer& 
         out.put("no plugin involved");
         return;
     }
-    const char* first = plugin_id(s, v.plugins[0]);
+    (void)s;
+    const char* first = v.handles[0]->record->id().c_str();
     switch (v.level) {
     case CrashLevel::InCode: out.putf("in plugin %s's code", first); break;
     case CrashLevel::InChange: out.putf("in plugin %s's change", first); break;
     case CrashLevel::OnStack: out.putf("plugin %s on the stack", first); break;
     case CrashLevel::NoPlugin: out.put("no plugin involved"); return;
     }
-    for (size_t i = 1; i < v.count; ++i) out.putf("%s%s", i == 1 ? " (also " : ", ", plugin_id(s, v.plugins[i]));
-    if (v.count > 1) out.put(")");
+    size_t n = 0;
+    each_plugin(v, [&](const PluginRecord& p) {
+        if (n++ > 0) out.putf("%s%s", n == 2 ? " (also " : ", ", p.id().c_str());
+    });
+    if (n > 1) out.put(")");
 }
 
 CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
     static const CrashSources none;
     const CrashSources& s = in.sources != nullptr ? *in.sources : none;
-    const auto& plugins = plugins_of(s);
     const EXCEPTION_RECORD& record = *in.record;
     size_t frames = 0;
     if (in.context != nullptr) {
@@ -564,7 +571,7 @@ CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
         g_frames[0].source = FrameSource::Context;
         frames = 1;
     }
-    const CrashVerdict verdict = assess(g_frames, frames, plugins.size());
+    const CrashVerdict verdict = assess(g_frames, frames, s);
     const Located& top = g_frames[0].where;
     char verdict_text[256];
     TextBuffer vt(verdict_text, sizeof(verdict_text));
@@ -611,20 +618,23 @@ CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
     }
     if (top.registry_busy) t.put("  The change registry was busy (held by the crashed thread?); changes are not listed.\r\n");
     for (size_t i = 0; i < verdict.count; ++i) {
-        const AnvilPlugin& p = *plugins[verdict.plugins[i]];
-        if (!p.manifest.issues.empty()) {
-            t.putf("  Report it to %s: %s\r\n", p.manifest.id.c_str(), p.manifest.issues.c_str());
-        } else {
-            t.putf("  %s has no issues link in its plugin.toml.\r\n", p.manifest.id.c_str());
-        }
+        const AnvilPlugin& h = *verdict.handles[i];
+        if (h.module != nullptr) t.putf("  Through module %s of plugin %s.\r\n", h.name.c_str(), h.record->id().c_str());
     }
+    each_plugin(verdict, [&](const PluginRecord& p) {
+        if (!p.manifest().issues.empty()) {
+            t.putf("  Report it to %s: %s\r\n", p.id().c_str(), p.manifest().issues.c_str());
+        } else {
+            t.putf("  %s has no issues link in its plugin.toml.\r\n", p.id().c_str());
+        }
+    });
 
     t.put("\r\nStack (innermost first; \"scan\" frames are return addresses found on the stack and may be stale):\r\n");
     for (size_t i = 0; i < frames; ++i) {
         const Frame& f = g_frames[i];
         t.putf("  #%-2zu ", i);
         put_where(t, f.where);
-        if (f.where.plugin >= 0) t.putf("  [plugin %s]", plugin_id(s, f.where.plugin));
+        if (f.where.plugin != nullptr) t.putf("  [plugin %s]", plugin_id(f.where.plugin));
         if (f.where.symbol != nullptr) {
             t.put("  ");
             put_symbol(t, f.where, s);
@@ -650,13 +660,17 @@ CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
         t.putf("  rflags 0x%08lX\r\n", in.context->EFlags);
     }
 
-    t.putf("\r\nPlugins (%zu):\r\n", plugins.size());
-    for (const auto& p : plugins) {
-        t.putf("  %s ", p->manifest.id.c_str());
-        put_version(t, p->manifest.version);
-        t.putf(", %s, %s phase%s", state_name(*p), p->manifest.phase == Phase::Early ? "early" : "main",
-               p->manifest.affects_gameplay ? ", affects gameplay" : "");
-        if (!p->manifest.issues.empty()) t.putf(", issues: %s", p->manifest.issues.c_str());
+    // The plugins Anvil loads at this start (not the skipped ones).
+    const size_t loadable = s.plugins != nullptr ? s.plugins->resolved_count() : 0;
+    t.putf("\r\nPlugins (%zu):\r\n", loadable);
+    for (size_t i = 0; i < loadable; ++i) {
+        const PluginRecord& p = s.plugins->at(i);
+        const Manifest& m = p.manifest();
+        t.putf("  %s ", m.id.c_str());
+        put_version(t, m.version);
+        t.putf(", %s, %s phase%s", state_name(p), m.phase == Phase::Early ? "early" : "main",
+               m.affects_gameplay ? ", affects gameplay" : "");
+        if (!m.issues.empty()) t.putf(", issues: %s", m.issues.c_str());
         t.put("\r\n");
     }
 
@@ -705,23 +719,33 @@ CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
     j.putf("},\n  \"thread\": %lu,\n  \"main_thread\": %s,\n  \"level\": \"%s\",\n  \"summary\": ", in.thread,
            in.main_thread ? "true" : "false", crash_level_key(verdict.level));
     j.json(vt.view());
+    // Plugin ids, as before modules: safe mode and the overlay read them.
     j.put(",\n  \"plugins_involved\": [");
+    bool first_plugin = true;
+    each_plugin(verdict, [&](const PluginRecord& p) {
+        if (!first_plugin) j.put(", ");
+        first_plugin = false;
+        j.json(p.id());
+    });
+    j.put("],\n  \"modules_involved\": [");
+    bool first_module = true;
     for (size_t i = 0; i < verdict.count; ++i) {
-        if (i > 0) j.put(", ");
-        j.json(plugin_id(s, verdict.plugins[i]));
+        if (verdict.handles[i]->module == nullptr) continue;
+        if (!first_module) j.put(", ");
+        first_module = false;
+        j.json(verdict.handles[i]->name);
     }
     j.put("],\n  \"issues\": [");
     bool first_issue = true;
-    for (size_t i = 0; i < verdict.count; ++i) {
-        const AnvilPlugin& p = *plugins[verdict.plugins[i]];
-        if (p.manifest.issues.empty()) continue;
+    each_plugin(verdict, [&](const PluginRecord& p) {
+        if (p.manifest().issues.empty()) return;
         j.put(first_issue ? "{\"plugin\": " : ", {\"plugin\": ");
         first_issue = false;
-        j.json(p.manifest.id);
+        j.json(p.id());
         j.put(", \"url\": ");
-        j.json(p.manifest.issues);
+        j.json(p.manifest().issues);
         j.put("}");
-    }
+    });
     j.put("],\n  \"stack\": [\n");
     for (size_t i = 0; i < frames; ++i) {
         j.put("    {");
@@ -742,26 +766,27 @@ CrashVerdict build_report(const ReportInput& in, TextBuffer& j, TextBuffer& t) {
         j.putf(", \"rflags\": \"0x%lX\"", in.context->EFlags);
     }
     j.put("},\n  \"plugins\": [");
-    for (size_t i = 0; i < plugins.size(); ++i) {
-        const AnvilPlugin& p = *plugins[i];
+    for (size_t i = 0; i < loadable; ++i) {
+        const PluginRecord& p = s.plugins->at(i);
+        const Manifest& m = p.manifest();
         j.put(i == 0 ? "\n    {\"id\": " : ",\n    {\"id\": ");
-        j.json(p.manifest.id);
+        j.json(m.id);
         char version[96];
         TextBuffer v(version, sizeof(version));
-        put_version(v, p.manifest.version);
+        put_version(v, m.version);
         j.put(", \"version\": ");
         j.json(v.view());
         j.put(", \"state\": ");
         j.json(state_name(p));
-        j.putf(", \"phase\": \"%s\", \"affects_gameplay\": %s", p.manifest.phase == Phase::Early ? "early" : "main",
-               p.manifest.affects_gameplay ? "true" : "false");
-        if (!p.manifest.issues.empty()) {
+        j.putf(", \"phase\": \"%s\", \"affects_gameplay\": %s", m.phase == Phase::Early ? "early" : "main",
+               m.affects_gameplay ? "true" : "false");
+        if (!m.issues.empty()) {
             j.put(", \"issues\": ");
-            j.json(p.manifest.issues);
+            j.json(m.issues);
         }
         j.put("}");
     }
-    j.put(plugins.empty() ? "],\n  \"earlier_exceptions\": [" : "\n  ],\n  \"earlier_exceptions\": [");
+    j.put(loadable == 0 ? "],\n  \"earlier_exceptions\": [" : "\n  ],\n  \"earlier_exceptions\": [");
     for (size_t i = 0; i < in.seen_count; ++i) {
         const SeenException& e = in.seen[i];
         Located at;

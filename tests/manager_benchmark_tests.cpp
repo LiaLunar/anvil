@@ -67,9 +67,9 @@ BenchmarkRecord core_record(bool with, double ready_ms) {
     r.ready_qpc = r.entry_qpc + static_cast<int64_t>((ready_ms - 100.0) * 10'000);
     r.creation_filetime = 133'000'000'000'000'000ull;
     r.entry_filetime = r.creation_filetime + 100 * 10'000;  // 100 ms after creation
-    r.plugins.push_back(BenchmarkRecordPlugin{"anvil-game", "1.5.0", "loaded", false, "", std::nullopt});
-    BenchmarkRecordPlugin bellows{"bellows", "", "disabled", true, "", std::nullopt};
-    if (with) bellows = BenchmarkRecordPlugin{"bellows", "0.10.0", "loaded", false, "", participant("bellows")};
+    r.plugins.push_back(BenchmarkRecordPlugin{"anvil-game", "1.5.0", Outcome::Kind::loaded, false, "", std::nullopt});
+    BenchmarkRecordPlugin bellows{"bellows", "", Outcome::Kind::disabled, true, "", std::nullopt};
+    if (with) bellows = BenchmarkRecordPlugin{"bellows", "0.10.0", Outcome::Kind::loaded, false, "", participant("bellows")};
     r.plugins.push_back(bellows);
     r.game_first_opens = BenchmarkOpenCost{11817, 11817 * 0.031};  // warm
     r.first_start_since_boot = false;
@@ -136,9 +136,9 @@ BenchmarkParticipant bellows(uint32_t profile, int64_t finish_ms, std::optional<
 
 BenchmarkRecord example_record(bool with, double ready_ms, double game_ms) {
     BenchmarkRecord r = core_record(with, ready_ms);
-    r.plugins = {BenchmarkRecordPlugin{"anvil-game", "1.5.0", "loaded", false, "", std::nullopt},
-                 BenchmarkRecordPlugin{"anvil-overlay", "1.5.0", "loaded", false, "", std::nullopt},
-                 BenchmarkRecordPlugin{"bellows", "", "disabled", true, "", std::nullopt}};
+    r.plugins = {BenchmarkRecordPlugin{"anvil-game", "1.5.0", Outcome::Kind::loaded, false, "", std::nullopt},
+                 BenchmarkRecordPlugin{"anvil-overlay", "1.5.0", Outcome::Kind::loaded, false, "", std::nullopt},
+                 BenchmarkRecordPlugin{"bellows", "", Outcome::Kind::disabled, true, "", std::nullopt}};
     r.game_first_opens = BenchmarkOpenCost{2400, game_ms};
     r.definitions_changed = false;
     return r;
@@ -146,7 +146,7 @@ BenchmarkRecord example_record(bool with, double ready_ms, double game_ms) {
 
 StartObservation example_with(double ready_ms, BenchmarkParticipant p, bool input = false) {
     BenchmarkRecord r = example_record(true, ready_ms, 96.0);
-    r.plugins[2] = BenchmarkRecordPlugin{"bellows", "0.10.0", "loaded", false, "", std::move(p)};
+    r.plugins[2] = BenchmarkRecordPlugin{"bellows", "0.10.0", Outcome::Kind::loaded, false, "", std::move(p)};
     r.input_during_start = input;
     return seen(r);
 }
@@ -351,12 +351,12 @@ void manager_benchmark_tests() {
         CHECK(row.open_cost && row.open_cost->from_plugin);  // raw values stay in the row
 
         core = core_record(true, 33800.0);
-        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", "skipped", false, "safe_mode", std::nullopt};
+        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", Outcome::Kind::skipped, false, "safe_mode", std::nullopt};
         CHECK(classify_start(seen(core), Arm::With, "bellows", stop).discard_reason == "safe_mode" && stop == "safe_mode");
-        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", "skipped", false, "verification", std::nullopt};
+        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", Outcome::Kind::skipped, false, "verification", std::nullopt};
         CHECK(classify_start(seen(core), Arm::With, "bellows", stop).discard_reason == "arm_mismatch" &&
               stop == "plugin_not_loaded");
-        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "0.9.0", "loaded", false, "", std::nullopt};
+        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "0.9.0", Outcome::Kind::loaded, false, "", std::nullopt};
         CHECK(classify_start(seen(core), Arm::With, "bellows", stop).discard_reason == "not_participant" &&
               stop == "plugin_not_participant");
         // Without the plugin, only the arm's switch may have disabled it.
@@ -451,7 +451,7 @@ void manager_benchmark_tests() {
         Series safe("bellows", 3, Arm::Without);
         safe.add(start(Arm::Without, 41000.0));
         core = core_record(true, 33800.0);
-        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", "skipped", false, "safe_mode", std::nullopt};
+        core.plugins[1] = BenchmarkRecordPlugin{"bellows", "", Outcome::Kind::skipped, false, "safe_mode", std::nullopt};
         safe.add(seen(core));
         CHECK(safe.stop_reason() == "safe_mode" && !safe.next());
         for (const char* reason : {"player", "too_many_discarded", "quit_failed", "crashed", "safe_mode", "plugin_not_loaded",
@@ -563,9 +563,9 @@ void manager_benchmark_tests() {
         BenchmarkRecord killed = core_record(true, 61000.0);
         killed.plugins[1].participant = participant("bellows");
         killed.plugins[1].participant->open_cost = BenchmarkOpenCost{11500, 9100.0};
-        killed.plugins.push_back(BenchmarkRecordPlugin{"old-ui", "", "skipped", false, "conflict", std::nullopt});
-        killed.plugins.push_back(BenchmarkRecordPlugin{"broken", "", "failed", false, "", std::nullopt});
-        killed.plugins.push_back(BenchmarkRecordPlugin{"late", "", "pending", false, "", std::nullopt});
+        killed.plugins.push_back(BenchmarkRecordPlugin{"old-ui", "", Outcome::Kind::skipped, false, "conflict", std::nullopt});
+        killed.plugins.push_back(BenchmarkRecordPlugin{"broken", "", Outcome::Kind::failed, false, "", std::nullopt});
+        killed.plugins.push_back(BenchmarkRecordPlugin{"late", "", std::nullopt, false, "", std::nullopt});
         killed.write = "ready";
         StartObservation k = seen(killed);
         k.killed = true;
@@ -764,16 +764,16 @@ int fake_benchmark_game() {
     r.qpc_frequency = 10'000'000;
     r.entry_qpc = 1;
     r.ready_qpc = 1 + 20'000'000;  // 2 s after the entry point
-    r.plugins.push_back(BenchmarkRecordPlugin{"anvil-game", "1.5.0", "loaded", false, "", std::nullopt});
+    r.plugins.push_back(BenchmarkRecordPlugin{"anvil-game", "1.5.0", Outcome::Kind::loaded, false, "", std::nullopt});
     if (arm->with) {
         BenchmarkParticipant stub;
         stub.id = arm->plugin;
         stub.fields = {field("work.ms", ANVIL_BENCHMARK_INT, ANVIL_BENCHMARK_UNIT_MS, "Work")};
         stub.values = {int64_t{12}};
         if (mode == "learning") stub.learning = "first_start";
-        r.plugins.push_back(BenchmarkRecordPlugin{arm->plugin, "0.1.0", "loaded", false, "", stub});
+        r.plugins.push_back(BenchmarkRecordPlugin{arm->plugin, "0.1.0", Outcome::Kind::loaded, false, "", stub});
     } else {
-        r.plugins.push_back(BenchmarkRecordPlugin{arm->plugin, "", "disabled", true, "", std::nullopt});
+        r.plugins.push_back(BenchmarkRecordPlugin{arm->plugin, "", Outcome::Kind::disabled, true, "", std::nullopt});
     }
     r.game_first_opens = BenchmarkOpenCost{10000, 300.0};
     r.first_start_since_boot = false;

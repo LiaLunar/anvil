@@ -124,6 +124,7 @@ add_library(anvil_loader STATIC
     src/core/first_opens.cpp
     src/core/gameplay_policy.cpp
     src/core/host.cpp
+    src/core/plugin_set.cpp
     src/core/plugin_settings.cpp
     src/core/plugin_symbols.cpp
     src/core/runtime.cpp
@@ -267,7 +268,7 @@ if(ANVIL_BUILD_TESTS)
     enable_testing()
     add_executable(anvil_tests tests/test_main.cpp tests/manifest_tests.cpp tests/resolver_tests.cpp
         tests/change_tests.cpp tests/gameplay_tests.cpp tests/settings_tests.cpp tests/control_tests.cpp
-        tests/benchmark_tests.cpp tests/translation_tests.cpp)
+        tests/benchmark_tests.cpp tests/translation_tests.cpp tests/plugin_set_tests.cpp)
     target_link_libraries(anvil_tests PRIVATE anvil_loader)
     target_compile_definitions(anvil_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(anvil_tests version_dll)
@@ -309,6 +310,14 @@ if(ANVIL_BUILD_TESTS)
     target_link_libraries(anvil_startup_tests PRIVATE anvil_loader)
     add_dependencies(anvil_startup_tests anvil_mod_probe)
     add_test(NAME anvil_startup_tests COMMAND anvil_startup_tests ${ANVIL_MOD_PROBE_DIR})
+    # Tests that load mod-probe as the DLL of a plugin of a given shape
+    # (tests/plugin_set_fixture.hpp).
+    function(anvil_test_uses_mod_probe target)
+        target_compile_definitions(${target} PRIVATE ANVIL_TEST_MOD_PROBE_DIR="${ANVIL_MOD_PROBE_DIR}")
+        add_dependencies(${target} anvil_mod_probe)
+    endfunction()
+    anvil_test_uses_mod_probe(anvil_tests)
+    anvil_test_uses_mod_probe(anvil_crash_tests)
 
     # The Manager's core: zips, Steam's files, install plans, plugin zips, the
     # start-up benchmark (anvil_loader: the core's own start record writer).
@@ -446,6 +455,7 @@ if(ANVIL_BUILD_TESTS)
     target_link_libraries(anvil_script_profiler_tests PRIVATE anvil_loader)
     target_compile_definitions(anvil_script_profiler_tests PRIVATE ANVIL_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     add_dependencies(anvil_script_profiler_tests anvil_script_profiler)
+    anvil_test_uses_mod_probe(anvil_script_profiler_tests)  # the stand-in for anvil-game
     add_test(NAME anvil_script_profiler_tests COMMAND anvil_script_profiler_tests ${CMAKE_BINARY_DIR}/plugin
         -userdir=${CMAKE_BINARY_DIR}/script-profiler-user)
 

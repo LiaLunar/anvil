@@ -1,5 +1,7 @@
 #include "benchmark_record.hpp"
 
+#include "plugin_set.hpp"
+
 #include <windows.h>
 #include <winevt.h>
 
@@ -237,6 +239,27 @@ std::optional<uint64_t> newest_definitions_update() {
     return newest;
 }
 
+std::vector<BenchmarkRecordPlugin> record_plugins(const PluginSet& plugins, std::vector<BenchmarkParticipant> participants) {
+    std::vector<BenchmarkRecordPlugin> out;
+    for (const PluginRecord& p : plugins) {
+        BenchmarkRecordPlugin r;
+        r.id = p.id();
+        const Outcome* o = p.outcome();
+        if (o != nullptr) r.outcome = o->kind;
+        if (p.handle() != nullptr) {
+            r.version = p.manifest().version.to_string();
+            for (auto& joined : participants) {
+                if (joined.plugin == p.handle()) r.participant = std::move(joined);
+            }
+        } else {
+            r.disabled_by_arm = o->by_benchmark_arm;
+            r.skip_reason = skip_kind_name(o->skip);
+        }
+        out.push_back(std::move(r));
+    }
+    return out;
+}
+
 std::string benchmark_record_json(const BenchmarkRecord& r) {
     std::string out = "{\"format\":1,\"write\":";
     put_string(out, r.write);
@@ -293,9 +316,9 @@ std::string benchmark_record_json(const BenchmarkRecord& r) {
             put_string(out, p.version);
         }
         out += ",\"state\":";
-        put_string(out, p.state);
-        if (p.state == "disabled") out += p.disabled_by_arm ? ",\"by\":\"arm\"" : ",\"by\":\"player\"";
-        if (p.state == "skipped") {
+        put_string(out, p.outcome ? outcome_name(*p.outcome) : "pending");
+        if (p.outcome == Outcome::Kind::disabled) out += p.disabled_by_arm ? ",\"by\":\"arm\"" : ",\"by\":\"player\"";
+        if (p.outcome == Outcome::Kind::skipped) {
             out += ",\"reason\":";
             put_string(out, p.skip_reason);
         }

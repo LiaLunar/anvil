@@ -1,6 +1,6 @@
 #include "benchmark.hpp"
 
-#include "host.hpp"
+#include "plugin_set.hpp"
 #include "manifest.hpp"
 
 #include <cmath>
@@ -210,7 +210,7 @@ AnvilResult Benchmark::refuse(const AnvilPlugin& self, const std::string& call, 
                               const std::string& why, AnvilResult result, bool once) {
     if (once) {
         std::lock_guard lock(mutex_);
-        const std::string key = self.manifest.id + '\n' + call + '\n' + what + '\n' + std::to_string(result);
+        const std::string key = self.name + '\n' + call + '\n' + what + '\n' + std::to_string(result);
         if (!warned_.insert(key).second) return result;
     }
     if (log_) {
@@ -235,7 +235,7 @@ AnvilResult Benchmark::declare(AnvilPlugin* self, const AnvilBenchmarkField* fie
             participants_.push_back(BenchmarkParticipant{});
             p = &participants_.back();
             p->plugin = self;
-            p->id = self->manifest.id;
+            p->id = self->name;
         }
         r = check_fields(p->fields, fields, count, why);
         for (uint32_t i = 0; r == ANVIL_OK && i < count; ++i) {
