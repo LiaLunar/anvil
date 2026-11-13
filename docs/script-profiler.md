@@ -66,11 +66,14 @@ lists: the effect's time includes it.
 - line 1, `#` and `key=value` pairs: `format=1`, `plugin`, `version` (Anvil's), `build` (the game build),
   `status` (`complete`, `interrupted_session` or `interrupted_exit`), `started` (local time),
   `first_day`, `last_day`, `days`, `wall_s`, `threads`, `root_calls`, `nested_triggers`,
-  `nested_effects`, `dropped_calls` (see "Limits"), `multiplayer`, `ironman`;
+  `nested_effects`, `nested_scripted_triggers` (v1.1), `dropped_calls` (see "Limits"), `multiplayer`,
+  `ironman`;
 - line 2, `#` and a note on the columns;
-- then a header and one row per owner and role, triggers first, each list longest first:
+- then a header and one row per owner and role, triggers first, then effects, then (v1.1) scripted
+  triggers, each list longest first:
   `list,rank,owner,name,option,role,calls,total_ms,mean_us,max_us,main_thread_ms,caller_rva`.
-  `owner` is `event`, `event_option`, `decision`, `on_action`, `casus_belli`, `triggered_modifier`,
+  `list` is `trigger`, `effect` or `scripted_trigger`; a `scripted_trigger` row is one scripted
+  trigger by its name, with owner `scripted_trigger` and an empty `role`. `owner` is `event`, `event_option`, `decision`, `on_action`, `casus_belli`, `triggered_modifier`,
   `province_triggered_modifier`, `mission`, `church_aspect`, `scripted_trigger` or `none`; `main_thread_ms` is the part of the time on the
   game's main thread. Rows without an owner are split by `caller_rva`, where in `eu4.exe` the block was
   run from (an address relative to the image, to look up in the game's code).
