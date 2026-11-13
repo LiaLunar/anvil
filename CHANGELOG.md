@@ -1,5 +1,23 @@
 # Changelog
 
+## [1.22.0](https://github.com/happy-dwarf-team/anvil/compare/v1.21.0...v1.22.0) (2026-11-13)
+
+### Features
+
+* Plugins can split their features into modules, each with its own switch: the Manager's Plugins tab and the overlay's Status tab show them, ironman and multiplayer are allowed module by module, and approving a plugin from a mod lists what each module does to the game. ([0103a0c](https://github.com/happy-dwarf-team/anvil/commit/0103a0ca1e4592a50487def8bde2416e5226dcf3)) ([95ae765](https://github.com/happy-dwarf-team/anvil/commit/95ae7650401a3f0e85467b909948ca7cf1cc7964)) ([3c1e28d](https://github.com/happy-dwarf-team/anvil/commit/3c1e28dbd812991585eed08d8536636e3d03a2f7))
+* **api:** For plugin authors, `[[modules]]` in `plugin.toml` and `host->module` (in Rust through `anvil-sdk` 0.1.10); `anvil check` lists a plugin's modules. ([5f07509](https://github.com/happy-dwarf-team/anvil/commit/5f07509931ec4cac53b60b18655f8123e814d3fc)) ([f9d82f7](https://github.com/happy-dwarf-team/anvil/commit/f9d82f7d39705d46469d6457c61ac7257be20739))
+* Modders get a script profiler, the new standard plugin `anvil-script-profiler`: **Start** in its window (Status tab) times the triggers and effects of each event, decision, mission, scripted trigger and church aspect and writes a CSV. It is idle until started and slows the game while it measures. ([#345](https://github.com/happy-dwarf-team/anvil/issues/345)) ([cf7a59d](https://github.com/happy-dwarf-team/anvil/commit/cf7a59df3a1a41a909f5428e9886b75ae8eb0d84)) ([#352](https://github.com/happy-dwarf-team/anvil/issues/352)) ([f46abc7](https://github.com/happy-dwarf-team/anvil/commit/f46abc7967bf82afeec9eb2cab34754183e7fa45))
+* **api:** `anvil-game.world` reads diplomacy and the opinion the game shows. ([#344](https://github.com/happy-dwarf-team/anvil/issues/344)) ([cb06407](https://github.com/happy-dwarf-team/anvil/commit/cb06407505b4c3adb7dbb28de5beb101b5f624d5))
+* **api:** `anvil-game.commands` version 3 sets the game speed, sends armies and fleets exploring or moving, and adds a map area to an army's siege or rebel hunt (`anvil-sdk` 0.1.10). ([77c924e](https://github.com/happy-dwarf-team/anvil/commit/77c924e44c9d4c28bf49b2b3b6d8791687f5642b)) ([614b31e](https://github.com/happy-dwarf-team/anvil/commit/614b31e48a6aa43fa7ff0291aae5fd03c3f9baae)) ([91e53b0](https://github.com/happy-dwarf-team/anvil/commit/91e53b0ae6523e64947dcdaa1c8af1803667bdec))
+
+### Bug Fixes
+
+* **api:** `anvil::result_name` names `ANVIL_ERROR_DISABLED`, a module the player turned off, instead of "unknown result". ([#356](https://github.com/happy-dwarf-team/anvil/issues/356)) ([a7c152d](https://github.com/happy-dwarf-team/anvil/commit/a7c152dccb7c500f333066290c7b14250271ca69))
+
+### Build
+
+* Plugin authors on Linux can build Anvil and their plugins with clang-cl and run the tests under Wine; the SDK carries the toolchain file. Windows builds are unchanged. ([#355](https://github.com/happy-dwarf-team/anvil/issues/355)) ([1dd8d91](https://github.com/happy-dwarf-team/anvil/commit/1dd8d91603fe35ffde4bfe0f401dda6a6739fd58))
+
 ## [1.21.0](https://github.com/happy-dwarf-team/anvil/compare/v1.20.0...v1.21.0) (2026-11-12)
 
 ### Features

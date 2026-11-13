@@ -1,6 +1,6 @@
 id = "anvil-game"
 name = "Anvil game"
-version = "1.21.0"
+version = "1.22.0"
 authors = ["Happy Dwarf Team"]
 description = "Standard plugin: game readiness, a frame event, work on the main thread, the game date and its events, read-only provinces, countries, units, rulers, flags and variables, a session event with ironman and multiplayer, which Anvil uses to suspend gameplay plugins, and the unit panel's commands for gameplay plugins."
 api = 2
