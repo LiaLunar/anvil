@@ -412,7 +412,6 @@ void on_session(const void* payload) {
 // "<n> measuring" or "<n> idle <csv>". Without the variable there is no thread.
 
 std::filesystem::path g_control;
-std::atomic<std::uint64_t> g_command{0};
 std::string g_command_text;  // the control thread's
 
 void write_state(std::uint64_t n) {
